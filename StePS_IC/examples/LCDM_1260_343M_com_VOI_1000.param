@@ -1,0 +1,32 @@
+Cosmological Parameters:
+------------------------
+Particle_mass	1.0
+Omega_b		0.0
+Omega_lambda	0.6911
+Omega_dm	0.3089
+Omega_r		0.0
+H0		67.74
+startH_0	3367.90520605054
+a_start		0.05
+
+
+Parameters of the IC:
+-----------------------
+L_box		1860.0531
+IC_FILE		../../SPCS/ICs/IC_LCDM_1260_343M
+IC_FORMAT	1
+N_particle	64310000
+OUT_FILE	./ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat
+a_max		1
+SPHERE_DIAMETER	105.0
+R_CUT 		930.026572187777
+N_SIDE		32
+R_GRID		224
+FOR_COMOVING	1
+RANDOM_ROTATION	0
+RANDOM_SEED	1234
+NUMBER_OF_INPUT_FILES	8
+N_IC_tot	343000000
+VOI_X		1000.0
+VOI_Y		1000.0
+VOI_Z		930.026572187777
