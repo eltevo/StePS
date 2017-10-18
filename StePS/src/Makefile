@@ -1,7 +1,7 @@
-USING_CUDA = YES
-SINGLE_PRECISION = 1
+USING_CUDA = NO
+SINGLE_PRECISION = 0
 
-CXX = g++
+CXX = g++-4.8
 BUILD_NUMBER_LDFLAGS  = -Xlinker --defsym -Xlinker __BUILD_DATE=$$(date +'%Y%m%d')
 CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=c++11 -fopenmp
 
