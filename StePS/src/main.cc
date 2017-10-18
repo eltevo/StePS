@@ -27,6 +27,8 @@ double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
 double rho_crit; //Critical density
 REAL mass_in_unit_sphere; //Mass in unit sphere
 
+int GPU_ID; //ID of the GPU
+
 REAL x4, err, errmax;
 REAL beta, ParticleRadi, rho_part, M_min;
 
@@ -383,21 +385,36 @@ void Log_write(REAL** x) //Writing logfile
 
 int main(int argc, char *argv[])
 {
-	printf("-------------------------------------------------------------------\nStePS v0.1.2.1\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017\n Department of Physics of Complex Systems, Eötvös Loránd University\n\n");
+	printf("-------------------------------------------------------------------\nStePS v0.1.2.2\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017\n Department of Physics of Complex Systems, Eötvös Loránd University\n\n");
 	printf("Build date: %zu\n-------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	int i;
 	int CONE_ALL=0;
 	RESTART = 0;
 	T_RESTART = 0;
 	OUTPUT_FORMAT = 0;
-	if( argc != 2)
+	if( argc < 2)
 	{
 		fprintf(stderr, "Missing parameter file!\n");
 		fprintf(stderr, "Call with: ./StePS  <parameter file>\n");
 		return (-1);
 	}
+	else if(argc > 3)
+	{
+		fprintf(stderr, "Too many arguments!\n");
+		fprintf(stderr, "Call with: ./StePS  <parameter file>\nor with: ./StePS_CUDA  <parameter file> \'i\', where \'i\' is the id of the GPU.\n");
+		return (-1);
+	} 
 	FILE *param_file = fopen(argv[1], "r");
 	read_param(param_file);
+	if(argc == 3)
+	{
+		GPU_ID = std::stoi( argv[2] );
+		printf("Using GPU %i\n", GPU_ID);
+	}
+	else
+	{
+		GPU_ID = 0;
+	}
 	if(IS_PERIODIC>1)
 	{
 		el = ewald_space(3.6,e);

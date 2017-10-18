@@ -222,7 +222,7 @@ cudaError_t forces_old_cuda(REAL**x, REAL**F) //Force calculation on GPU
 
 	//Checking for the GPU
 	cudaError_t cudaStatus;
-	cudaStatus = cudaSetDevice(0);
+	cudaStatus = cudaSetDevice(GPU_ID); //selecting the GPU
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 		goto Error;
@@ -371,7 +371,7 @@ cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with 
 
 	//Checking for the GPU
 	cudaError_t cudaStatus;
-	cudaStatus = cudaSetDevice(0);
+	cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 		goto Error;

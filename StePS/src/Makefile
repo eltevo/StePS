@@ -1,5 +1,5 @@
-USING_CUDA = NO
-SINGLE_PRECISION = 0
+USING_CUDA = YES
+SINGLE_PRECISION = 1
 
 CXX = g++-4.8
 BUILD_NUMBER_LDFLAGS  = -Xlinker --defsym -Xlinker __BUILD_DATE=$$(date +'%Y%m%d')
@@ -7,7 +7,7 @@ CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=c++11 -fopenmp
 
 ifeq ($(USING_CUDA), YES)
 # Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr/local/cuda-7.5
+CUDA_PATH       ?= /usr/local/cuda-8.0
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
 CUDAFLAGS = -lineinfo --compiler-options --std=c++11 --compiler-options -Wall --compiler-options -ansi -O3 -Xcompiler -fopenmp -lm

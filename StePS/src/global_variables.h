@@ -18,7 +18,7 @@ extern int OUTPUT_FORMAT; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 
-
+extern int GPU_ID; //ID of the GPU
 
 extern int e[2202][4]; //ewald space
 extern int H[2202][4]; //ewald space
