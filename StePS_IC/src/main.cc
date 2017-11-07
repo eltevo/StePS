@@ -101,7 +101,7 @@ void kiiras(FILE *outfile, double** x, int N)
 
 int main(int argc, char *argv[])
 {
-	printf("--------------------------------------------------------------------------\nStePS_IC v0.1.2.1\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017\n Department of Physics of Complex Systems, Eötvös Loránd University\n\n");
+	printf("--------------------------------------------------------------------------\nStePS_IC v0.1.2.2\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017\n Department of Physics of Complex Systems, Eötvös Loránd University\n\n");
 	printf("Build date: %zu\n--------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	if( argc != 2)
         {

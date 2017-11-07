@@ -1,6 +1,6 @@
 StePS_IC - Initial Conditions for STEreographically Projected cosmological Simulations
 
-v0.1.2.1
+v0.1.2.2
 
 Gábor Rácz, 2017
 Department of Physics of Complex Systems, Eötvös Loránd University
