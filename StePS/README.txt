@@ -1,6 +1,6 @@
 StePS - STEreographically Projected cosmological Simulations
 
-v0.1.2.1
+v0.1.2.2
 
 Gábor Rácz, 2017
 Department of Physics of Complex Systems, Eötvös Loránd University
@@ -26,6 +26,10 @@ Installation:
 Once you compiled the code, you can simply run it by typing:
 	./StePS <parameterfile>
 where the parameterfile specifies the parameters of the simulation.
+
+If you comiled the code for CUDA simulation,  you can simply run it by typing:
+        ./StePS_CUDA <parameterfile> <GPU_ID>
+where the parameterfile specifies the parameters of the simulation, and the GPU_ID is the id of the target GPU (eg. 0 or 1).
 
 *********************************************************************************************
 

@@ -13,6 +13,8 @@ IC generator for compactified cosmological simulations.
 - Able to calculate spherical cosmological initial conditions using stereographic projection
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
+Note: you should use periodic initial conditions generated from "glass" as an input. ICs generated from "grid" can cause artificial distortion in the output particle distribution.
+
 *********************************************************************************************
 
 Installation:
