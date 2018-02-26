@@ -1,8 +1,8 @@
 StePS - STEreographically Projected cosmological Simulations
 
-v0.1.2.2
+v0.1.3.0
 
-Gábor Rácz, 2017
+Gábor Rácz, 2018
 Department of Physics of Complex Systems, Eötvös Loránd University
 ragraat@caesar.elte.hu
 
@@ -75,7 +75,6 @@ OUTPUT_FORMAT   1						%output format 0: time, 1: redshift
 REDSHIFT_CONE   1						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0.
 a_max           1.0						%The final scalefactor
-h_0             0.0000265121272579267				%initial timestep length
 mean_err        0.030						%specified error
 h_min           0.00000530242545158534				%minimal timestep length
 h_max           0.000662803181448164				%maximal timestep length

@@ -24,25 +24,25 @@ extern int N, hl, el;
 int ewald_space(REAL R, int ewald_index[2102][4]);
 
 
-cudaError_t forces_old_cuda(REAL**x, REAL**F);
-cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F);
+cudaError_t forces_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max);
+cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max);
 
-void forces_old(REAL**x, REAL**F)
+void forces(REAL**x, REAL**F, int ID_min, int ID_max)
 {
-	forces_old_cuda(x, F);
+	forces_cuda(x, F, GPU_ID, ID_min, ID_max);
 	return;
 }
 
-void forces_old_periodic(REAL**x, REAL**F)
+void forces_periodic(REAL**x, REAL**F, int ID_min, int ID_max)
 {
-	forces_old_periodic_cuda(x, F);
+	forces_periodic_cuda(x, F, GPU_ID, ID_min, ID_max);
 	return;
 }
 
 
 void recalculate_softening();
 
-__global__ void ForceKernel_old(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, int IS_PERIODIC, REAL* M, REAL L, REAL rho_part, REAL mass_in_unit_sphere, int COSMOLOGY, int COMOVING_INTEGRATION)
+__global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, int IS_PERIODIC, REAL* M, REAL L, REAL rho_part, REAL mass_in_unit_sphere, int COSMOLOGY, int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
 	REAL r, dx, dy, dz, wij, beta_priv, betai;
@@ -52,7 +52,7 @@ __global__ void ForceKernel_old(int n, int N, const REAL *xx, const REAL *xy, co
 
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
-	for (i = id; i<N; i+=n)
+	for (i = (ID_min+id); i<=ID_max; i+=n)
 		{
 			betai = cbrt(M[i]*const_beta);
 			for (j = 0; j<N; j++)
@@ -106,15 +106,15 @@ __global__ void ForceKernel_old(int n, int N, const REAL *xx, const REAL *xy, co
 				Fy_tmp += mass_in_unit_sphere * xy[i];
 				Fz_tmp += mass_in_unit_sphere * xz[i];
 			}
-			F[3*i] += Fx_tmp;
-			F[3*i+1] += Fy_tmp;
-			F[3*i+2] += Fz_tmp;
+			F[3*(i-ID_min)] += Fx_tmp;
+			F[3*(i-ID_min)+1] += Fy_tmp;
+			F[3*(i-ID_min)+2] += Fz_tmp;
 			Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
 			
 		}
 }
 
-__global__ void ForceKernel_old_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, int IS_PERIODIC, REAL* M, REAL L, REAL rho_part, int *e, int el)
+__global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, int IS_PERIODIC, REAL* M, REAL L, REAL rho_part, int *e, int el, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
 	REAL r, dx, dy, dz, wij, beta_priv, betai;
@@ -124,7 +124,7 @@ __global__ void ForceKernel_old_periodic(int n, int N, const REAL *xx, const REA
 
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0;
-	for (i = id; i<N; i=i+n)
+	for (i = (ID_min+id); i<=ID_max; i=i+n)
 	{
 		betai = cbrt(M[i]*const_beta);
 		for (j = 0; j<N; j++)
@@ -168,9 +168,9 @@ __global__ void ForceKernel_old_periodic(int n, int N, const REAL *xx, const REA
 			}
 			
 		}
-		F[3 * i] += Fx_tmp;
-		F[3 * i + 1] += Fy_tmp;
-		F[3 * i + 2] += Fz_tmp;
+		F[3 * (i-ID_min)] += Fx_tmp;
+		F[3 * (i-ID_min) + 1] += Fy_tmp;
+		F[3 * (i-ID_min) + 2] += Fz_tmp;
 		Fx_tmp = Fy_tmp = Fz_tmp = 0;
 	}
 
@@ -182,31 +182,11 @@ void recalculate_softening()
 	beta = ParticleRadi;
 	if(COSMOLOGY ==1)
 	{
-	if(COMOVING_INTEGRATION == 1)
-	//{
-	//	printf("Calculating smoothing length...\n");
-	//	beta = ParticleRadi/(REAL)(a);
-	//	rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
-	//	printf("The new smoothing length:\tbeta = %lf\n", beta);
-	//}
-	//else
-	//{
-		beta = ParticleRadi;
 		rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
-	//}
 	}
-	/*SOFT_CONST[0] = 32.0/pow(2.0*beta, 6);
-        SOFT_CONST[1] = -38.4/pow(2.0*beta, 5);
-        SOFT_CONST[2] = 32.0/(3.0*pow(2.0*beta, 3));
-
-        SOFT_CONST[3] = -32.0/(3.0*pow(2*beta, 6));
-        SOFT_CONST[4] = 38.4/pow(2.0*beta, 5);
-        SOFT_CONST[5] = -48.0/pow(2.0*beta, 4);
-        SOFT_CONST[6] = 64.0/(3.0*pow(2.0*beta, 3));
-        SOFT_CONST[7] = -1.0/15.0;*/
 }
 
-cudaError_t forces_old_cuda(REAL**x, REAL**F) //Force calculation on GPU
+cudaError_t forces_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max) //Force calculation on GPU
 {
 	int i, j;
 	int mprocessors;
@@ -252,7 +232,7 @@ cudaError_t forces_old_cuda(REAL**x, REAL**F) //Force calculation on GPU
                 goto Error;
         }
 	// Allocate GPU buffers for force vectors
-	cudaStatus = cudaMalloc((void**)&dev_F, 3 * N * sizeof(REAL));
+	cudaStatus = cudaMalloc((void**)&dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed!");
 		goto Error;
@@ -261,12 +241,15 @@ cudaError_t forces_old_cuda(REAL**x, REAL**F) //Force calculation on GPU
 	xx_tmp = (REAL*)malloc(N*sizeof(REAL));
 	xy_tmp = (REAL*)malloc(N*sizeof(REAL));
 	xz_tmp = (REAL*)malloc(N*sizeof(REAL));
-	F_tmp = (REAL*)malloc(3 * N*sizeof(REAL));
+	F_tmp = (REAL*)malloc(3 * (ID_max-ID_min+1)*sizeof(REAL));
 	for(i = 0; i < N; i++)
 	{
 		xx_tmp[i] = x[i][0];
 		xy_tmp[i] = x[i][1];
 		xz_tmp[i] = x[i][2];
+	}
+	for(i=0; i <= (ID_max-ID_min); i++)
+	{
 		for(j=0; j<3; j++)
 			F_tmp[3*i + j] = 0.0f;
 	}
@@ -291,13 +274,13 @@ cudaError_t forces_old_cuda(REAL**x, REAL**F) //Force calculation on GPU
                 fprintf(stderr, "cudaMemcpy in failed!");
                 goto Error;
         }
-	cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * N * sizeof(REAL), cudaMemcpyHostToDevice);
+	cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy in failed!");
 		goto Error;
 	}
 	// Launch a kernel on the GPU
-	ForceKernel_old<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION);
+	ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION, ID_min, ID_max);
 	
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -313,17 +296,17 @@ cudaError_t forces_old_cuda(REAL**x, REAL**F) //Force calculation on GPU
 		goto Error;
 	}
 	// Copy output vector from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N * sizeof(REAL), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy out failed!");
 		goto Error;
 	}
-	//converting back the 3Nx1 vector ot Nx3 matrix.
-	for (i = 0; i < N; i++)
+	//converting back the 3(ID_max-ID_min+1)x1 vector to Nx3 matrix.
+	for (i = ID_min; i <= ID_max; i++)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			F[i][j] = F_tmp[3 * i + j];
+			F[i][j] = F_tmp[3 * (i-ID_min) + j];
 		}
 	}
 	free(F_tmp);
@@ -353,7 +336,7 @@ Error:
 }
 
 
-cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with multiple images on GPU
+cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max) //Force calculation with multiple images on GPU
 {
 	int i, j;
 	int mprocessors;
@@ -401,7 +384,7 @@ cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with 
                 goto Error;
         }
 	// Allocate GPU buffers for force vectors
-	cudaStatus = cudaMalloc((void**)&dev_F, 3 * N * sizeof(REAL));
+	cudaStatus = cudaMalloc((void**)&dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed!");
 		goto Error;
@@ -424,12 +407,15 @@ cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with 
         xx_tmp = (REAL*)malloc(N*sizeof(REAL));
         xy_tmp = (REAL*)malloc(N*sizeof(REAL));
         xz_tmp = (REAL*)malloc(N*sizeof(REAL));
-        F_tmp = (REAL*)malloc(3 * N*sizeof(REAL));
+        F_tmp = (REAL*)malloc(3*(ID_max-ID_min+1)*sizeof(REAL));
         for(i = 0; i < N; i++)
         {
                 xx_tmp[i] = x[i][0];
                 xy_tmp[i] = x[i][1];
                 xz_tmp[i] = x[i][2];
+	}
+	for(i=0; i <= (ID_max-ID_min); i++)
+	{
                 for(j=0; j<3; j++)
                         F_tmp[3*i + j] = 0;
         }
@@ -454,7 +440,7 @@ cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with 
                 fprintf(stderr, "cudaMemcpy in failed!");
                 goto Error;
         }
-	cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * N * sizeof(REAL), cudaMemcpyHostToDevice);
+	cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy F failed!");
 		goto Error;
@@ -465,7 +451,7 @@ cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with 
 		goto Error;
 	}
 	// Launch a kernel on the GPU with one thread for each element.
-	ForceKernel_old_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, dev_e, el);
+	ForceKernel_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, dev_e, el, ID_min, ID_max);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -481,17 +467,17 @@ cudaError_t forces_old_periodic_cuda(REAL**x, REAL**F) //Force calculation with 
 		goto Error;
 	}
 	// Copy output vector from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N * sizeof(REAL), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy out failed!");
 		goto Error;
 	}
 	//converting back the 3Nx1 vector ot Nx3 matrix.
-	for (i = 0; i < N; i++)
+	for (i = ID_min; i <= ID_max; i++)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			F[i][j] = F_tmp[3 * i + j];
+			F[i][j] = F_tmp[3 * (i-ID_min) + j];
 		}
 	}
 	free(F_tmp);

@@ -3,14 +3,14 @@ SINGLE_PRECISION = 1
 
 CXX = g++-4.8
 BUILD_NUMBER_LDFLAGS  = -Xlinker --defsym -Xlinker __BUILD_DATE=$$(date +'%Y%m%d')
-CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=c++11 -fopenmp
+CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=gnu++98 -fopenmp
 
 ifeq ($(USING_CUDA), YES)
 # Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr/local/cuda-8.0
+CUDA_PATH       ?= /usr/local/cuda-9.1
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -lineinfo --compiler-options --std=c++11 --compiler-options -Wall --compiler-options -ansi -O3 -Xcompiler -fopenmp -lm
+CUDAFLAGS = -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -Xcompiler -fopenmp -lm
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC = main.cc forces_cuda.cu ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc

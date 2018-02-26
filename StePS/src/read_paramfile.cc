@@ -32,7 +32,6 @@ char str08[] = "IS_PERIODIC";
 char str09[] = "N_particle";
 char str10[] = "OUT_DIR";
 char str11[] = "a_max";
-char str12[] = "h_0";
 char str13[] = "mean_err";
 char str14[] = "h_min";
 char str15[] = "COSMOLOGY";
@@ -119,10 +118,6 @@ while(!feof(param_file))
 	if(strstr(c, str11) != NULL)
 	{
 		sscanf(c, "%s\t%lf", str11, &a_max);
-	}
-	if(strstr(c, str12) != NULL)
-	{
-		sscanf(c, "%s\t%lf", str12, &h);
 	}
 	if(strstr(c, str13) != NULL)
 	{
@@ -277,10 +272,6 @@ while(!feof(param_file))
         if(strstr(c, str11) != NULL)
         {
                 sscanf(c, "%s\t%lf", str11, &a_max);
-        }
-        if(strstr(c, str12) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str12, &h);
         }
         if(strstr(c, str13) != NULL)
         {

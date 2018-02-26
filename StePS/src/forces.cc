@@ -51,7 +51,7 @@ void recalculate_softening()
         SOFT_CONST[7] = -1.0/15.0;*/
 }
 
-void forces_old(REAL**x, REAL**F) //Force calculation
+void forces(REAL**x, REAL**F, int ID_min, int ID_max) //Force calculation
 {
 //timing
 REAL start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
@@ -61,7 +61,7 @@ REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv;
 REAL SOFT_CONST[5];
 
 int i, j, k, chunk;
-for(i=0; i<N; i++)
+for(i=ID_min; i<ID_max+1; i++)
 {
         for(k=0; k<3; k++)
         {
@@ -70,7 +70,7 @@ for(i=0; i<N; i++)
 }
         REAL r, betai, dx, dy, dz, wij;
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
-	chunk = (N-1)/omp_get_max_threads();
+	chunk = (ID_max-ID_min)/omp_get_max_threads();
 	if(chunk < 1)
 	{
 		chunk = 1;
@@ -78,7 +78,7 @@ for(i=0; i<N; i++)
 	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, betai)
 	{
 	#pragma omp for schedule(dynamic,chunk)
-        for(i=0; i<N; i++)
+        for(i=ID_min; i<ID_max+1; i++)
         {
 		betai = cbrt(M[i]*const_beta);
                 for(j=0; j<N; j++)
@@ -155,12 +155,12 @@ REAL end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
 REAL omp_end_time = omp_get_wtime();
 //timing
 printf("Force calculation finished.\n");
-printf("Force CPU time = %lfs\n", end_time-start_time);
-printf("Force RUN time = %lfs\n", omp_end_time-omp_start_time);
+printf("Force CPU time = %fs\n", end_time-start_time);
+printf("Force RUN time = %fs\n", omp_end_time-omp_start_time);
 return;
 }
 
-void forces_old_periodic(REAL**x, REAL**F) //force calculation with multiple images
+void forces_periodic(REAL**x, REAL**F, int ID_min, int ID_max) //force calculation with multiple images
 {
 //timing
 REAL start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
@@ -170,7 +170,7 @@ REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv;
 REAL SOFT_CONST[5];
 
 	int i, j, k, m, chunk;
-	for(i=0; i<N; i++)
+	for(i=ID_min; i<ID_max+1; i++)
 	{
 		for(k=0; k<3; k++)
 		{
@@ -179,7 +179,7 @@ REAL SOFT_CONST[5];
 	}
 	REAL r, betai, dx, dy, dz, wij;
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
-	chunk = (N-1)/(omp_get_max_threads());
+	chunk = (ID_max-ID_min)/(omp_get_max_threads());
 	if(chunk < 1)
 	{
 		chunk = 1;
@@ -187,7 +187,7 @@ REAL SOFT_CONST[5];
 	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, betai)
 	{
 	#pragma omp for schedule(dynamic,chunk)
-	for(i=0; i<N; i++)
+	for(i=ID_min; i<ID_max+1; i++)
 	{
 		betai = cbrt(M[i]*const_beta);
 		for(j=0; j<N; j++)
@@ -247,8 +247,8 @@ REAL end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
 REAL omp_end_time = omp_get_wtime();
 //timing
 printf("Force calculation finished.\n");
-printf("CPU time = %lfs\n", end_time-start_time);
-printf("RUN time = %lfs\n", omp_end_time-omp_start_time);
+printf("CPU time = %fs\n", end_time-start_time);
+printf("RUN time = %fs\n", omp_end_time-omp_start_time);
 return;
 }
 

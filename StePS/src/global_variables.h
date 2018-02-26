@@ -56,6 +56,8 @@ extern double a, a_start, a_prev, a_prev1, a_prev2, a_tmp; //Scalefactor, scalef
 extern double T, h_prev, delta_a, Omega_m_eff; //Physical time, previous timestep length, change of scalefactor, effectve Omega_m
 
 //Functions
+//Initial timestep length calculation
+double calculate_init_h();
 //Functions used for the Friedmann-equation
 double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0);
 void recalculate_softening();

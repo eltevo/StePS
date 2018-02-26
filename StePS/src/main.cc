@@ -77,9 +77,8 @@ int read_OUT_LST();
 void step(REAL** x, REAL** F);
 void kiiras(REAL** x);
 void Log_write(REAL** x);
-void forces_old(REAL** x, REAL** F);
-void forces_old_periodic(REAL**x, REAL**F);
-void forces_EWALD(REAL** x, REAL** F);
+void forces(REAL** x, REAL** F, int ID_min, int ID_max);
+void forces_periodic(REAL**x, REAL**F, int ID_min, int ID_max);
 double friedmann_solver_start(double a0, double t0, double h, double Omega_lambda, double Omega_r, double Omega_m, double H0, double a_start);
 double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0);
 int ewald_space(REAL R, int ewald_index[2102][4]);
@@ -239,7 +238,7 @@ int read_OUT_LST()
 	i=0;
 	while(out_list[i]>MIN_REDSHIFT && i < out_list_size)
 	{
-			printf("Out_z[%i] = \t%lf\n", i, out_list[i]);
+			printf("Out_z[%i] = \t%f\n", i, out_list[i]);
 			i++;
 	}
 	printf("\n");
@@ -247,31 +246,33 @@ int read_OUT_LST()
 
 }
 
-void write_redshift_cone(REAL**x, double *limits, int z_index, int ALL)
+void write_redshift_cone(REAL**x, double *limits, int z_index, int delta_z_index, int ALL)
 {
 	//Writing out the redshift cone
 	char filename[0x400];
 	int i, j;
+	int COUNT=0;
 	double COMOVING_DISTANCE, z_write;
 	z_write = out_list[z_index];
 	snprintf(filename, sizeof(filename), "%sredshift_cone.dat", OUT_DIR);
 	if(ALL == 0)
-		printf("Saving: z=%lf:\t%lfMpc<Dc<%lfMpc bin of the\n%s\n redshift cone.\n",out_list[z_index], limits[z_index+1], limits[z_index], filename);
+		printf("Saving: z=%f:\t%fMpc<Dc<%fMpc bin of the\n%s redshift cone.\ndelta_z_index = %i\n",out_list[z_index], limits[z_index+1], limits[z_index-delta_z_index+1], filename, delta_z_index);
 	else
-		printf("Saving: z=%lf:\tDc<%lf\n%s\n redshift cone.\n", t_next, limits[z_index], filename);
+		printf("Saving: z=%f:\tDc<%f\n%s\n redshift cone.\n", t_next, limits[z_index-delta_z_index+1], filename);
 	FILE *redshiftcone_file = fopen(filename, "a");
 	if(ALL == 0)
 	{
 		for(i=0; i<N; i++)
 		{
 			COMOVING_DISTANCE = sqrt(x[i][0]*x[i][0] + x[i][1]*x[i][1] +x[i][2]*x[i][2]);
-			if(limits[z_index+1] < COMOVING_DISTANCE && COMOVING_DISTANCE < limits[z_index])
+			if(limits[z_index+1] < COMOVING_DISTANCE && COMOVING_DISTANCE <= limits[z_index-delta_z_index+1])
 			{
 				for(j=0; j<6; j++)
 				{
 					fprintf(redshiftcone_file, "%.16f\t",x[i][j]);
 				}
-				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\n", M[i], COMOVING_DISTANCE, out_list[z_index]);
+				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
+				COUNT++;
 			}
 		}
 	}
@@ -280,7 +281,7 @@ void write_redshift_cone(REAL**x, double *limits, int z_index, int ALL)
 		for(i=0; i<N; i++)
 		{
 			COMOVING_DISTANCE = sqrt(x[i][0]*x[i][0] + x[i][1]*x[i][1] +x[i][2]*x[i][2]);
-			if(COMOVING_DISTANCE < limits[z_index])
+			if(COMOVING_DISTANCE <= limits[z_index-delta_z_index+1])
 			{
 				//searching for the proper redshift shell
 				j=z_index;
@@ -296,12 +297,14 @@ void write_redshift_cone(REAL**x, double *limits, int z_index, int ALL)
 				{
 					fprintf(redshiftcone_file, "%.16f\t",x[i][j]);
 				}
-				fprintf(redshiftcone_file, "%.16f\t%.16f\t%lf\n", M[i], COMOVING_DISTANCE, z_write);
+				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
+				COUNT++;
 			}
 		}
 	}
 	fclose(redshiftcone_file);
-	
+	printf("%i particles were written out.\n", COUNT); 
+	COUNT = 0;
 	
 }
 
@@ -385,8 +388,8 @@ void Log_write(REAL** x) //Writing logfile
 
 int main(int argc, char *argv[])
 {
-	printf("-------------------------------------------------------------------\nStePS v0.1.2.2\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017\n Department of Physics of Complex Systems, Eötvös Loránd University\n\n");
-	printf("Build date: %zu\n-------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
+	printf("-------------------------------------------------------------------\nStePS v0.1.3.0\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017, 2018\n Department of Physics of Complex Systems, Eotvos Lorand University\n\n");
+	printf("Build date: %lu\n-------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	int i;
 	int CONE_ALL=0;
 	RESTART = 0;
@@ -408,7 +411,7 @@ int main(int argc, char *argv[])
 	read_param(param_file);
 	if(argc == 3)
 	{
-		GPU_ID = std::stoi( argv[2] );
+		GPU_ID = atoi( argv[2] );
 		printf("Using GPU %i\n", GPU_ID);
 	}
 	else
@@ -552,6 +555,7 @@ int main(int argc, char *argv[])
 	if(COSMOLOGY == 0)
 		a=1;//scalefactor
 	int out_z_index = 0;
+	int delta_z_index = 1;
 	//Calculating initial time
 	if(COSMOLOGY == 1)
 	{
@@ -639,11 +643,11 @@ int main(int argc, char *argv[])
 	//Initial force calculation
 	if(IS_PERIODIC < 2)
 	{
-		forces_old(x, F);
+		forces(x, F, 0, N-1);
 	}
 	if(IS_PERIODIC == 2)
 	{
-		forces_old_periodic(x, F);
+		forces_periodic(x, F, 0, N-1);
 	}
 	
 	//The simulation is starting...
@@ -659,13 +663,19 @@ int main(int argc, char *argv[])
 	}
 	h_prev = h;
 	//Calculating the initial Hubble parameter, using the Friedmann-equations
-	Hubble_tmp = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
-	Hubble_param = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
-	printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%lf) = %lfkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*20.7386814448645);
+	if(COSMOLOGY == 1)
+	{
+		Hubble_tmp = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
+		Hubble_param = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
+		printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*20.7386814448645);
+	}
 	if(COSMOLOGY == 0 || COMOVING_INTEGRATION == 0)
 	{
 		Hubble_param = 0;
 	}
+	//calculating the initial timestep length:
+	//h = (double) pow(2*mean_err*beta/errmax, 0.5);
+	h = calculate_init_h();
 	printf("The simulation is starting...\n");
 	REAL T_prev,Hubble_param_prev;
 	T_prev = T;
@@ -681,7 +691,7 @@ int main(int argc, char *argv[])
 			}
 			else
 			{
-				 printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*47.1482347621227, h*47.1482347621227);
+				printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*47.1482347621227, h*47.1482347621227);
 			}
                 }
                 else
@@ -717,29 +727,47 @@ int main(int argc, char *argv[])
 				kiiras(x);
 				if(REDSHIFT_CONE == 1)
 				{
-					write_redshift_cone(x, r_bin_limits, out_z_index, CONE_ALL);
-				}
-				out_z_index++;
-				t_next = out_list[out_z_index];
-				if(MIN_REDSHIFT>t_next || (1.0/a-1.0 < t_next) )
-				{
-					CONE_ALL = 1;
-					if((1.0/a-1.0 < t_next))
+					if(a_tmp >= a_max)
 					{
-						printf("z=%lf < z_next=%lf\n", 1.0/a-1.0, t_next);
-						printf("Warning: the length of timestep is larger than the distance between output redshifts. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if the redshifts are not low enough.\n");
+						CONE_ALL = 1;
+						printf("Last timestep.\n");
 					}
+					write_redshift_cone(x, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
+				}
+				if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
+				{
+					if( (out_z_index+delta_z_index+8) < out_list_size)
+						delta_z_index += 8;
+					else
+						CONE_ALL = 1;
+				}
+				if(CONE_ALL == 1)
+				{
 					t_next = 0.0;
 				}
-				printf("z= %f\tz_bin= %lf\tt = %f Gy\n\th=%f Gy\n", 1/a-1.0,out_list[out_z_index-1], T*47.1482347621227, h*47.1482347621227);
+				else
+				{
+					out_z_index += delta_z_index;
+					t_next = out_list[out_z_index];
+					//printf("z_next = %f\nout_z_index=%i\n", t_next, out_z_index);
+				}
+				if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
+				{
+					CONE_ALL = 1;
+					printf("z=%f < z_next=%f\n", 1.0/a-1.0, t_next);
+					printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
+					
+					t_next = 0.0;
+				}
+				//printf("z= %f\tz_bin= %f\tt = %f Gy\n\th=%f Gy\n", 1/a-1.0,out_list[out_z_index-1], T*47.1482347621227, h*47.1482347621227);
 			}
 		}
-		//Changing timestep length
+		//Changing timestep length //szerintem ez sem jo -- talan javitva
 		h_prev = h;
-		if(h<h_max || h>h_min || mean_err/errmax>1)
-		{
-			h = (double) pow(2*mean_err*beta/errmax, 0.5);
-		}
+//		if(h<h_max || h>h_min || mean_err/errmax>1)
+//		{
+		h = (double) pow(2*mean_err*beta/errmax, 0.5);
+//		}
 
 		if(h<h_min)
 		{
@@ -769,7 +797,7 @@ int main(int argc, char *argv[])
 	a_end = (T - T_prev)/(a-a_prev);
         b_end = T_prev-a_end*a_prev;
 	double T_end = a_max*a_end+b_end;
-	printf("\nAt a = %lf state, with linear interpolation:\n",a_max);
+	printf("\nAt a = %f state, with linear interpolation:\n",a_max);
 	printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*47.1482347621227, a_max, H_end*20.7386814448645);
 	}
 	else
@@ -786,7 +814,7 @@ int main(int argc, char *argv[])
 	REAL SIM_end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
 	REAL SIM_omp_end_time = omp_get_wtime();
 	//Timing
-	printf("CPU time = %lfs\n", SIM_end_time-SIM_start_time);
-	printf("RUN time = %lfs\n", SIM_omp_end_time-SIM_omp_start_time);
+	printf("CPU time = %fs\n", SIM_end_time-SIM_start_time);
+	printf("RUN time = %fs\n", SIM_omp_end_time-SIM_omp_start_time);
 	return 0;
 }

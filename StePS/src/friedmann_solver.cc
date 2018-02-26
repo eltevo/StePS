@@ -16,7 +16,7 @@ double friedmann_solver_start(double a0, double t0, double h, double Omega_lambd
 {
 	//In this function we calculate the time of Big Bang, and the initial time for the simulation.
 	printf("Calculating time for the initial scale factor...\n");
-	printf("a_start=%f\na0=%lf\n", a_start, a0);
+	printf("a_start=%f\na0=%f\n", a_start, a0);
 	double b, b_tmp, t_cosm_tmp;
 	double t_cosm = t0;
 	double t_start;
