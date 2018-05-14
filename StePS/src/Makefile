@@ -1,16 +1,16 @@
-USING_CUDA = YES
-SINGLE_PRECISION = 1
+USING_CUDA = NO
+SINGLE_PRECISION = 0
 
-CXX = g++-4.8
+CXX = g++
 BUILD_NUMBER_LDFLAGS  = -Xlinker --defsym -Xlinker __BUILD_DATE=$$(date +'%Y%m%d')
-CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=gnu++98 -fopenmp
+CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=gnu++98 -fopenmp  -lgomp
 
 ifeq ($(USING_CUDA), YES)
 # Location of the CUDA Toolkit
 CUDA_PATH       ?= /usr/local/cuda-9.1
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -Xcompiler -fopenmp -lm
+CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC = main.cc forces_cuda.cu ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
@@ -25,7 +25,7 @@ $(PROG): $(OBJ)
 	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) -DUSE_SINGLE_PRECISION=$(SINGLE_PRECISION) -o $@ -c $<
 
 %.o: %.cu
-	$(NVCC) $(CXX) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) -DUSE_SINGLE_PRECISION=$(SINGLE_PRECISION) -o $@ -c $<
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) -DUSE_SINGLE_PRECISION=$(SINGLE_PRECISION) -o $@ -c $<
 else
 $(PROG): $(OBJ)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) -o $(PROG) $(OBJ)
@@ -33,7 +33,7 @@ $(PROG): $(OBJ)
 	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) -o $@ -c $<
 
 %.o: %.cu
-	$(NVCC) $(CXX) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) -o $@ -c $<
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) -o $@ -c $<
 endif
 clean:
 	rm -fv $(OBJ) $(PROG)

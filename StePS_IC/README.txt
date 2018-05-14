@@ -1,8 +1,8 @@
 StePS_IC - Initial Conditions for STEreographically Projected cosmological Simulations
 
-v0.1.2.2
+v0.2.0.0
 
-Gábor Rácz, 2017
+Gábor Rácz, 2017, 2018
 Department of Physics of Complex Systems, Eötvös Loránd University
 ragraat@caesar.elte.hu
 
@@ -75,6 +75,7 @@ N_IC_tot        343000000				%total number of the input particles
 VOI_X           1000.0					%x coordinate of the touching point
 VOI_Y           1000.0					%y coordinate of the touching point
 VOI_Z           930.026572187777			%z coordinate of the touching point
+TileFac		3					%number of copies of the original periodic box per axe
 
 *********************************************************************************************
 

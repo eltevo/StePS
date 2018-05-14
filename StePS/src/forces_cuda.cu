@@ -24,18 +24,18 @@ extern int N, hl, el;
 int ewald_space(REAL R, int ewald_index[2102][4]);
 
 
-cudaError_t forces_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max);
-cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max);
+cudaError_t forces_cuda(REAL**x, REAL**F, int n_GPU, int ID_min, int ID_max);
+cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int n_GPU, int ID_min, int ID_max);
 
 void forces(REAL**x, REAL**F, int ID_min, int ID_max)
 {
-	forces_cuda(x, F, GPU_ID, ID_min, ID_max);
+	forces_cuda(x, F, n_GPU, ID_min, ID_max);
 	return;
 }
 
 void forces_periodic(REAL**x, REAL**F, int ID_min, int ID_max)
 {
-	forces_periodic_cuda(x, F, GPU_ID, ID_min, ID_max);
+	forces_periodic_cuda(x, F, n_GPU, ID_min, ID_max);
 	return;
 }
 
@@ -186,13 +186,16 @@ void recalculate_softening()
 	}
 }
 
-cudaError_t forces_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max) //Force calculation on GPU
+cudaError_t forces_cuda(REAL**x, REAL**F, int n_GPU, int ID_min, int ID_max) //Force calculation on GPU
 {
 	int i, j;
 	int mprocessors;
-	cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, 0);
-	printf("GPU force calculation.\n Number of threads: %i\n", 32*mprocessors*BLOCKSIZE);
+	int GPU_ID, nthreads;
+	int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
+	cudaError_t cudaStatus;
+	cudaStatus = cudaSuccess;
 	REAL start_time, end_time;
+	double omp_start_time, omp_end_time;
 	REAL *xx_tmp, *xy_tmp, *xz_tmp, *F_tmp;
 	REAL *dev_xx= 0;
 	REAL *dev_xy= 0;
@@ -200,149 +203,199 @@ cudaError_t forces_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max) //
 	REAL *dev_M = 0;
 	REAL *dev_F = 0;
 
-	//Checking for the GPU
-	cudaError_t cudaStatus;
-	cudaStatus = cudaSetDevice(GPU_ID); //selecting the GPU
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-		goto Error;
+	// Get the number of CUDA devices.
+	int numDevices;
+	cudaGetDeviceCount(&numDevices);
+	if(numDevices<n_GPU)
+	{
+		fprintf(stderr, "Error: Cannot allocate %i GPUs, because only %i are available\n", n_GPU, numDevices);
+		n_GPU = numDevices;
+		printf("Number of GPUs set to %i\n", n_GPU);
 	}
-	//timing
-	start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-	//timing
-	// Allocate GPU buffers for coordinate and mass vectors
-	cudaStatus = cudaMalloc((void**)&dev_xx, N * sizeof(REAL));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMalloc((void**)&dev_xy, N * sizeof(REAL));
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMalloc failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMalloc((void**)&dev_xz, N * sizeof(REAL));
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMalloc failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMalloc((void**)&dev_M, N * sizeof(REAL));
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMalloc failed!");
-                goto Error;
-        }
-	// Allocate GPU buffers for force vectors
-	cudaStatus = cudaMalloc((void**)&dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
+
 	//Converting the Nx3 matrix to 3Nx1 vector.
 	xx_tmp = (REAL*)malloc(N*sizeof(REAL));
 	xy_tmp = (REAL*)malloc(N*sizeof(REAL));
 	xz_tmp = (REAL*)malloc(N*sizeof(REAL));
-	F_tmp = (REAL*)malloc(3 * (ID_max-ID_min+1)*sizeof(REAL));
 	for(i = 0; i < N; i++)
 	{
 		xx_tmp[i] = x[i][0];
 		xy_tmp[i] = x[i][1];
 		xz_tmp[i] = x[i][2];
 	}
-	for(i=0; i <= (ID_max-ID_min); i++)
-	{
-		for(j=0; j<3; j++)
-			F_tmp[3*i + j] = 0.0f;
-	}
-	// Copy input vectors from host memory to GPU buffers.
-	cudaStatus = cudaMemcpy(dev_xx, xx_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy in failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMemcpy(dev_xy, xy_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMemcpy(dev_xz, xz_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMemcpy(dev_M, M, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy in failed!");
-		goto Error;
-	}
-	// Launch a kernel on the GPU
-	ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION, ID_min, ID_max);
-	
-	// Check for any errors launching the kernel
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "ForceKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-		goto Error;
-	}
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching ForceKernel!\n", cudaStatus);
-		goto Error;
-	}
-	// Copy output vector from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy out failed!");
-		goto Error;
-	}
-	//converting back the 3(ID_max-ID_min+1)x1 vector to Nx3 matrix.
-	for (i = ID_min; i <= ID_max; i++)
-	{
-		for (j = 0; j < 3; j++)
+	//timing
+	start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
+	omp_start_time = omp_get_wtime();
+	//timing
+	omp_set_dynamic(0);		// Explicitly disable dynamic teams
+	omp_set_num_threads(n_GPU);	// Use n_GPU threads
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F)
+{
+		#pragma omp critical
 		{
-			F[i][j] = F_tmp[3 * (i-ID_min) + j];
+		nthreads = omp_get_num_threads();
+		GPU_ID = omp_get_thread_num(); //thread ID = GPU_ID
 		}
-	}
+		if(GPU_ID == 0)
+		{
+			N_GPU = (ID_max-ID_min+1)/n_GPU+(ID_max-ID_min+1)%n_GPU;
+			GPU_index_min = ID_min;
+		}
+		else
+		{
+			N_GPU = (ID_max-ID_min+1)/n_GPU;
+			GPU_index_min = ID_min + (ID_max-ID_min+1)%n_GPU+N_GPU*GPU_ID;
+		}
+		F_tmp = (REAL*)malloc(3 * N_GPU * sizeof(REAL));
+		for(i=0; i < N_GPU; i++)
+		{
+			for(j=0; j<3; j++)
+			F_tmp[3*i + j] = 0.0f;
+		}
+		//Checking for the GPU
+		#pragma omp critical
+		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
+		if(GPU_ID == 0)
+		{
+			
+			printf("GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+		}
+		#pragma omp critical
+		cudaStatus = cudaSetDevice(GPU_ID); //selecting the GPU
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n", GPU_ID);
+			goto Error;
+		}
+		// Allocate GPU buffers for coordinate and mass vectors
+		cudaStatus = cudaMalloc((void**)&dev_xx, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMalloc((void**)&dev_xy, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMalloc((void**)&dev_xz, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+                	fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMalloc((void**)&dev_M, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		// Allocate GPU buffers for force vectors
+		cudaStatus = cudaMalloc((void**)&dev_F, 3 * N_GPU * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		// Copy input vectors from host memory to GPU buffers.
+		cudaStatus = cudaMemcpy(dev_xx, xx_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_xy, xy_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_xz, xz_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_M, M, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * N_GPU * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		printf("GPU%i: ID_min = %i    ID_max = %i\n", GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
+		// Launch a kernel on the GPU
+		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
+		// Check for any errors launching the kernel
+		cudaStatus = cudaGetLastError();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: ForceKernel launch failed: %s\n", GPU_ID, cudaGetErrorString(cudaStatus));
+			goto Error;
+		}
+		// cudaDeviceSynchronize waits for the kernel to finish, and returns
+		// any errors encountered during the launch.
+		cudaStatus = cudaDeviceSynchronize();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaDeviceSynchronize returned error code %d after launching ForceKernel!\n", GPU_ID, cudaStatus);
+			goto Error;
+		}
+		// Copy output vector from GPU buffer to host memory.
+		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N_GPU * sizeof(REAL), cudaMemcpyDeviceToHost);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy out failed!\n", GPU_ID);
+			goto Error;
+		}
+		//converting back the 3(ID_max-ID_min+1)x1 vector to Nx3 matrix.
+		if(GPU_ID == 0)
+		{
+			for (i = ID_min; i < ID_min+N_GPU; i++)
+			{
+				for (j = 0; j < 3; j++)
+				{
+					F[i][j] = F_tmp[3 * (i-ID_min) + j];
+				}
+			}
+		}
+		else
+		{
+			for (i = GPU_index_min; i < GPU_index_min + N_GPU; i++)
+			{
+				for (j = 0; j < 3; j++)
+				{
+					F[i][j] = F_tmp[3 * (i-GPU_index_min) + j];
+				}
+			}
+		}
 	free(F_tmp);
+	Error:
+		cudaFree(dev_xx);
+                cudaFree(dev_xy);
+                cudaFree(dev_xz);
+                cudaFree(dev_M);
+                cudaFree(dev_F);
+		cudaThreadExit();
+
+}
 	free(xx_tmp);
 	free(xy_tmp);
 	free(xz_tmp);
 	//timing
 	end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
+	omp_end_time = omp_get_wtime();
 	//timing
 	printf("Force calculation finished.\n");
 	printf("Force calculation GPU time = %lfs\n", end_time-start_time);
-	cudaFree(dev_xx);
-	cudaFree(dev_xy);
-	cudaFree(dev_xz);
-	cudaFree(dev_M);
-	cudaFree(dev_F);
-	cudaThreadExit();
-Error:
-	cudaFree(dev_xx);
-	cudaFree(dev_xy);
-	cudaFree(dev_xz);
-	cudaFree(dev_M);
-	cudaFree(dev_F);
-	cudaThreadExit();
-
+	printf("Force calculation wall-clock time = %lfs\n", omp_end_time-omp_start_time);
 	return cudaStatus;
 }
 
 
-cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int ID_max) //Force calculation with multiple images on GPU
+cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int n_GPU, int ID_min, int ID_max) //Force calculation with multiple images on GPU
 {
 	int i, j;
 	int mprocessors;
-	cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, 0);
-	printf("GPU force calculation.\n Number of threads: %i\n", 32*mprocessors*BLOCKSIZE);
+	int GPU_ID, nthreads;
+	int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
+	cudaError_t cudaStatus;
+	cudaStatus = cudaSuccess;
 	REAL start_time, end_time;
+	double omp_start_time, omp_end_time;
 	REAL *xx_tmp, *xy_tmp, *xz_tmp, *F_tmp;
 	REAL *dev_xx= 0;
 	REAL *dev_xy= 0;
@@ -352,158 +405,199 @@ cudaError_t forces_periodic_cuda(REAL**x, REAL**F, int GPU_ID, int ID_min, int I
 	int *dev_e;
 	int e_tmp[6606];
 
-	//Checking for the GPU
-	cudaError_t cudaStatus;
-	cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-		goto Error;
-	}
-	//timing
-	start_time = (REAL)clock() / (REAL)CLOCKS_PER_SEC;
-	//timing
-	// Allocate GPU buffers for coordinate and mass vectors
-	cudaStatus = cudaMalloc((void**)&dev_xx, N * sizeof(REAL));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMalloc((void**)&dev_xy, N * sizeof(REAL));
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMalloc failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMalloc((void**)&dev_xz, N * sizeof(REAL));
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMalloc failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMalloc((void**)&dev_M, N * sizeof(REAL));
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMalloc failed!");
-                goto Error;
-        }
-	// Allocate GPU buffers for force vectors
-	cudaStatus = cudaMalloc((void**)&dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	// Allocate GPU buffers for e matrix
-	cudaStatus = cudaMalloc((void**)&dev_e, 6606 * sizeof(int));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	//Converting e matrix into a vector
-	for (i = 0; i < 2202; i++)
+	int numDevices;
+	cudaGetDeviceCount(&numDevices);
+	if(numDevices<n_GPU)
 	{
-		for (j = 0; j < 3; j++)
-		{
-			e_tmp[3 * i + j] = e[i][j];
-		}
+		fprintf(stderr, "Error: Cannot allocate %i GPUs, because only %i are available\n", n_GPU, numDevices);
+		n_GPU = numDevices;
+		printf("Number of GPUs set to %i\n", n_GPU);
 	}
-	//Converting the Nx3 matrix to 3Nx1 vector.
-        xx_tmp = (REAL*)malloc(N*sizeof(REAL));
-        xy_tmp = (REAL*)malloc(N*sizeof(REAL));
-        xz_tmp = (REAL*)malloc(N*sizeof(REAL));
-        F_tmp = (REAL*)malloc(3*(ID_max-ID_min+1)*sizeof(REAL));
-        for(i = 0; i < N; i++)
-        {
-                xx_tmp[i] = x[i][0];
-                xy_tmp[i] = x[i][1];
-                xz_tmp[i] = x[i][2];
-	}
-	for(i=0; i <= (ID_max-ID_min); i++)
-	{
-                for(j=0; j<3; j++)
-                        F_tmp[3*i + j] = 0;
-        }
-        // Copy input vectors from host memory to GPU buffers.
-        cudaStatus = cudaMemcpy(dev_xx, xx_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-        cudaStatus = cudaMemcpy(dev_xy, xy_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-        cudaStatus = cudaMemcpy(dev_xz, xz_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMemcpy(dev_M, M, N * sizeof(REAL), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "cudaMemcpy in failed!");
-                goto Error;
-        }
-	cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy F failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMemcpy(dev_e, e_tmp, 6606 * sizeof(int), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy e failed!");
-		goto Error;
-	}
-	// Launch a kernel on the GPU with one thread for each element.
-	ForceKernel_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, dev_e, el, ID_min, ID_max);
 
-	// Check for any errors launching the kernel
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "ForceKernel_periodic launch failed: %s\n", cudaGetErrorString(cudaStatus));
-		goto Error;
-	}
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching ForceKernel_periodic!\n", cudaStatus);
-		goto Error;
-	}
-	// Copy output vector from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy out failed!");
-		goto Error;
-	}
-	//converting back the 3Nx1 vector ot Nx3 matrix.
-	for (i = ID_min; i <= ID_max; i++)
+	//Converting the Nx3 matrix to 3Nx1 vector.
+	xx_tmp = (REAL*)malloc(N*sizeof(REAL));
+	xy_tmp = (REAL*)malloc(N*sizeof(REAL));
+	xz_tmp = (REAL*)malloc(N*sizeof(REAL));
+	for(i = 0; i < N; i++)
 	{
-		for (j = 0; j < 3; j++)
-		{
-			F[i][j] = F_tmp[3 * (i-ID_min) + j];
-		}
+		xx_tmp[i] = x[i][0];
+		xy_tmp[i] = x[i][1];
+		xz_tmp[i] = x[i][2];
 	}
-	free(F_tmp);
+	//timing
+        start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
+	omp_start_time = omp_get_wtime();
+        //timing
+	omp_set_dynamic(0);             // Explicitly disable dynamic teams
+	omp_set_num_threads(n_GPU);     // Use n_GPU threads
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_e)
+{
+		#pragma omp critical
+		{
+		nthreads = omp_get_num_threads();
+		GPU_ID = omp_get_thread_num(); //thread ID = GPU_ID
+		}
+		if(GPU_ID == 0)
+		{
+			N_GPU = (ID_max-ID_min+1)/n_GPU+(ID_max-ID_min+1)%n_GPU;
+			GPU_index_min = ID_min;
+		}
+		else
+		{
+			N_GPU = (ID_max-ID_min+1)/n_GPU;
+			GPU_index_min = ID_min + (ID_max-ID_min+1)%n_GPU+N_GPU*GPU_ID;
+		}
+		F_tmp = (REAL*)malloc(3 * N_GPU * sizeof(REAL));
+		for(i=0; i < N_GPU; i++)
+		{
+			for(j=0; j<3; j++)
+				F_tmp[3*i + j] = 0.0f;
+		}
+		//Checking for the GPU
+		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
+		if(GPU_ID == 0)
+		{
+			printf("GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+		}
+		cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n", GPU_ID);
+			goto Error;
+		}
+		// Allocate GPU buffers for coordinate and mass vectors
+		cudaStatus = cudaMalloc((void**)&dev_xx, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMalloc((void**)&dev_xy, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMalloc((void**)&dev_xz, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMalloc((void**)&dev_M, N * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		// Allocate GPU buffers for force vectors
+		cudaStatus = cudaMalloc((void**)&dev_F, 3 * N_GPU * sizeof(REAL));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		// Allocate GPU buffers for e matrix
+		cudaStatus = cudaMalloc((void**)&dev_e, 6606 * sizeof(int));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMalloc failed!\n", GPU_ID);
+			goto Error;
+		}
+		//Converting e matrix into a vector
+		for (i = 0; i < 2202; i++)
+		{
+			for (j = 0; j < 3; j++)
+			{
+				e_tmp[3 * i + j] = e[i][j];
+			}
+		}
+		// Copy input vectors from host memory to GPU buffers.
+		cudaStatus = cudaMemcpy(dev_xx, xx_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_xy, xy_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_xz, xz_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_M, M, N * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy in failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * N_GPU * sizeof(REAL), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy F failed!\n", GPU_ID);
+			goto Error;
+		}
+		cudaStatus = cudaMemcpy(dev_e, e_tmp, 6606 * sizeof(int), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy e failed!\n", GPU_ID);
+			goto Error;
+		}
+		// Launch a kernel on the GPU with one thread for each element.
+		ForceKernel_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, dev_e, el, GPU_index_min, GPU_index_min+N_GPU-1);
+
+		// Check for any errors launching the kernel
+		cudaStatus = cudaGetLastError();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: ForceKernel_periodic launch failed: %s\n", GPU_ID, cudaGetErrorString(cudaStatus));
+			goto Error;
+		}
+		// cudaDeviceSynchronize waits for the kernel to finish, and returns
+		// any errors encountered during the launch.
+		cudaStatus = cudaDeviceSynchronize();
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaDeviceSynchronize returned error code %d after launching ForceKernel_periodic!\n", GPU_ID, cudaStatus);
+			goto Error;
+		}
+		// Copy output vector from GPU buffer to host memory.
+		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyDeviceToHost);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "GPU%i: cudaMemcpy out failed!\n", GPU_ID);
+			goto Error;
+		}
+		//converting back the 3Nx1 vector ot Nx3 matrix.
+		if(GPU_ID == 0)
+		{
+			for (i = ID_min; i < ID_min+N_GPU; i++)
+			{
+				for (j = 0; j < 3; j++)
+				{
+					F[i][j] = F_tmp[3 * (i-ID_min) + j];
+				}
+			}
+		}
+		else
+		{
+			for (i = GPU_index_min; i < GPU_index_min + N_GPU; i++)
+			{
+				for (j = 0; j < 3; j++)
+				{
+					F[i][j] = F_tmp[3 * (i-GPU_index_min) + j];
+				}
+			}
+		}
+		free(F_tmp);
+	Error:
+		cudaFree(dev_xx);
+		cudaFree(dev_xy);
+		cudaFree(dev_xz);
+		cudaFree(dev_M);
+		cudaFree(dev_F);
+		cudaFree(dev_e);
+		cudaThreadExit();
+}
 	free(xx_tmp);
 	free(xy_tmp);
 	free(xz_tmp);
 	//timing
-	end_time = (REAL)clock() / (REAL)CLOCKS_PER_SEC;
+	end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
+	omp_end_time = omp_get_wtime();
 	//timing
 	printf("Force calculation finished.\n");
-	printf("Force calculation GPU time = %lfs\n", end_time - start_time);
-	cudaFree(dev_xx);
-	cudaFree(dev_xy);
-	cudaFree(dev_xz);
-	cudaFree(dev_M);
-	cudaFree(dev_F);
-	cudaFree(dev_e);
-	cudaThreadExit();
-Error:
-	cudaFree(dev_xx);
-	cudaFree(dev_xy);
-	cudaFree(dev_xz);
-	cudaFree(dev_M);
-	cudaFree(dev_F);
-	cudaFree(dev_e);
-	cudaThreadExit();
-
+	printf("Force calculation GPU time = %lfs\n", end_time-start_time);
+	printf("Force calculation wall-clock time = %lfs\n", omp_end_time-omp_start_time);
 	return cudaStatus;
 }

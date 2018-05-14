@@ -73,9 +73,7 @@ int gadget_format_conversion(void)
 	printf("Time = %f Redshift= %f\n", Time, (1/Time)-1);
 	printf("\nCosmological parameters:\n------------------------\n");
 	printf("Boxsize \t %f kpc/h\n", header1.BoxSize);
-	//Gadget formátumú IC esetén a dobozméretet az IC határozza meg.
         L = (REAL) header1.BoxSize/1000.0/header1.HubbleParam;
-	//M=header1.mass[1]/header1.HubbleParam/10;
 	printf("Boxsize \t %f Mpc\n", L);
 	printf("Omega0 \t\t %f \n", header1.Omega0);
 	printf("OmegaLambda \t %f \n", header1.OmegaLambda);

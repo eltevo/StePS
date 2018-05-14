@@ -64,7 +64,7 @@ double calculate_init_h()
 			}
 		}
 	}
-	printf("Initial timestep length calculated.\nerrmax=%f\nh=%f\n", errmax, (double) pow(2*mean_err*beta/errmax, 0.5));
+	printf("Initial timestep length calculated.\nerrmax=%f\nh=%fGy\n", errmax, (double) pow(2*mean_err*beta/errmax, 0.5)*47.1482347621227);
 	return (double) pow(2*mean_err*beta/errmax, 0.5);
 	
 }
@@ -72,8 +72,8 @@ double calculate_init_h()
 void step(REAL** x, REAL** F)
 {
 	//Timing
-	REAL step_start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-	REAL step_omp_start_time = omp_get_wtime();
+	double step_start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
+	double step_omp_start_time = omp_get_wtime();
 	//Timing
 	int i, k;
 	REAL ACCELERATION[3];
@@ -156,11 +156,11 @@ void step(REAL** x, REAL** F)
 	}
 	printf("KDK Leapfrog integration...done.\n");
 	//Timing
-	REAL step_end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-	REAL step_omp_end_time = omp_get_wtime();
+	double step_end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
+	double step_omp_end_time = omp_get_wtime();
 	//Timing
 	printf("Timestep CPU time = %fs\n", step_end_time-step_start_time);
-	printf("Timestep RUN time = %fs\n", step_omp_end_time-step_omp_start_time);
+	printf("Timestep wall-clock time = %fs\n", step_omp_end_time-step_omp_start_time);
 
 return;
 }

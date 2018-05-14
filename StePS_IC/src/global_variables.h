@@ -12,14 +12,15 @@ extern int FOR_COMOVING_INTEGRATION;
 extern int RANDOM_SEED; //random seed for the random rotation of the shells
 extern int RANDOM_ROTATION; //if 1 using random rotation, otherwise the code will not rotate randomly the HEALPix shells
 extern int NUMBER_OF_INPUT_FILES; //Number of files that are written in parallel by the periodic IC generator
+extern int TILEFAC;
 
 extern double a_max; //maximal scalefactor
 
 extern double* M; //Particle masses
 extern double M_tmp;
-extern int N; //Number of particles, if we use one input file, or the number of particles in the actual input file
-extern int N_IC_tot; //total Number of particles in the input files
-extern int N_out; //Number of output particles
+extern unsigned long long int N; //Number of particles if we use one input file, or the number of particles in the actual input file
+extern unsigned long long int N_IC_tot; //total Number of particles in the input files
+extern unsigned long int N_out; //Number of output particles
 extern double** x; //particle coordinates and velocities
 extern double** x_out; //Output particle coordinates and velocities
 extern long int* COUNT;

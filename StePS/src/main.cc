@@ -27,7 +27,8 @@ double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
 double rho_crit; //Critical density
 REAL mass_in_unit_sphere; //Mass in unit sphere
 
-int GPU_ID; //ID of the GPU
+int n_GPU; //number of cuda capable GPUs
+//int GPU_ID; //ID of the GPU
 
 REAL x4, err, errmax;
 REAL beta, ParticleRadi, rho_part, M_min;
@@ -388,8 +389,8 @@ void Log_write(REAL** x) //Writing logfile
 
 int main(int argc, char *argv[])
 {
-	printf("-------------------------------------------------------------------\nStePS v0.1.3.0\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017, 2018\n Department of Physics of Complex Systems, Eotvos Lorand University\n\n");
-	printf("Build date: %lu\n-------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
+	printf("----------------------------------------------------------------------------------------------\nStePS v0.2.0.0\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+	printf("Build date: %lu\n----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	int i;
 	int CONE_ALL=0;
 	RESTART = 0;
@@ -404,19 +405,19 @@ int main(int argc, char *argv[])
 	else if(argc > 3)
 	{
 		fprintf(stderr, "Too many arguments!\n");
-		fprintf(stderr, "Call with: ./StePS  <parameter file>\nor with: ./StePS_CUDA  <parameter file> \'i\', where \'i\' is the id of the GPU.\n");
+		fprintf(stderr, "Call with: ./StePS  <parameter file>\nor with: ./StePS_CUDA  <parameter file> \'i\', where \'i\' is the number of the cuda capable GPUs.\n");
 		return (-1);
 	} 
 	FILE *param_file = fopen(argv[1], "r");
 	read_param(param_file);
 	if(argc == 3)
 	{
-		GPU_ID = atoi( argv[2] );
-		printf("Using GPU %i\n", GPU_ID);
+		n_GPU = atoi( argv[2] );
+		printf("Using %i cuda capable GPU\n", n_GPU);
 	}
 	else
 	{
-		GPU_ID = 0;
+		n_GPU = 1;
 	}
 	if(IS_PERIODIC>1)
 	{
@@ -530,10 +531,6 @@ int main(int argc, char *argv[])
 	else
 	{
 		printf("Running classical gravitational N-body simulation.\n");
-		/*for(i=0;i<N;i++)//Every particle has its own mass
-                {
-			printf("M[%i] = %.10f\n", i, M[i]);
-                }*/
 	}
 	//Searching the minimal mass particle
 	M_min = M[0];
@@ -674,7 +671,6 @@ int main(int argc, char *argv[])
 		Hubble_param = 0;
 	}
 	//calculating the initial timestep length:
-	//h = (double) pow(2*mean_err*beta/errmax, 0.5);
 	h = calculate_init_h();
 	printf("The simulation is starting...\n");
 	REAL T_prev,Hubble_param_prev;
@@ -749,25 +745,19 @@ int main(int argc, char *argv[])
 				{
 					out_z_index += delta_z_index;
 					t_next = out_list[out_z_index];
-					//printf("z_next = %f\nout_z_index=%i\n", t_next, out_z_index);
 				}
 				if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
 				{
 					CONE_ALL = 1;
-					printf("z=%f < z_next=%f\n", 1.0/a-1.0, t_next);
 					printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
 					
 					t_next = 0.0;
 				}
-				//printf("z= %f\tz_bin= %f\tt = %f Gy\n\th=%f Gy\n", 1/a-1.0,out_list[out_z_index-1], T*47.1482347621227, h*47.1482347621227);
 			}
 		}
-		//Changing timestep length //szerintem ez sem jo -- talan javitva
+		//Changing timestep length
 		h_prev = h;
-//		if(h<h_max || h>h_min || mean_err/errmax>1)
-//		{
 		h = (double) pow(2*mean_err*beta/errmax, 0.5);
-//		}
 
 		if(h<h_min)
 		{

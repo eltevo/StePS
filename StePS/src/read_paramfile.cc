@@ -377,7 +377,7 @@ else
 {
 	printf("Non cosmological simulation.\n---------------------------\nParticle masses:\t%f\n\n", M_tmp);
 }
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\na_max\t\t\t\t%f\nStarting timestep length\t%f\nPrescribed error\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,h,mean_err,h_min,IC_FILE,OUT_DIR);
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\na_max\t\t\t\t%f\nPrescribed error\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min,IC_FILE,OUT_DIR);
 	Hubble_param = 0.0;
 	if(COSMOLOGY == 0 || COMOVING_INTEGRATION == 0)
 	{

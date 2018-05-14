@@ -35,7 +35,6 @@ double comoving_distance(double z, double Omega_m, double Omega_r, double Omega_
 	F.params = &params;
 	
 	gsl_integration_qags(&F, 0, z, 0, 1e-13, 2000, w, &DC, &DC_err);
-	//printf("Integrator:\nDC=%e\nDC_err=%e\n\n", DC, DC_err);
 	gsl_integration_workspace_free(w);
 
 	return DC/H0*0.0482190732645461*299792.458; // H_D = c/H0 [Mpc]
@@ -67,7 +66,6 @@ double z_DC(double Dcom, double *z_list, double* DC_array, long int array_size)
 			break;
 		}
 	}
-	//printf("The found Dc range:\n[%lf, %lf]\n", DC_array[index], DC_array[index-1]);
 	//calculating z using linear interpolation
 	double a_DC, b_DC;
 	a_DC = (z_list[index]-z_list[index-1]) / (DC_array[index]-DC_array[index-1]);
@@ -78,7 +76,7 @@ double z_DC(double Dcom, double *z_list, double* DC_array, long int array_size)
 void Calculate_redshifts()
 {
 	printf("\nCalculating redshifts for the spherical sells...\n\n");
-	printf("The cosmological parameters:\nH0 =\t%lfkm/s/Mpc\nOmega_m =\t%lf\nOmega_r =\t%lf\nOmega_lambda =\t%lf\nOmega_k =%lf\n", H0/0.0482190732645461, Omega_m, Omega_r, Omega_lambda, 1.0-Omega_m-Omega_r-Omega_lambda);
+	printf("The cosmological parameters:\nH0 =\t%fkm/s/Mpc\nOmega_m =\t%f\nOmega_r =\t%f\nOmega_lambda =\t%f\nOmega_k =%f\n", H0/0.0482190732645461, Omega_m, Omega_r, Omega_lambda, 1.0-Omega_m-Omega_r-Omega_lambda);
 
 
 	double z_max = 1.0/a_start-1.0;
@@ -108,11 +106,7 @@ void Calculate_redshifts()
 		DC[i] = 0;
 	}
 	calculate_DC_array(zlist, Omega_m, Omega_r, Omega_lambda);
-	printf("The used redshift and comoving distance range:\nz_min = %lf\tz_max = %lf\nR_min = %lfMpc\tR_max = %lfMpc\n", zlist[0], zlist[N_zlist-1], DC[0], DC[N_zlist-1]);
-	/*for(i = 0; i<N_zlist; i++)
-	{
-		printf("%lf\t%lf\n", DC[i], zlist[i]);
-	}*/
+	printf("The used redshift and comoving distance range:\nz_min = %f\tz_max = %f\nR_min = %fMpc\tR_max = %fMpc\n", zlist[0], zlist[N_zlist-1], DC[0], DC[N_zlist-1]);
 
 	//Calculating comoving distances, redshifts for the shells.
 	double omega_CUT = 2*atan(R_CUT/SPHERE_DIAMETER);
@@ -139,11 +133,11 @@ void Calculate_redshifts()
 	printf("The output radial grid centers:\nr[Mpc]\t\tz\n");
 	for(i=0;i<R_GRID;i++)
 	{
-		printf("%lf\t%e\n", r_bin_centers[i], z_bin_centers[i]);
+		printf("%.15f\t%e\n", r_bin_centers[i], z_bin_centers[i]);
 		fprintf(out_z_file,"%e\n", z_bin_centers[i]);
-		fprintf(out_limits_file,"%lf\n", r_bin_limits[i]);
+		fprintf(out_limits_file,"%.15f\n", r_bin_limits[i]);
 	}
-	fprintf(out_limits_file,"%lf\n", r_bin_limits[R_GRID]);
+	fprintf(out_limits_file,"%.15f\n", r_bin_limits[R_GRID]);
 	fclose(out_z_file);
 	fclose(out_limits_file);
 	return;

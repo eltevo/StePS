@@ -1,14 +1,15 @@
 StePS - STEreographically Projected cosmological Simulations
 
-v0.1.3.0
+v0.2.0.0
 
-Gábor Rácz, 2018
+Gábor Rácz, 2017, 2018
 Department of Physics of Complex Systems, Eötvös Loránd University
 ragraat@caesar.elte.hu
 
 Cosmological simulation code for compactified cosmological simulations.
 - written in C++
-- parallelized with openmp and CUDA
+- parallelized with OpenMP and CUDA
+- able to use multiple GPUs in a single computing node
 - read Gadget2 and ascii IC formats
 - output in ascii format
 - Able to run standard periodic and spherical cosmological simulations

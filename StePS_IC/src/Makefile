@@ -1,11 +1,11 @@
 
-CXX = g++-4.8
+CXX = g++
 BUILD_NUMBER_LDFLAGS  = -Xlinker --defsym -Xlinker __BUILD_DATE=$$(date +'%Y%m%d')
-CFLAGS = -lm -Wall -ansi -pedantic -O3 -ffast-math -std=c++11 -fopenmp -lgsl -lgslcblas
+CFLAGS = -lm -Wno-long-long -Wall -ansi -pedantic -O3 -ffast-math -std=c++98 -fopenmp -lgsl -lgslcblas
 
 #HEALpix cxx include directory
-HEALPix_INC=-I${CURDIR}/../Healpix_3.31/src/C/autotools
-HEALPix_LIB=-R${CURDIR}/../Healpix_3.31/src/C/autotools
+HEALPix_INC=-I${CURDIR}/../HEALPix/Healpix_3.31/src/C/autotools
+HEALPix_LIB=-R${CURDIR}/../HEALPix/Healpix_3.31/src/C/autotools
 
 
 SRC = main.cc read_paramfile.cc read_gadget_ic.cc stereographic_projection.cc comoving_distance.cc

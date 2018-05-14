@@ -16,14 +16,15 @@ int FOR_COMOVING_INTEGRATION;
 int RANDOM_SEED;
 int RANDOM_ROTATION; //if 1 using random rotation, otherwise the code will not rotate randomly the HEALPix shells
 int NUMBER_OF_INPUT_FILES; //Number of files that are written in parallel by the periodic IC generator
+int TILEFAC;
 
 double a_max; //maximal scalefactor
 
 double* M; //Particle masses
 double M_tmp;
-int N; //Number of particles
-int N_IC_tot; //total Number of particles in the input files
-int N_out; //Number of output particles
+unsigned long long int N; //Number of particles
+unsigned long long int N_IC_tot; //total Number of particles in the input files
+unsigned long int N_out; //Number of output particles
 double** x; //particle coordinates and velocities
 double** x_out; //Output particle coordinates and velocities
 long int* COUNT;
@@ -45,7 +46,7 @@ void read_ic(FILE *ic_file, int N);
 void kiiras(FILE *outfile, double** x, int N);
 void stereographic_projection(double** x, double* M);
 void finish_stereographic_projection(double** x_out);
-void add_hubble_flow(double** x_out, int N_out, double H0_start);
+void add_hubble_flow(double** x_out, unsigned long int N_out, double H0_start);
 void Calculate_redshifts();
 //Functions for reading GADGET2 format IC
 int gadget_format_conversion(void);
@@ -101,16 +102,18 @@ void kiiras(FILE *outfile, double** x, int N)
 
 int main(int argc, char *argv[])
 {
-	printf("--------------------------------------------------------------------------\nStePS_IC v0.1.2.2\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017\n Department of Physics of Complex Systems, Eötvös Loránd University\n\n");
-	printf("Build date: %zu\n--------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
+	printf("-----------------------------------------------------------------------------------------------\nStePS_IC v0.2.0.0\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+	printf("Build date: %lu\n-----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	if( argc != 2)
         {
                 fprintf(stderr, "Missing parameter file!\n");
                 fprintf(stderr, "Call with: ./StePS_IC  <parameter file>\n");
                 return (-1);
         }
-	int i, j;
+	unsigned long long int i;
+	int j;
 	dist_unit_in_kpc = 1.0;
+	TILEFAC = 1;
 	VOI[0] = VOI[1] = VOI[2] = -1.0;
 	FILE *param_file = fopen(argv[1], "r");
 	read_param(param_file);
@@ -141,7 +144,7 @@ int main(int argc, char *argv[])
 		}
 
 		//Allocating memory for the output particles
-		N_out = 12*N_SIDE*N_SIDE*R_GRID;
+		N_out = 12*(unsigned long int)N_SIDE*(unsigned long int)N_SIDE*(unsigned long int)R_GRID;
 		COUNT = (long int*)malloc(N_out*sizeof(long int));
 		x_out = (double**) malloc(N_out*sizeof(double*));
 		for(i=0;i<N_out;i++)
@@ -170,7 +173,7 @@ int main(int argc, char *argv[])
 		finish_stereographic_projection(x_out);
 		if(FOR_COMOVING_INTEGRATION == 0)
 		{
-			printf("Using non-comoving coordinates. Transforming the velocities with H_start=%lf km/s/Mpc\n\n", H0_start*20.7386814448645);
+			printf("Using non-comoving coordinates. Transforming the velocities with H_start=%f km/s/Mpc\n\n", H0_start*20.7386814448645);
 			add_hubble_flow(x_out, N_out, H0_start);
 		}
 
@@ -192,7 +195,7 @@ int main(int argc, char *argv[])
 		M = (double*)malloc(N*sizeof(double));
 
 		//Allocating memory for the output particles
-		N_out = 12*N_SIDE*N_SIDE*R_GRID;
+		N_out = 12*(unsigned long int)N_SIDE*(unsigned long int)N_SIDE*(unsigned long int)R_GRID;
 		COUNT = (long int*)malloc(N_out*sizeof(long int));
 		x_out = (double**) malloc(N_out*sizeof(double*));
 		for(i=0;i<N_out;i++)
@@ -271,7 +274,7 @@ int main(int argc, char *argv[])
 		if(FOR_COMOVING_INTEGRATION == 0)
 		{
 			printf("According to the cosmological parameters:\nH_start=%.16fkm/s/Mpc\nThe code will use the H_start readed from the parameter file.\n", H0*sqrt(Omega_m*pow(a_start, -3.0) + Omega_lambda + Omega_k*pow(a_start, -2.0))*20.7386814448645);
-			printf("Using non-comoving coordinates. Transforming the velocities with H_start=%lf km/s/Mpc\n\n", H0_start*20.7386814448645);
+			printf("Using non-comoving coordinates. Transforming the velocities with H_start=%f km/s/Mpc\n\n", H0_start*20.7386814448645);
 			add_hubble_flow(x_out, N_out, H0_start);
 		}
 		printf("\na_start = %f\tz_start= %f\n", a_start, 1/a_start-1);

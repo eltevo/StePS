@@ -44,14 +44,8 @@ double friedmann_solver_start(double a0, double t0, double h, double Omega_lambd
 		b = friedman_solver_step(b, h_var, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
 		t_cosm_tmp = t_cosm;
 		t_cosm=t_cosm+h_var;
-		if(b>0)
+		if(b<=0)
 		{
-			//printf("After BB: t=%.15e\th_var=%e\n", t_cosm*47.1482347621227, h_var);
-			//h_var=0.5*h_var;
-		}
-		else
-		{
-			//printf("Before BB: t=%.15e\th_var=%e\n", t_cosm*47.1482347621227, h_var);
 			b = b_tmp;
 			t_cosm = t_cosm_tmp;
 			h_var=0.5*h_var;

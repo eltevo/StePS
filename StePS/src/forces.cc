@@ -27,28 +27,8 @@ void recalculate_softening()
 	beta = ParticleRadi;
 	if(COSMOLOGY ==1)
 	{
-	if(COMOVING_INTEGRATION == 1)
-	//{
-	//	printf("Calculating smoothing length...\n"); 
-	//	beta = ParticleRadi/(REAL)(a);
-	//	rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
-	//	printf("The new smoothing length:\tbeta = %lf\n", beta);
-	//}
-	//else
-	//{
-		beta = ParticleRadi;
 		rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
-	//}
 	}
-	/*SOFT_CONST[0] = 32.0/pow(2.0*beta, 6);
-        SOFT_CONST[1] = -38.4/pow(2.0*beta, 5);
-        SOFT_CONST[2] = 32.0/(3.0*pow(2.0*beta, 3));
-
-        SOFT_CONST[3] = -32.0/(3.0*pow(2*beta, 6));
-        SOFT_CONST[4] = 38.4/pow(2.0*beta, 5);
-        SOFT_CONST[5] = -48.0/pow(2.0*beta, 4);
-        SOFT_CONST[6] = 64.0/(3.0*pow(2.0*beta, 3));
-        SOFT_CONST[7] = -1.0/15.0;*/
 }
 
 void forces(REAL**x, REAL**F, int ID_min, int ID_max) //Force calculation
@@ -84,7 +64,6 @@ for(i=ID_min; i<ID_max+1; i++)
                 for(j=0; j<N; j++)
                 {
 			beta_priv = (betai+cbrt(M[j]*const_beta))/2;
-			//printf("beta_priv[%i][%i] = %lf\n", i, j, (double)beta_priv);
 			//calculating particle distances
                         dx=x[j][0]-x[i][0];
 			dy=x[j][1]-x[i][1];
@@ -126,16 +105,10 @@ for(i=ID_min; i<ID_max+1; i++)
 			Fx_tmp = wij*(dx);
 			Fy_tmp = wij*(dy);
 			Fz_tmp = wij*(dz);
-			//#pragma omp atomic
-                        //F[j][0] -= Fx_tmp;
 			#pragma omp atomic
                         F[i][0] += Fx_tmp;
-			//#pragma omp atomic
-                        //F[j][1] -= Fy_tmp;
 			#pragma omp atomic
                         F[i][1] += Fy_tmp;
-			//#pragma omp atomic
-                        //F[j][2] -= Fz_tmp;
 			#pragma omp atomic
                         F[i][2] += Fz_tmp;
 

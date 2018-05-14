@@ -42,6 +42,7 @@ char str24[] = "dist_unit_in_kpc";
 char str25[] = "VOI_X";
 char str26[] = "VOI_Y";
 char str27[] = "VOI_Z";
+char str28[] = "TileFac";
 
 printf("Reading parameter file...\n");
 while(!feof(param_file))
@@ -87,7 +88,7 @@ while(!feof(param_file))
         }
         if(strstr(c, str08) != NULL)
         {
-                sscanf(c, "%s\t%i", str08, &N);
+                sscanf(c, "%s\t%llu", str08, &N);
         }
 	if(strstr(c, str09) != NULL)
         {
@@ -150,7 +151,7 @@ while(!feof(param_file))
 	}
 	if(strstr(c, str22) != NULL)
 	{
-		sscanf(c, "%s\t\t%i", str22, &N_IC_tot);
+		sscanf(c, "%s\t\t%llu", str22, &N_IC_tot);
 	}
 	if(strstr(c, str23) != NULL)
         {
@@ -176,6 +177,21 @@ while(!feof(param_file))
 
                 sscanf(c, "%s\t%lf", str27, &VOI[2]);
         }
+	if(strstr(c, str28) != NULL)
+        {
+
+                sscanf(c, "%s\t%i", str28, &TILEFAC);
+		if(TILEFAC < 1)
+		{
+			TILEFAC = 1;
+			printf("Error: TileFac should be larger than zero. TileFac set to %i.\n", TILEFAC);
+		}
+		else if((TILEFAC % 2) != 1)
+		{
+			TILEFAC++;
+			printf("Error: TileFac should be an odd number. TileFac set to %i.\n", TILEFAC);
+		}
+        }
 }
 printf("...done.\n");
 fclose(param_file);
@@ -183,8 +199,8 @@ printf("The readed parameters:\n");
 printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%f\n\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*20.7386814448645, a_start);
 printf("Parameters of the IC file:\n------------------------\n");
 printf("Particle masses:\t\t%f\n\n", M_tmp);
-printf("Box size\t\t\t%fMpc\nNumber of particles\t\t%i\na_max\t\t\t\t%f\nInitial conditions\t\t%s\nOutput file\t\t\t%s\nSPHERE_DIAMETER\t\t\t%f\nR_CUT\t\t\t\t%lf\nN_SIDE\t\t\t\t%i\nR_GRID\t\t\t\t%i\nFOR_COMOVING_INTEGRATION\t%i\nNUMBER_OF_INPUT_FILES\t\t%i\nN_IC_tot\t\t\t%i\n",L,N,a_max,IC_FILE,OUT_FILE, SPHERE_DIAMETER, R_CUT, N_SIDE, R_GRID, FOR_COMOVING_INTEGRATION, NUMBER_OF_INPUT_FILES, N_IC_tot);
-printf("The coordinates of the center of Volume-Of-Interest(VOI):\nVOI_x = %lfMpc\tVOI_y = %lfMpc\tVOI_z = %lfMpc\n\n",VOI[0], VOI[1], VOI[2]);
+printf("Box size\t\t\t%fMpc\nNumber of particles\t\t%llu\na_max\t\t\t\t%f\nInitial conditions\t\t%s\nOutput file\t\t\t%s\nSPHERE_DIAMETER\t\t\t%f\nR_CUT\t\t\t\t%f\nN_SIDE\t\t\t\t%i\nR_GRID\t\t\t\t%i\nFOR_COMOVING_INTEGRATION\t%i\nNUMBER_OF_INPUT_FILES\t\t%i\nN_IC_tot\t\t\t%llu\nTileFac\t\t\t\t%i\n",L,N,a_max,IC_FILE,OUT_FILE, SPHERE_DIAMETER, R_CUT, N_SIDE, R_GRID, FOR_COMOVING_INTEGRATION, NUMBER_OF_INPUT_FILES, N_IC_tot, TILEFAC);
+printf("The coordinates of the center of Volume-Of-Interest(VOI):\nVOI_x = %fMpc\tVOI_y = %fMpc\tVOI_z = %fMpc\n\n",VOI[0], VOI[1], VOI[2]);
 if(RANDOM_ROTATION == 1)
 {
 	printf("Random rotation is on.\nRANDOM_SEED\t\t\t%i\n",  RANDOM_SEED);

@@ -71,24 +71,9 @@ int gadget_format_conversion(void)
 	printf("Number of particles = %i\n", NumPart);
 	N=NumPart;//Set global variable N to the readed particlenumber;
 	printf("Time = %f Redshift= %f\n", Time, (1/Time)-1);
-	//printf("\nCosmological parameters:\n------------------------\n");
 	printf("Boxsize \t %f kpc/h\n", header1.BoxSize*dist_unit_in_kpc);
-	//Gadget formátumú IC esetén a dobozméretet az IC határozza meg.
         L = (REAL) header1.BoxSize*dist_unit_in_kpc/1000.0/header1.HubbleParam;
-	//M=header1.mass[1]/header1.HubbleParam/10;
 	printf("Boxsize \t %f Mpc\n", L);
-	//printf("Omega0 \t\t %f \n", header1.Omega0);
-	//printf("OmegaLambda \t %f \n", header1.OmegaLambda);
-	//printf("HubbleParam \t %f \n\n", header1.HubbleParam);
-
-	//printf("Masstab(in 1.0e10 solar masses):\n--------------------------------\n");
-	//printf("Gas: \t\t\t%f\n", header1.mass[0]);
-	//printf("Dark Matter(HALO): \t%f\n", header1.mass[1]);
-	//printf("Disc: \t\t\t%f\n", header1.mass[2]);
-	//printf("Bulge: \t\t\t%f\n", header1.mass[3]);
-	//printf("Stars: \t\t\t%f\n", header1.mass[4]);
-	//printf("Bndry: \t\t\t%f\n\n", header1.mass[5]);
-	
 	i=0;
 	printf("Converting particle positions...\n");
 	for(k=1;k<NumPart+1;++k)
