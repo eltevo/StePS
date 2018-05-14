@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "kdtree.h"
 #include "global_variables.h"
 
 #ifdef USE_SINGLE_PRECISION
@@ -63,8 +64,6 @@ double Time, Redshift;
 
 
 
-/* here the particle data is at your disposal 
- */
 int gadget_format_conversion(void)
 {
 	int k, i, j;

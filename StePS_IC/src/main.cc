@@ -3,15 +3,18 @@
 #include <math.h>
 #include <omp.h>
 #include <time.h>
+#include "kdtree.h"
 #include "global_variables.h"
 
 double L; //Size of the simulation box
 double SPHERE_DIAMETER; //diameter of the 4D sphere in Mpc used in the stereographic projection
 double R_CUT;
-int N_SIDE, R_GRID;
+int N_SIDE, R_GRID, N_glass;
 char IC_FILE[1024]; //input file
+char SphericalGlassFILE[512]; //input spherical glass file
 char OUT_FILE[1024]; //output directory
 int IC_FORMAT; // 0: ascii, 1:GADGET
+int SPHERICAL_GLASS; // 0: using Healpix for IC generation 1: using spherical glassfile of IC generation
 int FOR_COMOVING_INTEGRATION;
 int RANDOM_SEED;
 int RANDOM_ROTATION; //if 1 using random rotation, otherwise the code will not rotate randomly the HEALPix shells
@@ -26,6 +29,7 @@ unsigned long long int N; //Number of particles
 unsigned long long int N_IC_tot; //total Number of particles in the input files
 unsigned long int N_out; //Number of output particles
 double** x; //particle coordinates and velocities
+double** SphericalGlass; //xyz coordinates of the sperical glass
 double** x_out; //Output particle coordinates and velocities
 long int* COUNT;
 double dist_unit_in_kpc;
@@ -37,6 +41,10 @@ double G; //Newtonian gravitational constant
 double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,H0_start,Hubble_param;
 double rho_crit; //Critical density
 double a, a_start; //Scalefactor, scalefactor at the starting time, previous scalefactor
+//kdtree variables
+kdtree* tree;
+int *index_list;
+
 
 extern char __BUILD_DATE;
 
@@ -48,6 +56,8 @@ void stereographic_projection(double** x, double* M);
 void finish_stereographic_projection(double** x_out);
 void add_hubble_flow(double** x_out, unsigned long int N_out, double H0_start);
 void Calculate_redshifts();
+//kdtree using functions
+void make_kdtree();
 //Functions for reading GADGET2 format IC
 int gadget_format_conversion(void);
 int load_snapshot(char *fname, int files);
@@ -79,6 +89,31 @@ void read_ic(FILE *ic_file, int N)
 	return;
 }
 
+//Function for reading spherical glass file
+void read_spherical_glass(char *filename)
+{
+	int i;
+	double theta, phi;
+	printf("Reading spherical glass from the %s file...\n", filename);
+	//Allocating memory
+	SphericalGlass = (double**)malloc(N_glass*sizeof(double*));
+	for(i=0; i<N_glass; i++)
+		SphericalGlass[i] = (double*)malloc(3*sizeof(double));
+	//Reading the file
+	FILE *SPHERICALGLASS_FILE = fopen(filename, "r");
+	for(i=0; i<N_glass; i++)
+	{
+		fscanf(SPHERICALGLASS_FILE, "%lf", &theta);
+		fscanf(SPHERICALGLASS_FILE, "%lf", &phi);
+		//Converting the spherical coordinates into cartesian
+		SphericalGlass[i][0] = sin(theta)*cos(phi);
+		SphericalGlass[i][1] = sin(theta)*sin(phi);
+		SphericalGlass[i][2] = cos(theta);
+	}
+	fclose(SPHERICALGLASS_FILE);
+	printf("...done.\n\n");
+}
+
 //Function for writing the output file
 void kiiras(FILE *outfile, double** x, int N)
 {
@@ -100,9 +135,10 @@ void kiiras(FILE *outfile, double** x, int N)
 	return;
 }
 
+
 int main(int argc, char *argv[])
 {
-	printf("-----------------------------------------------------------------------------------------------\nStePS_IC v0.2.0.0\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+	printf("-----------------------------------------------------------------------------------------------\nStePS_IC v0.3.0.0\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
 	printf("Build date: %lu\n-----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	if( argc != 2)
         {
@@ -114,6 +150,7 @@ int main(int argc, char *argv[])
 	int j;
 	dist_unit_in_kpc = 1.0;
 	TILEFAC = 1;
+	SPHERICAL_GLASS = 0;
 	VOI[0] = VOI[1] = VOI[2] = -1.0;
 	FILE *param_file = fopen(argv[1], "r");
 	read_param(param_file);
@@ -127,6 +164,15 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Error: bad IC format!\nExiting.\n");
                 return (-1);
         }
+	printf("--------------------------------------------------------------------------------------------\n");
+	N_glass = 12*N_SIDE*N_SIDE;
+	if(SPHERICAL_GLASS != 0)
+	{
+		//reading the spherical glass file
+		read_spherical_glass(SphericalGlassFILE);
+		//after the glass file is readed, we build a kdtree, for the fast nearest neighbour search
+		make_kdtree();
+	}
         if(IC_FORMAT == 0)
         {
                 FILE *ic_file = fopen(IC_FILE, "r");
@@ -138,7 +184,7 @@ int main(int argc, char *argv[])
 		G = 1;
 		rho_crit = 3*H0*H0/(8*pi*G);
 		M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((double) N);
-		for(i=0;i<N;i++)//in cosmological simulations every particle has the same mass
+		for(i=0;i<N;i++)//in periodic cosmological simulations every particle has the same mass
 		{
 			M[i] = M_tmp;
 		}
@@ -230,7 +276,7 @@ int main(int argc, char *argv[])
 			load_snapshot(IC_FILE_J, files);
 			gadget_format_conversion();
 			M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((double) N_IC_tot);
-			for(i=0;i<N;i++)//in cosmological simulations every particle has the same mass
+			for(i=0;i<N;i++)//in periodic gadget simulations every particlehhave the same mass
 			{
 				M[i] = M_tmp;
 			}
@@ -254,7 +300,7 @@ int main(int argc, char *argv[])
 			load_snapshot(IC_FILE, files);
 			gadget_format_conversion();
 			M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((double) N_IC_tot);
-			for(i=0;i<N;i++)//in cosmological simulations every particle has the same mass
+			for(i=0;i<N;i++)//in periodic cosmological simulations every particle has the same mass
                         {
                                 M[i] = M_tmp;
                         }

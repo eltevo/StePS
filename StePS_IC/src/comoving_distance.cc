@@ -3,6 +3,7 @@
 #include <math.h>
 #include <gsl/gsl_integration.h>
 #include <time.h>
+#include "kdtree.h"
 #include "global_variables.h"
 
 //calculating the comoving distance and redshift
@@ -85,7 +86,7 @@ void Calculate_redshifts()
 	DC = (double*)malloc(N_zlist*sizeof(double));
 	zlist = (double*)malloc(N_zlist*sizeof(double));
 	long int i;
-	//Searching the maximal meaningful redsift (from the maximal radial comoving distance)
+	//Searching the maximal meaningful redshift (from the maximal radial comoving distance)
 	for(i = 0; i<N_zlist; i++)
 	{
 		zlist[i] = z_max*(double)i/N_zlist;
@@ -99,7 +100,7 @@ void Calculate_redshifts()
 		i++;
 		z_max = zlist[i];
 	}
-	//Rebinning, using the maximal meaningful redsift.
+	//Rebinning, using the maximal meaningful redshift.
 	for(i = 0; i<N_zlist; i++)
 	{
 		zlist[i] = z_max*(double)i/N_zlist;
@@ -130,10 +131,9 @@ void Calculate_redshifts()
 	FILE *out_z_file=fopen(OUT_Z_LIST_file, "w");
 	FILE *out_limits_file=fopen(OUT_BIN_LIMITS_file, "w");
 	
-	printf("The output radial grid centers:\nr[Mpc]\t\tz\n");
+	//Writing output radial grid centers: r[Mpc] z;
 	for(i=0;i<R_GRID;i++)
 	{
-		printf("%.15f\t%e\n", r_bin_centers[i], z_bin_centers[i]);
 		fprintf(out_z_file,"%e\n", z_bin_centers[i]);
 		fprintf(out_limits_file,"%.15f\n", r_bin_limits[i]);
 	}

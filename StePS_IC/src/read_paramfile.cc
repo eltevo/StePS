@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include "kdtree.h"
 #include "global_variables.h"
 
 #define BUFF_SIZE 1024
@@ -43,6 +44,7 @@ char str25[] = "VOI_X";
 char str26[] = "VOI_Y";
 char str27[] = "VOI_Z";
 char str28[] = "TileFac";
+char str29[] = "SphericalGlassFILE";
 
 printf("Reading parameter file...\n");
 while(!feof(param_file))
@@ -192,26 +194,43 @@ while(!feof(param_file))
 			printf("Error: TileFac should be an odd number. TileFac set to %i.\n", TILEFAC);
 		}
         }
+	if(strstr(c, str29) != NULL)
+	{
+		for(i=19; c[i] != '\n';i++)
+		{
+			SphericalGlassFILE[i-19] = c[i];
+		}
+		char None[512] = "None";
+		if( strcmp(SphericalGlassFILE, None) != 0)
+		{
+			SPHERICAL_GLASS = 1;
+		}
+	}
 }
-printf("...done.\n");
+printf("...done.\n\n");
 fclose(param_file);
-printf("The readed parameters:\n");
+printf("The readed parameters:\n\n");
 printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%f\n\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*20.7386814448645, a_start);
-printf("Parameters of the IC file:\n------------------------\n");
-printf("Particle masses:\t\t%f\n\n", M_tmp);
+printf("Parameters of the IC file:\n--------------------------\n");
+printf("Particle masses:\t\t%f\n", M_tmp);
 printf("Box size\t\t\t%fMpc\nNumber of particles\t\t%llu\na_max\t\t\t\t%f\nInitial conditions\t\t%s\nOutput file\t\t\t%s\nSPHERE_DIAMETER\t\t\t%f\nR_CUT\t\t\t\t%f\nN_SIDE\t\t\t\t%i\nR_GRID\t\t\t\t%i\nFOR_COMOVING_INTEGRATION\t%i\nNUMBER_OF_INPUT_FILES\t\t%i\nN_IC_tot\t\t\t%llu\nTileFac\t\t\t\t%i\n",L,N,a_max,IC_FILE,OUT_FILE, SPHERE_DIAMETER, R_CUT, N_SIDE, R_GRID, FOR_COMOVING_INTEGRATION, NUMBER_OF_INPUT_FILES, N_IC_tot, TILEFAC);
-printf("The coordinates of the center of Volume-Of-Interest(VOI):\nVOI_x = %fMpc\tVOI_y = %fMpc\tVOI_z = %fMpc\n\n",VOI[0], VOI[1], VOI[2]);
-if(RANDOM_ROTATION == 1)
+if(SPHERICAL_GLASS == 0)
 {
-	printf("Random rotation is on.\nRANDOM_SEED\t\t\t%i\n",  RANDOM_SEED);
+	printf("\n\nWARNING: The code will not use spherical glass. This can cause errors in the simulations, if the initial redshift is too low!\n\n");
 }
 else
 {
-	printf("Random rotation is off\n");
+	printf("Spherical Glass file\t\t%s\n",SphericalGlassFILE);
+}
+if(RANDOM_ROTATION == 1)
+{
+	printf("Random rotation is\t\ton.\nRANDOM_SEED\t\t\t%i\n",  RANDOM_SEED);
+}
+else
+{
+	printf("Random rotation is\t\toff\n");
 	RANDOM_ROTATION = 0;
 }
+printf("The coordinates of the center of Volume-Of-Interest(VOI):\nVOI_x = %fMpc\tVOI_y = %fMpc\tVOI_z = %fMpc\n\n",VOI[0], VOI[1], VOI[2]);
 return;
 }
-
-
-

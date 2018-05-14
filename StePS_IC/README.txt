@@ -1,9 +1,10 @@
 StePS_IC - Initial Conditions for STEreographically Projected cosmological Simulations
 
-v0.2.0.0
+v0.3.0.0
 
-Gábor Rácz, 2017, 2018
-Department of Physics of Complex Systems, Eötvös Loránd University
+Gábor Rácz, 2017-2018
+	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
 ragraat@caesar.elte.hu
 
 IC generator for compactified cosmological simulations.
@@ -21,6 +22,7 @@ Installation:
 
 	To compile the code, first install the following libraries:
 	-Healpix 3.31 c++ library (http://healpix.sourceforge.net/downloads.php)
+	-kdtree (https://github.com/jtsiomb/kdtree)
 
 	You should modify the Makefile, to tell the compiler where can it find the necessary libraries. After the modification, simply type:
 
@@ -76,6 +78,7 @@ VOI_X           1000.0					%x coordinate of the touching point
 VOI_Y           1000.0					%y coordinate of the touching point
 VOI_Z           930.026572187777			%z coordinate of the touching point
 TileFac		3					%number of copies of the original periodic box per axe
+SphericalGlassFILE	glass.dat			%Input spherical glass file with theta and phi coordinates
 
 *********************************************************************************************
 
