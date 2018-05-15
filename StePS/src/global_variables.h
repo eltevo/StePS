@@ -19,7 +19,13 @@ extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts consi
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 
 extern int n_GPU; //number of cuda capable GPUs
-//extern int GPU_ID; //ID of the GPU
+//variables for MPI
+extern int numtasks, rank;
+extern int N_mpi_thread; //Number of calculated forces in one MPI thread
+extern int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in one MPI thread
+extern MPI_Status Stat;
+extern REAL* F_buffer; //buffer for force copy
+extern int BUFFER_start_ID;
 
 extern int e[2202][4]; //ewald space
 extern int H[2202][4]; //ewald space
@@ -38,8 +44,9 @@ extern double H_RESTART; //Hubble-parameter at the time of restart
 extern REAL* M; //Particle masses
 extern REAL M_tmp;
 extern int N; //Number of particles
-extern REAL** x; //particle coordinates and velocities
-extern REAL** F; //Forces
+extern REAL* x; //particle coordinates
+extern REAL* v; //and velocities
+extern REAL* F; //Forces
 extern REAL w[3]; //Parameters for smoothing in force calculation
 extern REAL beta; //Particle radii
 extern REAL ParticleRadi; //Particle radii; readed from parameter file
@@ -53,8 +60,8 @@ extern REAL G; //Newtonian gravitational constant
 //Cosmological parameters
 extern double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param, Hubble_tmp;
 extern double rho_crit; //Critical density
-extern double a, a_start, a_prev, a_prev1, a_prev2, a_tmp; //Scalefactor, scalefactor at the starting time, previous scalefactor
-extern double T, h_prev, delta_a, Omega_m_eff; //Physical time, previous timestep length, change of scalefactor, effectve Omega_m
+extern double a, a_start, a_prev, a_tmp; //Scalefactor, scalefactor at the starting time, previous scalefactor
+extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, effectve Omega_m
 
 //Functions
 //Initial timestep length calculation
@@ -63,4 +70,4 @@ double calculate_init_h();
 double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0);
 void recalculate_softening();
 //This function calculates the deceleration parameter
-double CALCULATE_decel_param(double a, double a_prev1, double a_prev2, double h, double h_prev);
+double CALCULATE_decel_param(double a);

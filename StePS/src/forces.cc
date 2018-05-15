@@ -3,6 +3,7 @@
 #include <math.h>
 #include <omp.h>
 #include <time.h>
+#include "mpi.h"
 #include "global_variables.h"
 
 #ifdef USE_SINGLE_PRECISION
@@ -31,21 +32,20 @@ void recalculate_softening()
 	}
 }
 
-void forces(REAL**x, REAL**F, int ID_min, int ID_max) //Force calculation
+void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 {
 //timing
-REAL start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-REAL omp_start_time = omp_get_wtime();
+double omp_start_time = omp_get_wtime();
 //timing
 REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv;
 REAL SOFT_CONST[5];
 
 int i, j, k, chunk;
-for(i=ID_min; i<ID_max+1; i++)
+for(i=0; i<N_mpi_thread; i++)
 {
         for(k=0; k<3; k++)
         {
-                F[i][k] = 0;
+                F[3*i+k] = 0;
         }
 }
         REAL r, betai, dx, dy, dz, wij;
@@ -65,9 +65,9 @@ for(i=ID_min; i<ID_max+1; i++)
                 {
 			beta_priv = (betai+cbrt(M[j]*const_beta))/2;
 			//calculating particle distances
-                        dx=x[j][0]-x[i][0];
-			dy=x[j][1]-x[i][1];
-			dz=x[j][2]-x[i][2];
+                        dx=x[3*j]-x[3*i];
+			dy=x[3*j+1]-x[3*i+1];
+			dz=x[3*j+2]-x[3*i+2];
 			//in this function we use only the nearest image
 			if(IS_PERIODIC==1)
 			{
@@ -106,48 +106,44 @@ for(i=ID_min; i<ID_max+1; i++)
 			Fy_tmp = wij*(dy);
 			Fz_tmp = wij*(dz);
 			#pragma omp atomic
-                        F[i][0] += Fx_tmp;
+                        F[3*(i-ID_min)] += Fx_tmp;
 			#pragma omp atomic
-                        F[i][1] += Fy_tmp;
+                        F[3*(i-ID_min)+1] += Fy_tmp;
 			#pragma omp atomic
-                        F[i][2] += Fz_tmp;
+                        F[3*(i-ID_min)+2] += Fz_tmp;
 
 
                 }
 		if(COSMOLOGY == 1 && IS_PERIODIC == 0 && COMOVING_INTEGRATION == 1)//Adding the external force from the outside of the simulation volume, if we run non-periodic comoving cosmological simulation
 		{
-			F[i][0] += mass_in_unit_sphere * x[i][0];
-			F[i][1] += mass_in_unit_sphere * x[i][1];
-			F[i][2] += mass_in_unit_sphere * x[i][2];
+			F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i];
+			F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];
+			F[3*(i-ID_min)+2] += mass_in_unit_sphere * x[3*i+2];
 		}
 	}
 
         }
 //timing
-REAL end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-REAL omp_end_time = omp_get_wtime();
+double omp_end_time = omp_get_wtime();
 //timing
-printf("Force calculation finished.\n");
-printf("Force CPU time = %fs\n", end_time-start_time);
-printf("Force RUN time = %fs\n", omp_end_time-omp_start_time);
+printf("Force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
 return;
 }
 
-void forces_periodic(REAL**x, REAL**F, int ID_min, int ID_max) //force calculation with multiple images
+void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation with multiple images
 {
 //timing
-REAL start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-REAL omp_start_time = omp_get_wtime();
+double omp_start_time = omp_get_wtime();
 //timing
 REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv;
 REAL SOFT_CONST[5];
 
 	int i, j, k, m, chunk;
-	for(i=ID_min; i<ID_max+1; i++)
+	for(i=0; i<N_mpi_thread; i++)
 	{
 		for(k=0; k<3; k++)
 		{
-			F[i][k] = 0;
+			F[3*i+k] = 0;
 		}
 	}
 	REAL r, betai, dx, dy, dz, wij;
@@ -170,9 +166,9 @@ REAL SOFT_CONST[5];
 			Fz_tmp = 0;
 			beta_priv = (betai+cbrt(M[j]*const_beta))/2;
 			//calculating particle distances inside the simulation box
-			dx=x[j][0]-x[i][0];
-			dy=x[j][1]-x[i][1];
-			dz=x[j][2]-x[i][2];
+			dx=x[3*j]-x[3*i];
+			dy=x[3*j+1]-x[3*i+1];
+			dz=x[3*j+2]-x[3*i+2];
 			//In here we use multiple images
 			for(m=0;m<el;m++) 
 			{
@@ -207,21 +203,18 @@ REAL SOFT_CONST[5];
 				}
 			}
 			#pragma omp atomic
-                        F[i][0] += Fx_tmp;
+                        F[3*(i-ID_min)] += Fx_tmp;
 			#pragma omp atomic
-                        F[i][1] += Fy_tmp;
+                        F[3*(i-ID_min)+1] += Fy_tmp;
 			#pragma omp atomic
-                        F[i][2] += Fz_tmp;
+                        F[3*(i-ID_min)+2] += Fz_tmp;
 		}
 		}
 	}
 //timing
-REAL end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-REAL omp_end_time = omp_get_wtime();
+double omp_end_time = omp_get_wtime();
 //timing
-printf("Force calculation finished.\n");
-printf("CPU time = %fs\n", end_time-start_time);
-printf("RUN time = %fs\n", omp_end_time-omp_start_time);
+printf("Force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
 return;
 }
 

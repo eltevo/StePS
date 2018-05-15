@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include "mpi.h"
 #include "global_variables.h"
 
 #define BUFF_SIZE 1024
@@ -14,8 +15,38 @@ typedef double REAL;
 
 char in_file[BUFF_SIZE];
 
+void BCAST_global_parameters();
+
 void read_param(FILE *param_file);
 
+void BCAST_global_parameters()
+{
+	//Cosmological parameters
+	MPI_Bcast(&Omega_b,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Omega_lambda,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Omega_dm,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Omega_r,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&H0,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&COSMOLOGY,1,MPI_INT,0,MPI_COMM_WORLD);
+	//Simulation parameters
+	//the rank != 0 tasks do not need all of the simulation parameters
+	MPI_Bcast(&IS_PERIODIC,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&a_max,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&a_start,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&COMOVING_INTEGRATION,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&OUTPUT_FORMAT,1,MPI_INT,0,MPI_COMM_WORLD);
+#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(&L,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&mean_err,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&ParticleRadi,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+#else
+	MPI_Bcast(&L,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&mean_err,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#endif
+return;	
+}
 
 void read_param(FILE *param_file)
 {

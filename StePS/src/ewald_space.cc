@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include "mpi.h"
 #include "global_variables.h"
 
 #ifdef USE_SINGLE_PRECISION

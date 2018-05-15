@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "mpi.h"
 #include "global_variables.h"
 
 #ifdef USE_SINGLE_PRECISION
@@ -64,8 +65,6 @@ double Time, Redshift;
 
 
 
-/* here the particle data is at your disposal 
- */
 int gadget_format_conversion(void)
 {
 	int k, i;
@@ -94,9 +93,9 @@ int gadget_format_conversion(void)
 		if(P[k].Type == 1)
 		{
 			//We do not use the h=H0/100km/s/Mpc factors
-			x[i][0] = (REAL)P[k].Pos[0]/1000.0/header1.HubbleParam;
-			x[i][1] = (REAL)P[k].Pos[1]/1000.0/header1.HubbleParam;
-			x[i][2] = (REAL)P[k].Pos[2]/1000.0/header1.HubbleParam;
+			x[3*i] = (REAL)P[k].Pos[0]/1000.0/header1.HubbleParam;
+			x[3*i+1] = (REAL)P[k].Pos[1]/1000.0/header1.HubbleParam;
+			x[3*i+2] = (REAL)P[k].Pos[2]/1000.0/header1.HubbleParam;
 			i++;
 		}
 
@@ -110,9 +109,9 @@ int gadget_format_conversion(void)
 		if(P[k].Type == 1)
 		{
 			//Converting particle velocities (GADGET uses km/s)
-			x[i][3] = (REAL)P[k].Vel[0]*0.0482190732645461;
-			x[i][4] = (REAL)P[k].Vel[1]*0.0482190732645461;
-			x[i][5] = (REAL)P[k].Vel[2]*0.0482190732645461;
+			v[3*i] = (REAL)P[k].Vel[0]*0.0482190732645461;
+			v[3*i+1] = (REAL)P[k].Vel[1]*0.0482190732645461;
+			v[3*i+2] = (REAL)P[k].Vel[2]*0.0482190732645461;
 			i++;
 		}
 	}

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <math.h>
+#include "mpi.h"
 #include "global_variables.h"
 
 #ifdef USE_SINGLE_PRECISION
@@ -111,7 +112,7 @@ double friedman_solver_step(double a0, double h, double Omega_lambda, double Ome
 }
 
 
-double CALCULATE_decel_param(double a, double a_prev1, double a_prev2, double h, double h_prev)
+double CALCULATE_decel_param(double a)
 {
 	double Decel_param_out;
 	double SUM_OMEGA_TMP = Omega_m*pow(a, -3.0) + Omega_r*pow(a, -4.0) + Omega_lambda + Omega_k*pow(a, -2.0);

@@ -1,23 +1,29 @@
 StePS - STEreographically Projected cosmological Simulations
 
-v0.2.0.0
-
-Gábor Rácz, 2017, 2018
-Department of Physics of Complex Systems, Eötvös Loránd University
+v0.3.0.2
+Gábor Rácz, 2017-2018
+	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
 ragraat@caesar.elte.hu
+
+This code is still under development!
 
 Cosmological simulation code for compactified cosmological simulations.
 - written in C++
-- parallelized with OpenMP and CUDA
-- able to use multiple GPUs in a single computing node
-- read Gadget2 and ascii IC formats
-- output in ascii format
-- Able to run standard periodic and spherical cosmological simulations
+- parallelized with MPI, OpenMP and CUDA
+- able to use multiple GPUs in a large computing cluster
+- direct N^2 force calculation
+- can read Gadget2 and ascii IC formats
+- the output in ascii format
+- able to run standard periodic and spherical cosmological simulations
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************
 
 Installation:
+	For the successful compilation, the code needs the following libraries:
+		-OpenMPI (https://www.open-mpi.org/) other MPI implemetations should work too.
+		-CUDA (https://developer.nvidia.com/cuda-downloads) this is optional. Use only if you want to accelerate the simulations with Nvidia GPUs
 	You should modify the Makefile, to tell the compiler where can it find the necessary libraries. After the modification, simply type:
 
         make
@@ -25,12 +31,14 @@ Installation:
 *********************************************************************************************
 
 Once you compiled the code, you can simply run it by typing:
-	./StePS <parameterfile>
+	export OMP_NUM_THREADS=<Number of shared memory OMP threads>
+	mpirun -n <number of MPI tasks> ./StePS <parameterfile>
 where the parameterfile specifies the parameters of the simulation.
 
 If you comiled the code for CUDA simulation,  you can simply run it by typing:
-        ./StePS_CUDA <parameterfile> <GPU_ID>
-where the parameterfile specifies the parameters of the simulation, and the GPU_ID is the id of the target GPU (eg. 0 or 1).
+	export OMP_NUM_THREADS=<Number of GPUs>
+        mpirun -n <number of MPI tasks> ./StePS_CUDA <parameterfile> <Number of GPUs per tasks>
+
 
 *********************************************************************************************
 

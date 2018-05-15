@@ -5,6 +5,7 @@
 #include <omp.h>
 #include <time.h>
 #include <algorithm>
+#include "mpi.h"
 #include "global_variables.h"
 
 #ifdef USE_SINGLE_PRECISION
@@ -19,8 +20,10 @@ int H[2202][4];
 REAL SOFT_CONST[8];
 REAL w[3];
 double a_max;
-REAL** x;
-REAL** F;
+REAL* x;
+REAL* v;
+REAL* F;
+bool* IN_CONE;
 double h, h_min, h_max, T, t_next, t_bigbang;
 REAL mean_err;
 double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
@@ -28,7 +31,12 @@ double rho_crit; //Critical density
 REAL mass_in_unit_sphere; //Mass in unit sphere
 
 int n_GPU; //number of cuda capable GPUs
-//int GPU_ID; //ID of the GPU
+int numtasks, rank; //Variables for MPI
+int N_mpi_thread; //Number of calculated forces in one MPI thread
+int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in one MPI thread
+MPI_Status Stat;
+int BUFFER_start_ID;
+REAL* F_buffer;
 
 REAL x4, err, errmax;
 REAL beta, ParticleRadi, rho_part, M_min;
@@ -57,7 +65,7 @@ REAL* M;//Particle mass
 REAL M_tmp;
 double a, a_start,a_prev,a_tmp;//Scalefactor, scalefactor at the starting time, previous scalefactor
 double Omega_m_eff; //Effective Omega_m
-double delta_a, a_prev1, a_prev2, h_prev;
+double delta_a;
 
 int RESTART; //Restarted simulation(0=no, 1=yes)
 double T_RESTART; //Time of restart
@@ -75,32 +83,25 @@ int reordering(void);
 void read_ic(FILE *ic_file, int N);
 void read_param(FILE *param_file);
 int read_OUT_LST();
-void step(REAL** x, REAL** F);
-void kiiras(REAL** x);
-void Log_write(REAL** x);
-void forces(REAL** x, REAL** F, int ID_min, int ID_max);
-void forces_periodic(REAL**x, REAL**F, int ID_min, int ID_max);
+void step(REAL* x, REAL* v, REAL* F);
+void kiiras(REAL* x, REAL* v);
+void Log_write();
+void forces(REAL* x, REAL* F, int ID_min, int ID_max);
+void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
 double friedmann_solver_start(double a0, double t0, double h, double Omega_lambda, double Omega_r, double Omega_m, double H0, double a_start);
 double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0);
 int ewald_space(REAL R, int ewald_index[2102][4]);
-double CALCULATE_decel_param(double a, double a_prev1, double a_prev2, double h, double h_prev);
-
+double CALCULATE_decel_param(double a);
+//Functions used in MPI parallelisation
+void BCAST_global_parameters();
 
 void read_ic(FILE *ic_file, int N)
 {
 int i,j;
 
-x = (REAL**)malloc(N*sizeof(REAL*)); //Allocating memory
-for(i = 0; i < N; i++)
-	{
-		x[i] = (REAL*)malloc(6*sizeof(REAL));
-	}
-
-F = (REAL**)malloc(N*sizeof(REAL*)); 
-for(i = 0; i < N; i++)
-{
-	F[i] = (REAL*)malloc(3*sizeof(REAL));
-}
+x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
+v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
+F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
 M = (REAL*)malloc(N*sizeof(REAL));
 
 
@@ -108,14 +109,22 @@ printf("\nReading IC from the %s file...\n", IC_FILE);
 for(i=0; i<N; i++) //reading
 {
 	//Reading particle coordinates
-	for(j=0; j<6; j++)
+	for(j=0; j<3; j++)
 	{
 		#ifdef USE_SINGLE_PRECISION
-		fscanf(ic_file, "%f", & x[i][j]);
+		fscanf(ic_file, "%f", &x[3*i + j]);
 		#else
-		fscanf(ic_file, "%lf", & x[i][j]);
+		fscanf(ic_file, "%lf", &x[3*i + j]);
 		#endif
 
+	}
+	for(j=0; j<3; j++)
+	{
+		#ifdef USE_SINGLE_PRECISION
+		fscanf(ic_file, "%f", &v[3*i + j]);
+		#else
+		fscanf(ic_file, "%lf", &v[3*i + j]);
+		#endif
 	}
 	//Reading particle masses
 	#ifdef USE_SINGLE_PRECISION
@@ -176,7 +185,6 @@ int read_OUT_LST()
 	}
 	out_list = (double*)malloc(size*sizeof(double));
 	int offset;
-	printf("The readed output redshift list:\n");
 	for(i=0; i<size; i++)
 	{
 		sscanf(buffer, "%lf%n", &out_list[i], &offset);
@@ -236,18 +244,12 @@ int read_OUT_LST()
 			return (-1);
 		}
 	}
-	i=0;
-	while(out_list[i]>MIN_REDSHIFT && i < out_list_size)
-	{
-			printf("Out_z[%i] = \t%f\n", i, out_list[i]);
-			i++;
-	}
 	printf("\n");
 	return 0;	
 
 }
 
-void write_redshift_cone(REAL**x, double *limits, int z_index, int delta_z_index, int ALL)
+void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL)
 {
 	//Writing out the redshift cone
 	char filename[0x400];
@@ -265,14 +267,19 @@ void write_redshift_cone(REAL**x, double *limits, int z_index, int delta_z_index
 	{
 		for(i=0; i<N; i++)
 		{
-			COMOVING_DISTANCE = sqrt(x[i][0]*x[i][0] + x[i][1]*x[i][1] +x[i][2]*x[i][2]);
-			if(limits[z_index+1] < COMOVING_DISTANCE && COMOVING_DISTANCE <= limits[z_index-delta_z_index+1])
+			COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
+			if(limits[z_index+1] <= COMOVING_DISTANCE && IN_CONE[i] == false )
 			{
-				for(j=0; j<6; j++)
+				for(j=0; j<3; j++)
 				{
-					fprintf(redshiftcone_file, "%.16f\t",x[i][j]);
+					fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
+				}
+				for(j=0; j<3; j++)
+				{
+					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
 				}
 				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
+				IN_CONE[i] = true;
 				COUNT++;
 			}
 		}
@@ -281,8 +288,8 @@ void write_redshift_cone(REAL**x, double *limits, int z_index, int delta_z_index
 	{
 		for(i=0; i<N; i++)
 		{
-			COMOVING_DISTANCE = sqrt(x[i][0]*x[i][0] + x[i][1]*x[i][1] +x[i][2]*x[i][2]);
-			if(COMOVING_DISTANCE <= limits[z_index-delta_z_index+1])
+			COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
+			if(IN_CONE[i] == false)
 			{
 				//searching for the proper redshift shell
 				j=z_index;
@@ -294,11 +301,16 @@ void write_redshift_cone(REAL**x, double *limits, int z_index, int delta_z_index
 						break;
 					}
 				}
-				for(j=0; j<6; j++)
+				for(j=0; j<3; j++)
 				{
-					fprintf(redshiftcone_file, "%.16f\t",x[i][j]);
+					fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
+				}
+				for(j=0; j<3; j++)
+				{
+					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
 				}
 				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
+				IN_CONE[i] = true;
 				COUNT++;
 			}
 		}
@@ -309,7 +321,7 @@ void write_redshift_cone(REAL**x, double *limits, int z_index, int delta_z_index
 	
 }
 
-void kiiras(REAL** x)
+void kiiras(REAL* x, REAL *v)
 {
 	int i,k;
 	char A[20];
@@ -364,9 +376,13 @@ void kiiras(REAL** x)
 
 	for(i=0; i<N; i++)
 	{
-		for(k=0; k<6; k++)
+		for(k=0; k<3; k++)
 		{
-			fprintf(coordinate_file, "%.16f\t",x[i][k]);
+			fprintf(coordinate_file, "%.16f\t",x[3*i+k]);
+		}
+		for(k=0; k<3; k++)
+		{
+			fprintf(coordinate_file, "%.16f\t",v[3*i+k]);
 		}
 		fprintf(coordinate_file, "%.16f\t",M[i]);
 		fprintf(coordinate_file, "\n");
@@ -375,7 +391,7 @@ void kiiras(REAL** x)
 	fclose(coordinate_file);
 }
 
-void Log_write(REAL** x) //Writing logfile
+void Log_write() //Writing logfile
 {
 	FILE *LOGFILE;
 	char A[] = "Logfile.dat";
@@ -389,31 +405,60 @@ void Log_write(REAL** x) //Writing logfile
 
 int main(int argc, char *argv[])
 {
-	printf("----------------------------------------------------------------------------------------------\nStePS v0.2.0.0\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
-	printf("Build date: %lu\n----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
-	int i;
+	//initialize MPI
+	MPI_Init(&argc,&argv);
+	// get number of tasks
+	MPI_Comm_size(MPI_COMM_WORLD,&numtasks);
+	// get my rank
+	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+	if(rank == 0)
+	{
+		printf("----------------------------------------------------------------------------------------------\nStePS v0.3.0.2\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+		printf("Build date: %lu\n----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
+	}
+	if(numtasks != 1 && rank == 0)
+	{
+		printf("Number of MPI tasks: %i\n", numtasks);
+	}
+	int i,j;
 	int CONE_ALL=0;
 	RESTART = 0;
 	T_RESTART = 0;
 	OUTPUT_FORMAT = 0;
-	if( argc < 2)
+	if( argc < 2 )
 	{
-		fprintf(stderr, "Missing parameter file!\n");
-		fprintf(stderr, "Call with: ./StePS  <parameter file>\n");
+		if(rank == 0)
+		{
+			fprintf(stderr, "Missing parameter file!\n");
+			fprintf(stderr, "Call with: ./StePS  <parameter file>\n");
+		}
 		return (-1);
 	}
 	else if(argc > 3)
 	{
-		fprintf(stderr, "Too many arguments!\n");
-		fprintf(stderr, "Call with: ./StePS  <parameter file>\nor with: ./StePS_CUDA  <parameter file> \'i\', where \'i\' is the number of the cuda capable GPUs.\n");
+		if(rank == 0)
+		{
+			fprintf(stderr, "Too many arguments!\n");
+			fprintf(stderr, "Call with: ./StePS  <parameter file>\nor with: ./StePS_CUDA  <parameter file> \'i\', where \'i\' is the number of the cuda capable GPUs.\n");
+		}
 		return (-1);
-	} 
-	FILE *param_file = fopen(argv[1], "r");
-	read_param(param_file);
+	}
+	//the rank=0 thread reads the paramfile, and bcast the variables to the other threads 
+	if(rank == 0)
+	{
+		FILE *param_file = fopen(argv[1], "r");
+		read_param(param_file);
+	}
+	BCAST_global_parameters();
+	if(rank == 0)
+		N_mpi_thread = (N/numtasks) + (N%numtasks);
+	else
+		N_mpi_thread = N/numtasks;
 	if(argc == 3)
 	{
 		n_GPU = atoi( argv[2] );
-		printf("Using %i cuda capable GPU\n", n_GPU);
+		if(rank == 0)
+			printf("Using %i cuda capable GPU per MPI task.\n", n_GPU);
 	}
 	else
 	{
@@ -439,62 +484,88 @@ int main(int argc, char *argv[])
 	}
 	if(OUTPUT_FORMAT ==1)
 	{
-		if(0 != read_OUT_LST())
+		if(rank == 0)
 		{
-			fprintf(stderr, "Exiting.\n");
+			if(0 != read_OUT_LST())
+			{
+				fprintf(stderr, "Exiting.\n");
+				return (-2);
+			}
+		}
+	}
+	if(rank == 0)
+	{
+		if(REDSHIFT_CONE == 1 && COSMOLOGY != 1)
+		{
+			fprintf(stderr, "Error: you can not use redshift cone output format in non-cosmological simulations. \nExiting.\n");
 			return (-2);
 		}
-	}
-	if(REDSHIFT_CONE == 1 && COSMOLOGY != 1)
-	{
-		fprintf(stderr, "Error: you can not use redshift cone output format in non-cosmological simulations. \nExiting.\n");
-		return (-2);
-	}
-	if(REDSHIFT_CONE == 1 && OUTPUT_FORMAT != 1)
-	{
-		fprintf(stderr, "Error: you must use redshift output format in redshift cone simulations. \nExiting.\n");
-		return (-2);
-	}
-	if(IC_FORMAT != 0 && IC_FORMAT != 1)
-        {
-                fprintf(stderr, "Error: bad IC format!\nExiting.\n");
-                return (-1);
-        }
-	if(IC_FORMAT == 0)
-	{
-		FILE *ic_file = fopen(IC_FILE, "r");
-		read_ic(ic_file, N);
-	}
-	if(IC_FORMAT == 1)
-	{
-		int files;
-		printf("The IC file is in Gadget format.\nThe IC determines the box size.\n");
-		files = 1;      /* number of files per snapshot */
-		x = (REAL**)malloc(N*sizeof(REAL*)); //Allocating memory
-		for(i = 0; i < N; i++)
+		if(REDSHIFT_CONE == 1 && OUTPUT_FORMAT != 1)
 		{
-			x[i] = (REAL*)malloc(6*sizeof(REAL));
+			fprintf(stderr, "Error: you must use redshift output format in redshift cone simulations. \nExiting.\n");
+			return (-2);
 		}
-		F = (REAL**)malloc(N*sizeof(REAL*));
-		for(i = 0; i < N; i++)
+		if(REDSHIFT_CONE == 1)
 		{
-			F[i] = (REAL*)malloc(3*sizeof(REAL));
+			//Allocating memory for the bool array
+			IN_CONE = new bool[N];
+			std::fill(IN_CONE, IN_CONE+N, false ); //setting every element to false
 		}
+		if(IC_FORMAT != 0 && IC_FORMAT != 1)
+		{
+			fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+			return (-1);
+		}
+		if(IC_FORMAT == 0)
+		{
+			FILE *ic_file = fopen(IC_FILE, "r");
+			read_ic(ic_file, N);
+		}
+		if(IC_FORMAT == 1)
+		{
+			int files;
+			printf("The IC file is in Gadget format.\nThe IC determines the box size.\n");
+			files = 1;      /* number of files per snapshot */
+			x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
+			v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
+			F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
+			M = (REAL*)malloc(N*sizeof(REAL));
+			load_snapshot(IC_FILE, files);
+			reordering();
+			gadget_format_conversion();
+		}
+		//Rescaling speeds. If one uses Gadget format: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
+		if(RESTART == 0 && COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
+		{
+		for(i=0;i<N;i++)
+		{
+			v[3*i] = v[3*i]/sqrt(a_start);
+			v[3*i+1] = v[3*i+1]/sqrt(a_start);
+			v[3*i+2] = v[3*i+2]/sqrt(a_start);
+		}
+		}
+		if(numtasks > 1)
+		{
+			F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL));
+		}
+	}
+	else
+	{
+		//Allocating memory for the particle datas on the rank != 0 MPI threads
+		x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory fo the coordinates
+		v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
+		F = (REAL*)malloc(3*N_mpi_thread*sizeof(REAL));//There is no need to allocate for N forces. N/numtasks should be enough
 		M = (REAL*)malloc(N*sizeof(REAL));
-		load_snapshot(IC_FILE, files);
-		reordering();
-		gadget_format_conversion();
+
 	}
-	//Rescaling speeds. If one uses Gadget format: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
-        if(RESTART == 0 && COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
-	{
-	for(i=0;i<N;i++)
-	{
-		x[i][3] = x[i][3]/sqrt(a_start);
-		x[i][4] = x[i][4]/sqrt(a_start);
-		x[i][5] = x[i][5]/sqrt(a_start);
-	}
-	}
+	//Bcasting the ICs to the rank!=0 threads
+#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
+        MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+#else
+	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#endif
 	//Critical density, Gravitational constant and particle masses
 	G = 1;
 	if(COSMOLOGY == 1)
@@ -502,13 +573,14 @@ int main(int argc, char *argv[])
 	if(COMOVING_INTEGRATION == 1)
 	{
 		Omega_m = Omega_b+Omega_dm;
-                Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
+		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3*H0*H0/(8*pi*G);
 		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((REAL) N);
 		if(IS_PERIODIC>0)
 		{
-		printf("Every particle has the same mass in periodic cosmological simulations.\nM=%.10f*10e+11M_sol\n", M_tmp);
+		if(rank == 0)
+			printf("Every particle has the same mass in periodic cosmological simulations.\nM=%.10f*10e+11M_sol\n", M_tmp);
 		for(i=0;i<N;i++)//Every particle has the same mass in periodic cosmological simulations
 		{
 			M[i] = M_tmp;
@@ -519,10 +591,12 @@ int main(int argc, char *argv[])
 	{
 		if(IS_PERIODIC>0)
 		{
-			fprintf(stderr, "Error: COSMOLOGY = 1, IS_PERIODOC>0 and COMOVING_INTEGRATION = 0!\nThis code can not handle non-comoving periodic cosmological simulations.\nExiting.\n");
+			if(rank == 0)
+				fprintf(stderr, "Error: COSMOLOGY = 1, IS_PERIODOC>0 and COMOVING_INTEGRATION = 0!\nThis code can not handle non-comoving periodic cosmological simulations.\nExiting.\n");
 			return (-1);
 		}
-		printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nNon-comoving, full Newtonian cosmological simulation. If you want physical solution, you should set Omega_lambda to zero.\na_max is used as maximal time in Gy in the parameter file.\n\n");
+		if(rank == 0)
+			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nNon-comoving, full Newtonian cosmological simulation. If you want physical solution, you should set Omega_lambda to zero.\na_max is used as maximal time in Gy in the parameter file.\n\n");
 		Omega_m = Omega_b+Omega_dm;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3*H0*H0/(8*pi*G);
@@ -530,30 +604,41 @@ int main(int argc, char *argv[])
 	}
 	else
 	{
-		printf("Running classical gravitational N-body simulation.\n");
+		if(rank == 0)
+			printf("Running classical gravitational N-body simulation.\n");
 	}
 	//Searching the minimal mass particle
-	M_min = M[0];
-	for(i=0;i<N;i++)
+	if(rank == 0)
 	{
-		if(M_min>M[i])
+		M_min = M[0];
+		for(i=0;i<N;i++)
 		{
-			M_min = M[i];
+			if(M_min>M[i])
+			{
+				M_min = M[i];
+			}
 		}
+		rho_part = M_min/(4.0*pi*pow(ParticleRadi, 3.0) / 3.0);
 	}
-	rho_part = M_min/(4.0*pi*pow(ParticleRadi, 3.0) / 3.0);
-	T=0.0;
+#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(&M_min,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&rho_part,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+#else
+	MPI_Bcast(&M_min,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&rho_part,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#endif
 	beta = ParticleRadi;
 	a=a_start;//scalefactor	
-	recalculate_softening();
 	t_next = 0.;
-	T = 0;
-	REAL Delta_T_out;
+	T = 0.0;
+	REAL Delta_T_out = 0;
 	if(COSMOLOGY == 0)
 		a=1;//scalefactor
 	int out_z_index = 0;
 	int delta_z_index = 1;
-	//Calculating initial time
+	//Calculating initial time on the task=0 MPI thread
+	if(rank == 0)
+	{
 	if(COSMOLOGY == 1)
 	{
 		a = a_start;
@@ -632,52 +717,104 @@ int main(int argc, char *argv[])
 		Delta_T_out = H_OUT;
 		t_next = T+Delta_T_out;
 	}
+	}
+	//Bcasting the initial time and other variables
+	MPI_Bcast(&t_next,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&T,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	double SIM_omp_start_time;
 	//Timing
-	REAL SIM_start_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-	REAL SIM_omp_start_time = omp_get_wtime();
+	SIM_omp_start_time = omp_get_wtime();
 	//Timing
-
+	if(rank == 0)
+		printf("Initial force calculation...\n");
 	//Initial force calculation
-	if(IS_PERIODIC < 2)
+	if(rank==0)
 	{
-		forces(x, F, 0, N-1);
-	}
-	if(IS_PERIODIC == 2)
-	{
-		forces_periodic(x, F, 0, N-1);
-	}
-	
-	//The simulation is starting...
-	if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
-	{
-	a_prev1 = friedman_solver_step(a, -1*h, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
-	a_prev2 = friedman_solver_step(a_prev1, -1*h, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
+		ID_MPI_min = 0;
+		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
+		if(IS_PERIODIC < 2)
+		{
+			forces(x, F, ID_MPI_min, ID_MPI_max);
+		}
+		if(IS_PERIODIC == 2)
+		{
+			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+		}
 	}
 	else
 	{
-	a_prev1 = a;
-	a_prev2 = a;
+		ID_MPI_min = (N%numtasks) + (rank)*(N/numtasks);
+		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
+		if(IS_PERIODIC < 2)
+		{
+			forces(x, F, ID_MPI_min, ID_MPI_max);
+		}
+		if(IS_PERIODIC == 2)
+		{
+			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+		}
 	}
-	h_prev = h;
+	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
+	if(rank !=0)
+	{
+#ifdef USE_SINGLE_PRECISION
+		MPI_Send(F, 3*N_mpi_thread, MPI_FLOAT, 0, rank, MPI_COMM_WORLD);
+#else
+		MPI_Send(F, 3*N_mpi_thread, MPI_DOUBLE, 0, rank, MPI_COMM_WORLD);
+#endif
+	}
+	else
+	{
+		if(numtasks > 1)
+		{
+			for(i=1; i<numtasks;i++)
+			{
+				BUFFER_start_ID = i*(N/numtasks)+(N%numtasks); 
+#ifdef USE_SINGLE_PRECISION
+				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
+#else
+				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+#endif
+				for(j=0; j<(N/numtasks); j++)
+				{
+					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
+					F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];
+					F[3*(BUFFER_start_ID+j)+2] = F_buffer[3*j+2];
+				}
+			}
+		}
+	}
+	//The simulation is starting...
 	//Calculating the initial Hubble parameter, using the Friedmann-equations
 	if(COSMOLOGY == 1)
 	{
 		Hubble_tmp = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
 		Hubble_param = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
-		printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*20.7386814448645);
+		if(rank == 0)
+			printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*20.7386814448645);
 	}
 	if(COSMOLOGY == 0 || COMOVING_INTEGRATION == 0)
 	{
 		Hubble_param = 0;
 	}
-	//calculating the initial timestep length:
-	h = calculate_init_h();
-	printf("The simulation is starting...\n");
+	if(rank == 0)
+	{
+		h = calculate_init_h();
+		if(h>h_max)
+                {
+			h=h_max;
+                }
+	}
+	MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	if(rank == 0)
+		printf("The simulation is starting...\n");
 	REAL T_prev,Hubble_param_prev;
 	T_prev = T;
 	Hubble_param_prev = Hubble_param;
 	for(t=0; a_tmp<a_max; t++)
 	{
+		if(rank == 0)
+		{
 		printf("\n\n----------------------------------------------------------------------------------------------\n");
 		if(COSMOLOGY == 1)
                 {
@@ -694,117 +831,122 @@ int main(int argc, char *argv[])
                 {
                         printf("Timestep %i, t=%f, h=%f:\n", t, T, h);
                 }
+		}
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
 		T = T+h;
-		step(x, F);
-		Log_write(x);	//Writing logfile
-
-		if(OUTPUT_FORMAT == 0)
+		step(x, v, F);
+		if(rank == 0)
 		{
-			if(T > t_next)
+			Log_write();	//Writing logfile
+			if(OUTPUT_FORMAT == 0)
 			{
-				kiiras(x);
-				t_next=t_next+Delta_T_out;
-				if(COSMOLOGY == 1)
+				if(T > t_next)
 				{
-					printf("t = %f Gy\n\th=%f Gy\n", T*47.1482347621227, h*47.1482347621227);
+					kiiras(x, v);
+					t_next=t_next+Delta_T_out;
+					if(COSMOLOGY == 1)
+					{
+						printf("t = %f Gy\n\th=%f Gy\n", T*47.1482347621227, h*47.1482347621227);
+					}
+					else
+					{
+						printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
+					}
 				}
-				else
+			}
+			else
+			{
+				if( 1.0/a-1.0 < t_next)
 				{
-					printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
+					if(REDSHIFT_CONE != 1)
+						kiiras(x, v);
+					if(REDSHIFT_CONE == 1)
+					{
+						if(a_tmp >= a_max)
+						{
+							CONE_ALL = 1;
+							printf("Last timestep.\n");
+							kiiras(x, v);
+						}
+						write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
+					}
+					if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
+					{
+						if( (out_z_index+delta_z_index+8) < out_list_size)
+							delta_z_index += 8;
+						else
+							CONE_ALL = 1;
+					}
+					if(CONE_ALL == 1)
+					{
+						t_next = 0.0;
+					}
+					else
+					{
+						out_z_index += delta_z_index;
+						t_next = out_list[out_z_index];
+					}
+					if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
+					{
+						CONE_ALL = 1;
+						printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
+						
+						t_next = 0.0;
+					}
 				}
+			}
+			h = (double) pow(2*mean_err/errmax, 0.5);
+			if(h<h_min)
+			{
+				h=h_min;
+			}
+			if(h>h_max)
+			{
+				h=h_max;
+			}
+		}
+		MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	}
+	if(OUTPUT_FORMAT == 0 && rank == 0)
+	{
+		kiiras(x, v); //writing output
+	}
+	if(rank == 0)
+	{
+		printf("\n\n----------------------------------------------------------------------------------------------\n");
+		printf("The simulation ended. The final state:\n");
+		if(COSMOLOGY == 1)
+		{
+			if(COMOVING_INTEGRATION == 1)
+			{
+				printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*47.1482347621227, h*47.1482347621227, a, Hubble_param*20.7386814448645, a_max/a-1.0);
+
+				double a_end, b_end;
+				a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
+				b_end = Hubble_param_prev-a_end*a_prev;
+				double H_end = a_max*a_end+b_end;
+				a_end = (T - T_prev)/(a-a_prev);
+			        b_end = T_prev-a_end*a_prev;
+				double T_end = a_max*a_end+b_end;
+				printf("\nAt a = %f state, with linear interpolation:\n",a_max);
+				printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*47.1482347621227, a_max, H_end*20.7386814448645);
+			}
+			else
+			{
+				printf("Timestep %i, t=%.8fGy, h=%f\n", t, T*47.1482347621227, h*47.1482347621227);
 			}
 		}
 		else
 		{
-			if( 1.0/a-1.0 < t_next)
-			{
-				kiiras(x);
-				if(REDSHIFT_CONE == 1)
-				{
-					if(a_tmp >= a_max)
-					{
-						CONE_ALL = 1;
-						printf("Last timestep.\n");
-					}
-					write_redshift_cone(x, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
-				}
-				if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
-				{
-					if( (out_z_index+delta_z_index+8) < out_list_size)
-						delta_z_index += 8;
-					else
-						CONE_ALL = 1;
-				}
-				if(CONE_ALL == 1)
-				{
-					t_next = 0.0;
-				}
-				else
-				{
-					out_z_index += delta_z_index;
-					t_next = out_list[out_z_index];
-				}
-				if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
-				{
-					CONE_ALL = 1;
-					printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
-					
-					t_next = 0.0;
-				}
-			}
+			printf("Timestep %i, t=%f, h=%f, a=%f:\n", t, T, h, a);
 		}
-		//Changing timestep length
-		h_prev = h;
-		h = (double) pow(2*mean_err*beta/errmax, 0.5);
-
-		if(h<h_min)
-		{
-			h=h_min;
-		}
-		if(h>h_max)
-		{
-			h=h_max;
-		}
+		//Timing
+		double SIM_omp_end_time = omp_get_wtime();
+		//Timing
+		printf("Wall-clock time of the simulation = %fs\n", SIM_omp_end_time-SIM_omp_start_time);
 	}
-	if(OUTPUT_FORMAT == 0)
-	{
-		kiiras(x); //writing output
-	}
-	printf("\n\n----------------------------------------------------------------------------------------------\n");
-	printf("The simulation ended. The final state:\n");
-	if(COSMOLOGY == 1)
-        {
-	if(COMOVING_INTEGRATION == 1)
-	{
-	printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*47.1482347621227, h*47.1482347621227, a, Hubble_param*20.7386814448645, a_max/a-1.0);
-
-	double a_end, b_end;
-	a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
-	b_end = Hubble_param_prev-a_end*a_prev;
-	double H_end = a_max*a_end+b_end;
-	a_end = (T - T_prev)/(a-a_prev);
-        b_end = T_prev-a_end*a_prev;
-	double T_end = a_max*a_end+b_end;
-	printf("\nAt a = %f state, with linear interpolation:\n",a_max);
-	printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*47.1482347621227, a_max, H_end*20.7386814448645);
-	}
-	else
-	{
-	printf("Timestep %i, t=%.8fGy, h=%f\n", t, T*47.1482347621227, h*47.1482347621227);
-	}
-	}
-	else
-	{
-		printf("Timestep %i, t=%f, h=%f, a=%f:\n", t, T, h, a);
-	}
-	printf("Running time of the simulation:\n");
-	//Timing
-	REAL SIM_end_time = (REAL) clock () / (REAL) CLOCKS_PER_SEC;
-	REAL SIM_omp_end_time = omp_get_wtime();
-	//Timing
-	printf("CPU time = %fs\n", SIM_end_time-SIM_start_time);
-	printf("RUN time = %fs\n", SIM_omp_end_time-SIM_omp_start_time);
+	// done with MPI
+	MPI_Finalize();
 	return 0;
 }
