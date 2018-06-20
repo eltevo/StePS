@@ -48,9 +48,9 @@ double calculate_init_h()
 		for(k=0;k<3;k++)
 		{
 			//calculating the maximal acceleration for the initial timestep
-			ACCELERATION[k] = (F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+			ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 		}
-		err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 3.0);
+		err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 2.0);
 		if(err>errmax)
 		{
 			errmax = err;
@@ -76,7 +76,7 @@ void step(REAL* x, REAL* v, REAL* F)
 		{
 			for(k=0; k<3; k++)
 			{
-				ACCELERATION[k] = (F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 				v[3*i+k] = v[3*i+k] + ACCELERATION[k]*(REAL)(h/2.0);
 				x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
 			}
@@ -177,16 +177,29 @@ void step(REAL* x, REAL* v, REAL* F)
 		{
 			for(k=0; k<3; k++)
 			{
-				ACCELERATION[k] = (F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 				v[3*i+k] = v[3*i+k] + ACCELERATION[k]*(REAL)(h/2.0);
 			}
-			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 3.0);
+			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 2.0);
 			if(err>errmax)
 			{
 					errmax = err;
 			}
 		}
 		printf("KDK Leapfrog integration...done.\n");
+		#ifdef GLASS_MAKING
+		if( t % 4 == 0)
+		{
+			printf("Glass making: setting all velocities to zero.\n");
+			for(i=0; i<N; i++)
+                	{
+                        	for(k=0; k<3; k++)
+                        	{
+					v[3*i+k] = 0.0;
+				}
+			}
+		}
+		#endif
 	}
 	//Timing
 	double step_omp_end_time = omp_get_wtime();

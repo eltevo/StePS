@@ -15,7 +15,6 @@
 extern int H[2202][4];
 extern int e[2202][4];
 extern REAL w[3];
-extern REAL G;
 extern int N, hl, el;
 
 

@@ -60,7 +60,6 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 
 double epsilon=1;
 double sigma=1;
-REAL G;//Newtonian gravitational constant
 REAL* M;//Particle mass
 REAL M_tmp;
 double a, a_start,a_prev,a_tmp;//Scalefactor, scalefactor at the starting time, previous scalefactor
@@ -413,9 +412,17 @@ int main(int argc, char *argv[])
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	if(rank == 0)
 	{
-		printf("----------------------------------------------------------------------------------------------\nStePS v0.3.0.2\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+		printf("----------------------------------------------------------------------------------------------\nStePS v0.3.1.0\n (STEreographically Projected cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
 		printf("Build date: %lu\n----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
 	}
+	#ifdef GLASS_MAKING
+	printf("\tGlass Making.\n");
+	#endif
+	#ifdef USE_SINGLE_PRECISION
+	printf("\tSingle precision (32bit) force calculation.\n\n");
+	#else
+	printf("\tDouble precision (64bit) force calculation.\n\n");
+	#endif
 	if(numtasks != 1 && rank == 0)
 	{
 		printf("Number of MPI tasks: %i\n", numtasks);
@@ -566,8 +573,7 @@ int main(int argc, char *argv[])
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
-	//Critical density, Gravitational constant and particle masses
-	G = 1;
+	//Critical density and particle masses
 	if(COSMOLOGY == 1)
 	{
 	if(COMOVING_INTEGRATION == 1)

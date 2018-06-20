@@ -74,14 +74,21 @@ double friedman_solver_step(double a0, double h, double Omega_lambda, double Ome
 		collapse=1;
 	}
 	b = a0;
-	if(fabs(Omega_k) < 1e-8)
+	if(fabs(Omega_k) < 1e-9)
 	{
+		j=Omega_m*pow(b, -3.0)+Omega_r*pow(b, -4.0)+Omega_lambda;
 		k1 = b*H0*sqrt(Omega_m*pow(b, -3.0)+Omega_r*pow(b, -4.0)+Omega_lambda);
+		l=Omega_m*pow((b+h*k1/2.0), -3.0)+Omega_r*pow((b+h*k1/2), -4.0)+Omega_lambda;
 		k2 = (b+h*k1/2.0)*H0*sqrt(Omega_m*pow((b+h*k1/2.0), -3.0)+Omega_r*pow((b+h*k1/2), -4.0)+Omega_lambda);
+		m=Omega_m*pow((b+h*k2/2.0), -3.0)+Omega_r*pow((b+h*k2/2), -4.0)+Omega_lambda;
 		k3 = (b+h*k2/2.0)*H0*sqrt(Omega_m*pow((b+h*k2/2.0), -3.0)+Omega_r*pow((b+h*k2/2), -4.0)+Omega_lambda);
+		n=Omega_m*pow((b+h*k3), -3.0)+Omega_r*pow((b+h*k3), -4.0)+Omega_lambda;
 		k4 = (b+h*k3)*H0*sqrt(Omega_m*pow((b+h*k3), -3.0)+Omega_r*pow((b+h*k3), -4.0)+Omega_lambda);
 		K = h*(k1+k2*2.0+k3*2.0+k4)/6.0;
-		b += K;
+		if(j<0||l<0||m<0||n<0)
+			b=-1;
+		else
+			b += K;
 	}
 	else
 	{

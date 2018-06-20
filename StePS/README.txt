@@ -1,6 +1,6 @@
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.0.2
+v0.3.1.0
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -16,6 +16,7 @@ Cosmological simulation code for compactified cosmological simulations.
 - can read Gadget2 and ascii IC formats
 - the output in ascii format
 - able to run standard periodic and spherical cosmological simulations
+- able to make spherical glass
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************
@@ -36,7 +37,7 @@ Once you compiled the code, you can simply run it by typing:
 where the parameterfile specifies the parameters of the simulation.
 
 If you comiled the code for CUDA simulation,  you can simply run it by typing:
-	export OMP_NUM_THREADS=<Number of GPUs>
+	export OMP_NUM_THREADS=<Number of GPUs per tasks>
         mpirun -n <number of MPI tasks> ./StePS_CUDA <parameterfile> <Number of GPUs per tasks>
 
 

@@ -1,4 +1,9 @@
 #define pi 3.14159265358979323846264338327950288419716939937510
+#ifdef GLASS_MAKING //Newtonian gravitational constant (in internal units)
+#define G -1.0 //Gravity is repulsive, if Glassmaking is on.
+#else
+#define G 1.0 //Normal gravity
+#endif
 
 #ifdef USE_SINGLE_PRECISION
 typedef float REAL;
@@ -44,6 +49,7 @@ extern double H_RESTART; //Hubble-parameter at the time of restart
 extern REAL* M; //Particle masses
 extern REAL M_tmp;
 extern int N; //Number of particles
+extern int t; //Number of the actual timestep
 extern REAL* x; //particle coordinates
 extern REAL* v; //and velocities
 extern REAL* F; //Forces
@@ -54,8 +60,6 @@ extern REAL rho_part; //One particle density
 //extern REAL SOFT_CONST[8]; //Parameters for smoothing in force calculation
 extern REAL M_min; //minimal particle mass
 extern REAL mass_in_unit_sphere; //Mass in unit sphere
-
-extern REAL G; //Newtonian gravitational constant
 
 //Cosmological parameters
 extern double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param, Hubble_tmp;
