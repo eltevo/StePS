@@ -12,7 +12,7 @@ USING_CUDA = NO
 SINGLE_PRECISION = 0
 
 #------------------------------- Glass making options
-#OPT += -DGLASS_MAKING 
+#OPT += -DGLASS_MAKING=4 
 
 #------------------------------- Compiler and flags
 CXX = g++

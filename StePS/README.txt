@@ -1,6 +1,13 @@
+   _____ _       _____   _____ 
+  / ____| |     |  __ \ / ____|
+ | (___ | |_ ___| |__) | (___ 
+  \___ \| __/ _ \  ___/ \___ \
+  ____) | ||  __/ |     ____) |
+ |_____/ \__\___|_|    |_____/
+
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.1.0
+v0.3.1.1
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -14,9 +21,9 @@ Cosmological simulation code for compactified cosmological simulations.
 - able to use multiple GPUs in a large computing cluster
 - direct N^2 force calculation
 - can read Gadget2 and ascii IC formats
-- the output in ascii format
+- the output is in ascii format
 - able to run standard periodic and spherical cosmological simulations
-- able to make spherical glass
+- able to make spherical glass (this part is untested)
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************

@@ -188,7 +188,7 @@ void step(REAL* x, REAL* v, REAL* F)
 		}
 		printf("KDK Leapfrog integration...done.\n");
 		#ifdef GLASS_MAKING
-		if( t % 4 == 0)
+		if( t % int(GLASS_MAKING) == 0)
 		{
 			printf("Glass making: setting all velocities to zero.\n");
 			for(i=0; i<N; i++)
