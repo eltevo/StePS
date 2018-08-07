@@ -260,7 +260,7 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 	if(ALL == 0)
 		printf("Saving: z=%f:\t%fMpc<Dc<%fMpc bin of the\n%s redshift cone.\ndelta_z_index = %i\n",out_list[z_index], limits[z_index+1], limits[z_index-delta_z_index+1], filename, delta_z_index);
 	else
-		printf("Saving: z=%f:\tDc<%f\n%s\n redshift cone.\n", t_next, limits[z_index-delta_z_index+1], filename);
+		printf("Saving: z=%f:\tDc<%fMpc\n%s\n redshift cone.\n", t_next, limits[z_index-delta_z_index+1], filename);
 	FILE *redshiftcone_file = fopen(filename, "a");
 	if(ALL == 0)
 	{
@@ -412,8 +412,8 @@ int main(int argc, char *argv[])
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	if(rank == 0)
 	{
-		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS v0.3.1.1\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Gabor Racz, 2017-2018\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|");
-		printf("Build date: %lu\t\t\t\t\t\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n\n", (unsigned long) &__BUILD_DATE);
+		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Gabor Racz, 2017-2018\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
+		printf("Build date: %i\t\t\t\t\t\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n\n", int(BUILD_DATE));
 	}
 	#ifdef GLASS_MAKING
 	printf("\tGlass Making.\n");
@@ -573,6 +573,19 @@ int main(int argc, char *argv[])
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
+	#ifdef GLASS_MAKING
+	//setting all velocities to zero
+	int k;
+	if(rank == 0)
+		printf("Glass making: setting all velocities to zero.\n");
+	for(i=0; i<N; i++)
+	{
+		for(k=0; k<3; k++)
+		{
+			v[3*i+k] = 0.0;
+		}
+	}
+	#endif
 	//Critical density and particle masses
 	if(COSMOLOGY == 1)
 	{
@@ -651,7 +664,7 @@ int main(int argc, char *argv[])
 		a_tmp = a;
 		if(COMOVING_INTEGRATION == 1)
 		{
-			printf("a_start/a_today=%.8f\tz=%.8f\n", a, 1/a-1);
+			printf("a_start=%.9f\tz=%.9f\n", a, 1/a-1);
 		}
 		if(RESTART == 0)
 		{

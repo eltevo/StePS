@@ -102,9 +102,9 @@ __global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const 
 			}
 			if(COSMOLOGY == 1 && IS_PERIODIC == 0 && COMOVING_INTEGRATION == 1)//Adding the external force from the outside of the simulation volume, if we run non-periodic comoving cosmological simulation
 			{
-				Fx_tmp += mass_in_unit_sphere * xx[i];
-				Fy_tmp += mass_in_unit_sphere * xy[i];
-				Fz_tmp += mass_in_unit_sphere * xz[i];
+				Fx_tmp += G*mass_in_unit_sphere * xx[i];
+				Fy_tmp += G*mass_in_unit_sphere * xy[i];
+				Fz_tmp += G*mass_in_unit_sphere * xz[i];
 			}
 			F[3*(i-ID_min)] += Fx_tmp;
 			F[3*(i-ID_min)+1] += Fy_tmp;

@@ -67,6 +67,11 @@ void step(REAL* x, REAL* v, REAL* F)
 	double step_omp_start_time = omp_get_wtime();
 	//Timing
 	int i, j, k;
+	#ifdef GLASS_MAKING
+	REAL disp,dmax,dmean;
+	dmax = 0.0;
+	dmean = 0.0;
+	#endif
 	REAL ACCELERATION[3];
 	errmax = 0;
 	if(rank == 0)
@@ -80,6 +85,12 @@ void step(REAL* x, REAL* v, REAL* F)
 				v[3*i+k] = v[3*i+k] + ACCELERATION[k]*(REAL)(h/2.0);
 				x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
 			}
+			#ifdef GLASS_MAKING
+				disp = sqrt(pow(v[3*i]*(REAL)(h), 2) + pow(v[3*i+1]*(REAL)(h), 2) + pow(v[3*i+2]*(REAL)(h), 2));
+				dmean +=  disp;
+				if(dmax <= disp)
+					dmax = disp;
+			#endif
 		}
 		//If we are using periodic boundary conditions, the code move every "out-of-box" particle inside the box
 		if(IS_PERIODIC != 0)
@@ -188,6 +199,8 @@ void step(REAL* x, REAL* v, REAL* F)
 		}
 		printf("KDK Leapfrog integration...done.\n");
 		#ifdef GLASS_MAKING
+		dmean = dmean/((REAL) N);
+		printf("Glass making: A_max = %e\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n", errmax/pow(a, 2.0),dmean,dmax);
 		if( t % int(GLASS_MAKING) == 0)
 		{
 			printf("Glass making: setting all velocities to zero.\n");
