@@ -117,6 +117,7 @@ for(i=0; i<N; i++) //reading
 		#endif
 
 	}
+	//Reading the velocities
 	for(j=0; j<3; j++)
 	{
 		#ifdef USE_SINGLE_PRECISION
@@ -244,7 +245,7 @@ int read_OUT_LST()
 		}
 	}
 	printf("\n");
-	return 0;	
+	return 0;
 
 }
 
@@ -315,9 +316,9 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 		}
 	}
 	fclose(redshiftcone_file);
-	printf("%i particles were written out.\n", COUNT); 
+	printf("%i particles were written out.\n", COUNT);
 	COUNT = 0;
-	
+
 }
 
 void kiiras(REAL* x, REAL *v)
@@ -381,7 +382,12 @@ void kiiras(REAL* x, REAL *v)
 		}
 		for(k=0; k<3; k++)
 		{
+			//writing out zero speeds if glassmaking is on
+			#ifdef GLASS_MAKING
+			fprintf(coordinate_file, "%.16f\t", 0.0);
+			#else
 			fprintf(coordinate_file, "%.16f\t",v[3*i+k]);
+			#endif
 		}
 		fprintf(coordinate_file, "%.16f\t",M[i]);
 		fprintf(coordinate_file, "\n");
@@ -416,12 +422,15 @@ int main(int argc, char *argv[])
 		printf("Build date: %i\t\t\t\t\t\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n\n", int(BUILD_DATE));
 	}
 	#ifdef GLASS_MAKING
-	printf("\tGlass Making.\n");
+	if(rank == 0)
+		printf("\tGlass Making.\n");
 	#endif
 	#ifdef USE_SINGLE_PRECISION
-	printf("\tSingle precision (32bit) force calculation.\n\n");
+	if(rank == 0)
+		printf("\tSingle precision (32bit) force calculation.\n\n");
 	#else
-	printf("\tDouble precision (64bit) force calculation.\n\n");
+	if(rank == 0)
+		printf("\tDouble precision (64bit) force calculation.\n\n");
 	#endif
 	if(numtasks != 1 && rank == 0)
 	{
@@ -450,7 +459,7 @@ int main(int argc, char *argv[])
 		}
 		return (-1);
 	}
-	//the rank=0 thread reads the paramfile, and bcast the variables to the other threads 
+	//the rank=0 thread reads the paramfile, and bcast the variables to the other threads
 	if(rank == 0)
 	{
 		FILE *param_file = fopen(argv[1], "r");
@@ -593,7 +602,7 @@ int main(int argc, char *argv[])
 	{
 		Omega_m = Omega_b+Omega_dm;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
-		rho_crit = 3*H0*H0/(8*pi*G);
+		rho_crit = 3*H0*H0/(8*pi);
 		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((REAL) N);
 		if(IS_PERIODIC>0)
@@ -618,7 +627,7 @@ int main(int argc, char *argv[])
 			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nNon-comoving, full Newtonian cosmological simulation. If you want physical solution, you should set Omega_lambda to zero.\na_max is used as maximal time in Gy in the parameter file.\n\n");
 		Omega_m = Omega_b+Omega_dm;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
-		rho_crit = 3*H0*H0/(8*pi*G);
+		rho_crit = 3*H0*H0/(8*pi);
 	}
 	}
 	else
@@ -647,7 +656,7 @@ int main(int argc, char *argv[])
 	MPI_Bcast(&rho_part,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
 	beta = ParticleRadi;
-	a=a_start;//scalefactor	
+	a=a_start;//scalefactor
 	t_next = 0.;
 	T = 0.0;
 	REAL Delta_T_out = 0;
@@ -788,7 +797,7 @@ int main(int argc, char *argv[])
 		{
 			for(i=1; i<numtasks;i++)
 			{
-				BUFFER_start_ID = i*(N/numtasks)+(N%numtasks); 
+				BUFFER_start_ID = i*(N/numtasks)+(N%numtasks);
 #ifdef USE_SINGLE_PRECISION
 				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
 #else
@@ -830,6 +839,7 @@ int main(int argc, char *argv[])
 	REAL T_prev,Hubble_param_prev;
 	T_prev = T;
 	Hubble_param_prev = Hubble_param;
+	//Main loop
 	for(t=0; a_tmp<a_max; t++)
 	{
 		if(rank == 0)
@@ -854,6 +864,7 @@ int main(int argc, char *argv[])
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
 		T = T+h;
+		fflush(stdout);
 		step(x, v, F);
 		if(rank == 0)
 		{
@@ -879,8 +890,12 @@ int main(int argc, char *argv[])
 				if( 1.0/a-1.0 < t_next)
 				{
 					if(REDSHIFT_CONE != 1)
+					{
 						kiiras(x, v);
-					if(REDSHIFT_CONE == 1)
+						out_z_index += delta_z_index;
+                                                t_next = out_list[out_z_index];
+					}
+					else
 					{
 						if(a_tmp >= a_max)
 						{
@@ -889,29 +904,29 @@ int main(int argc, char *argv[])
 							kiiras(x, v);
 						}
 						write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
-					}
-					if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
-					{
-						if( (out_z_index+delta_z_index+8) < out_list_size)
-							delta_z_index += 8;
+						if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
+						{
+							if( (out_z_index+delta_z_index+8) < out_list_size)
+								delta_z_index += 8;
+							else
+								CONE_ALL = 1;
+						}
+						if(CONE_ALL == 1)
+						{
+							t_next = 0.0;
+						}
 						else
+						{
+							out_z_index += delta_z_index;
+							t_next = out_list[out_z_index];
+						}
+						if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
+						{
 							CONE_ALL = 1;
-					}
-					if(CONE_ALL == 1)
-					{
-						t_next = 0.0;
-					}
-					else
-					{
-						out_z_index += delta_z_index;
-						t_next = out_list[out_z_index];
-					}
-					if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
-					{
-						CONE_ALL = 1;
-						printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
-						
-						t_next = 0.0;
+							printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
+
+							t_next = 0.0;
+						}
 					}
 				}
 			}

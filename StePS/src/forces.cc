@@ -115,9 +115,9 @@ for(i=0; i<N_mpi_thread; i++)
                 }
 		if(COSMOLOGY == 1 && IS_PERIODIC == 0 && COMOVING_INTEGRATION == 1)//Adding the external force from the outside of the simulation volume, if we run non-periodic comoving cosmological simulation
 		{
-			F[3*(i-ID_min)] += G*mass_in_unit_sphere * x[3*i];
-			F[3*(i-ID_min)+1] += G*mass_in_unit_sphere * x[3*i+1];
-			F[3*(i-ID_min)+2] += G*mass_in_unit_sphere * x[3*i+2];
+			F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i];
+			F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];
+			F[3*(i-ID_min)+2] += mass_in_unit_sphere * x[3*i+2];
 		}
 	}
 

@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.1.3
+v0.3.2.0
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -23,7 +23,7 @@ Cosmological simulation code for compactified cosmological simulations.
 - can read Gadget2 and ascii IC formats
 - the output is in ascii format
 - able to run standard periodic and spherical cosmological simulations
-- able to make spherical glass
+- able to make periodic, quasiperiodic and spherical glass
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************

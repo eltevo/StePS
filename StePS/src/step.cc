@@ -13,7 +13,7 @@ typedef double REAL;
 #endif
 
 //This file describe one simulation timestep
-//We use KDK integrator for the N-body simulation 
+//We use KDK integrator for the N-body simulation
 
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL* x, REAL*F, int ID_min, int ID_max);
@@ -50,7 +50,11 @@ double calculate_init_h()
 			//calculating the maximal acceleration for the initial timestep
 			ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 		}
+		#ifdef GLASS_MAKING
+                err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
+                #else
 		err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 2.0);
+		#endif
 		if(err>errmax)
 		{
 			errmax = err;
@@ -58,7 +62,7 @@ double calculate_init_h()
 	}
 	printf("Initial timestep length calculated. h_start=%fGy\n",  (double) pow(2*mean_err/errmax, 0.5)*47.1482347621227);
 	return (double) pow(2*mean_err/errmax, 0.5);
-	
+
 }
 
 void step(REAL* x, REAL* v, REAL* F)
@@ -191,7 +195,11 @@ void step(REAL* x, REAL* v, REAL* F)
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 				v[3*i+k] = v[3*i+k] + ACCELERATION[k]*(REAL)(h/2.0);
 			}
+			#ifdef GLASS_MAKING
+			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
+			#else
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 2.0);
+			#endif
 			if(err>errmax)
 			{
 					errmax = err;

@@ -4,7 +4,7 @@
 # Gabor Racz, 2017-2018
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v0.3.1.3"'
+VERSION='"v0.3.2.0"'
 #---------------------------------------------------------------------------------------------
 
 
@@ -13,7 +13,7 @@ USING_CUDA = YES
 SINGLE_PRECISION = 0
 
 #------------------------------- Glass making options
-#OPT += -DGLASS_MAKING=512 
+#OPT += -DGLASS_MAKING=2048
 
 #------------------------------- Compiler and flags
 CXX = g++
