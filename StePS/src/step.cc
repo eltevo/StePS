@@ -208,7 +208,10 @@ void step(REAL* x, REAL* v, REAL* F)
 		printf("KDK Leapfrog integration...done.\n");
 		#ifdef GLASS_MAKING
 		dmean = dmean/((REAL) N);
-		printf("Glass making: A_max = %e\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n", errmax/pow(a, 2.0),dmean,dmax);
+		if(dmax>1.0)
+			printf("Glass making: A_max = %e\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n", errmax/pow(a, 2.0),dmean,dmax);
+		else
+			 printf("Glass making: A_max = %e\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n", errmax/pow(a, 2.0),dmean*1000,dmax*1000);
 		if( t % int(GLASS_MAKING) == 0)
 		{
 			printf("Glass making: setting all velocities to zero.\n");

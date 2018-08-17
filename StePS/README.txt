@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.2.0
+v0.3.2.1
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -90,11 +90,11 @@ OUT_DIR         ../examples/LCDM_SP_1260_343M_com_VOI_1000/		%output directory
 OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output redshift list
 OUTPUT_FORMAT   1						%output format 0: time, 1: redshift
 REDSHIFT_CONE   1						%0: standard output files 1: one output redshift cone file
-MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0.
+MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 a_max           1.0						%The final scalefactor
-mean_err        0.030						%specified error
-h_min           0.00000530242545158534				%minimal timestep length
-h_max           0.000662803181448164				%maximal timestep length
+mean_err        0.030						%Accuracy parameter
+h_min           0.00025						%minimal timestep length (in Gy)
+h_max           0.03125						%maximal timestep length (in Gy)
 ParticleRadi    0.134226516867827				%smoothing length of particle with minimal mass
 FIRST_T_OUT     0.50						%first output time
 H_OUT           0.50						%output frequency

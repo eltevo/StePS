@@ -4,12 +4,12 @@
 # Gabor Racz, 2017-2018
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v0.3.2.0"'
+VERSION='"v0.3.2.1"'
 #---------------------------------------------------------------------------------------------
 
 
 #------------------------------- GPU and precision options
-USING_CUDA = YES
+USING_CUDA = NO
 SINGLE_PRECISION = 0
 
 #------------------------------- Glass making options
@@ -17,7 +17,9 @@ SINGLE_PRECISION = 0
 
 #------------------------------- Compiler and flags
 CXX = g++
-BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE=$$(date +'%Y%m%d') -DPROGRAM_VERSION=$(VERSION)
+COMPILERVERSION=$(shell $(CXX) --version | head -1)
+DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
+BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"'
 CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=gnu++98 -fopenmp -lgomp
 
 MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
@@ -29,7 +31,9 @@ MPI_INC = /usr/include/mpi
 
 ifeq ($(USING_CUDA), YES)
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr
+CUDA_PATH       ?= /usr/local/cuda
+OPT += -DUSE_CUDA
+BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
 CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi
@@ -62,6 +66,8 @@ clean:
 	rm -fv $(OBJ) $(PROG)
 
 else
+
+BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS"'
 
 SRC = main.cc forces.cc ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
 OBJ = main.o forces.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o

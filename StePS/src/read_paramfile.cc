@@ -403,17 +403,17 @@ if(COSMOLOGY == 1)
 {
 	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%f\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*20.7386814448645, a_start);
 	printf("COMOVING_INTEGRATION\t%i\n\n", COMOVING_INTEGRATION);
+	//Converting the Gy inputs into internal units
+	h_min /= 47.1482347621227;
+	h_max /= 47.1482347621227;
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min*47.1482347621227,h_max*47.1482347621227,IC_FILE,OUT_DIR);
 }
 else
 {
 	printf("Non cosmological simulation.\n---------------------------\nParticle masses:\t%f\n\n", M_tmp);
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min,IC_FILE,OUT_DIR);
 }
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\na_max\t\t\t\t%f\nPrescribed error\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min,IC_FILE,OUT_DIR);
-	Hubble_param = 0.0;
-	if(COSMOLOGY == 0 || COMOVING_INTEGRATION == 0)
-	{
-		Hubble_param = 0;
-	}
+Hubble_param = 0.0;
 return;
 }
 

@@ -403,7 +403,7 @@ void Log_write() //Writing logfile
 	char filename[0x100];
 	snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A);
 	LOGFILE = fopen(filename, "a");
-	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*47.1482347621227, errmax, h*47.1482347621227, a, a_max/a-1, Hubble_param*20.7386814448645, Decel_param, Omega_m_eff);
+	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*47.1482347621227, errmax, h*47.1482347621227, a, 1.0/a-1.0, Hubble_param*20.7386814448645, Decel_param, Omega_m_eff);
 	fclose(LOGFILE);
 }
 
@@ -419,8 +419,12 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 	{
 		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Gabor Racz, 2017-2018\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
-		printf("Build date: %i\t\t\t\t\t\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n\n", int(BUILD_DATE));
+		printf("Build date: %s\t\t\t\t\t\t\t|\n|Compiled with: %s\t\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n\n", BUILD_DATE, COMPILER_VERSION);
 	}
+	#ifdef USE_CUDA
+	if(rank == 0)
+		printf("\tUsing CUDA capable GPUs for force calculation.\n");
+	#endif
 	#ifdef GLASS_MAKING
 	if(rank == 0)
 		printf("\tGlass Making.\n");
@@ -446,7 +450,7 @@ int main(int argc, char *argv[])
 		if(rank == 0)
 		{
 			fprintf(stderr, "Missing parameter file!\n");
-			fprintf(stderr, "Call with: ./StePS  <parameter file>\n");
+			fprintf(stderr, "Call with: ./%s  <parameter file>\n", PROGRAMNAME);
 		}
 		return (-1);
 	}
@@ -455,7 +459,11 @@ int main(int argc, char *argv[])
 		if(rank == 0)
 		{
 			fprintf(stderr, "Too many arguments!\n");
-			fprintf(stderr, "Call with: ./StePS  <parameter file>\nor with: ./StePS_CUDA  <parameter file> \'i\', where \'i\' is the number of the cuda capable GPUs.\n");
+			#ifndef USE_CUDA
+				fprintf(stderr, "Call with: ./%s  <parameter file>\n", PROGRAMNAME);
+			#else
+				fprintf(stderr, "Call with: ./%s  <parameter file> \'i\', where \'i\' is the number of the CUDA capable GPUs.\nif \'i\' is not set, than one GPU will be used.\n", PROGRAMNAME);
+			#endif
 		}
 		return (-1);
 	}
@@ -954,7 +962,7 @@ int main(int argc, char *argv[])
 		{
 			if(COMOVING_INTEGRATION == 1)
 			{
-				printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*47.1482347621227, h*47.1482347621227, a, Hubble_param*20.7386814448645, a_max/a-1.0);
+				printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*47.1482347621227, h*47.1482347621227, a, Hubble_param*20.7386814448645, 1.0/a-1.0);
 
 				double a_end, b_end;
 				a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
