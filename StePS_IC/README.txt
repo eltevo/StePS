@@ -1,6 +1,6 @@
 StePS_IC - Initial Conditions for STEreographically Projected cosmological Simulations
 
-v0.3.0.0
+v0.3.1.0
 
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
@@ -37,7 +37,7 @@ where the parameterfile specifies the parameters of the IC generation.
 *********************************************************************************************
 
 Output format for the IC file:
-        x[Mpc]  y[Mpc]  z[Mpc]  v_x[20.7386814448645km/s] v_y[20.7386814448645km/s] v_z[20.7386814448645km/s] M[1e11M_sol]
+        x[Mpc]  y[Mpc]  z[Mpc]  v_x[km/s] v_y[km/s] v_z[km/s] M[1e11M_sol]
 
 
 *********************************************************************************************

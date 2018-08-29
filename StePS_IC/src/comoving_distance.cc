@@ -77,7 +77,7 @@ double z_DC(double Dcom, double *z_list, double* DC_array, long int array_size)
 void Calculate_redshifts()
 {
 	printf("\nCalculating redshifts for the spherical sells...\n\n");
-	printf("The cosmological parameters:\nH0 =\t%fkm/s/Mpc\nOmega_m =\t%f\nOmega_r =\t%f\nOmega_lambda =\t%f\nOmega_k =%f\n", H0/0.0482190732645461, Omega_m, Omega_r, Omega_lambda, 1.0-Omega_m-Omega_r-Omega_lambda);
+	printf("The cosmological parameters:\nH0 =\t%fkm/s/Mpc\nOmega_m =\t%f\nOmega_r =\t%f\nOmega_lambda =\t%f\nOmega_k =%f\n", H0*UNIT_V, Omega_m, Omega_r, Omega_lambda, 1.0-Omega_m-Omega_r-Omega_lambda);
 
 
 	double z_max = 1.0/a_start-1.0;

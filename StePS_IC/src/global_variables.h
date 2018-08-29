@@ -1,5 +1,6 @@
 #define pi 3.14159265358979323846264338327950288419716939937510
-
+#define UNIT_T 47.14829951063323 //Unit time in Gy
+#define UNIT_V 20.738652969925447 //Unit velocity in km/s
 
 extern double L; //Size of the simulation box
 extern double SPHERE_DIAMETER; //diameter of the 4D sphere in Mpc used in the stereographic projection

@@ -138,8 +138,8 @@ void kiiras(FILE *outfile, double** x, int N)
 
 int main(int argc, char *argv[])
 {
-	printf("-----------------------------------------------------------------------------------------------\nStePS_IC v0.3.0.0\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
-	printf("Build date: %lu\n-----------------------------------------------------------------------------------------------\n\n", (unsigned long) &__BUILD_DATE);
+	printf("-----------------------------------------------------------------------------------------------\nStePS_IC v0.3.1.0\n (Initial Conditions for Stereographically Projected Cosmological Simulations)\n\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+	printf("Build date: %s\nCompiled with: %s\n-----------------------------------------------------------------------------------------------\n\n", BUILD_DATE, COMPILER_VERSION);
 	if( argc != 2)
         {
                 fprintf(stderr, "Missing parameter file!\n");
@@ -319,8 +319,8 @@ int main(int argc, char *argv[])
 		Calculate_redshifts();
 		if(FOR_COMOVING_INTEGRATION == 0)
 		{
-			printf("According to the cosmological parameters:\nH_start=%.16fkm/s/Mpc\nThe code will use the H_start readed from the parameter file.\n", H0*sqrt(Omega_m*pow(a_start, -3.0) + Omega_lambda + Omega_k*pow(a_start, -2.0))*20.7386814448645);
-			printf("Using non-comoving coordinates. Transforming the velocities with H_start=%f km/s/Mpc\n\n", H0_start*20.7386814448645);
+			printf("According to the cosmological parameters:\nH_start=%.16fkm/s/Mpc\nThe code will use the H_start readed from the parameter file.\n", H0*sqrt(Omega_m*pow(a_start, -3.0) + Omega_lambda + Omega_k*pow(a_start, -2.0))*UNIT_V);
+			printf("Using non-comoving coordinates. Transforming the velocities with H_start=%f km/s/Mpc\n\n", H0_start*UNIT_V);
 			add_hubble_flow(x_out, N_out, H0_start);
 		}
 		printf("\na_start = %f\tz_start= %f\n", a_start, 1/a_start-1);

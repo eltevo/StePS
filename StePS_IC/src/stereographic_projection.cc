@@ -234,6 +234,8 @@ void finish_stereographic_projection(double** x_out)
 		{
 			#pragma omp atomic
 			x_out[i][j] /= x_out[i][6];
+			#pragma omp atomic
+			x_out[i][j] *= UNIT_V;
 		}
 	}
 	}
@@ -260,7 +262,7 @@ void add_hubble_flow(double** x_out, unsigned long int N_out, double H0_start)
 			x_out[i][j] *= a_tmp;
 			//Gadget format: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
 			x_out[i][j+3] *= sqrt(a_tmp); //converting the peculiar speeds 
-			x_out[i][j+3] += x_out[i][j]*H0_start;
+			x_out[i][j+3] += x_out[i][j]*H0_start*UNIT_V; //adding the Hubble-flow
 		}
 	}
 	}

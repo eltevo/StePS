@@ -105,9 +105,9 @@ int gadget_format_conversion(void)
 		if(P[k].Type == 1)
 		{
 			//Converting particle velocities (GADGET uses km/s)
-			x[i][3] = (REAL)P[k].Vel[0]*0.0482190732645461;
-			x[i][4] = (REAL)P[k].Vel[1]*0.0482190732645461;
-			x[i][5] = (REAL)P[k].Vel[2]*0.0482190732645461;
+			x[i][3] = (REAL)P[k].Vel[0] / UNIT_V;
+			x[i][4] = (REAL)P[k].Vel[1] / UNIT_V;
+			x[i][5] = (REAL)P[k].Vel[2] / UNIT_V;
 			i++;
 		}
 	}

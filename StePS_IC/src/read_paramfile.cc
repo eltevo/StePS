@@ -70,10 +70,8 @@ while(!feof(param_file))
         if(strstr(c, str05) != NULL)
         {
                 sscanf(c, "%s\t%lf", str05, &H0);
-                //Converting km/s/Mpc to 1/Gy:
-                H0 = H0*0.00102271216531915;
-                ////We convert the 1/Gy to our unit system:
-                H0 = H0*47.1482347621227;
+                //Converting km/s/Mpc to our unit system:
+                H0 = H0 /  UNIT_V;
 
 
         }
@@ -115,7 +113,7 @@ while(!feof(param_file))
         {
                 sscanf(c, "%s\t%lf", str13, &H0_start);
                 //We convert the km/s/Mpc to our unit system
-                H0_start = 0.0482190732645460*H0_start;
+                H0_start = H0_start /  UNIT_V;
                 Hubble_param = H0_start;
         }
 
@@ -210,7 +208,7 @@ while(!feof(param_file))
 printf("...done.\n\n");
 fclose(param_file);
 printf("The readed parameters:\n\n");
-printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%f\n\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*20.7386814448645, a_start);
+printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%f\n\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0 * UNIT_V, a_start);
 printf("Parameters of the IC file:\n--------------------------\n");
 printf("Particle masses:\t\t%f\n", M_tmp);
 printf("Box size\t\t\t%fMpc\nNumber of particles\t\t%llu\na_max\t\t\t\t%f\nInitial conditions\t\t%s\nOutput file\t\t\t%s\nSPHERE_DIAMETER\t\t\t%f\nR_CUT\t\t\t\t%f\nN_SIDE\t\t\t\t%i\nR_GRID\t\t\t\t%i\nFOR_COMOVING_INTEGRATION\t%i\nNUMBER_OF_INPUT_FILES\t\t%i\nN_IC_tot\t\t\t%llu\nTileFac\t\t\t\t%i\n",L,N,a_max,IC_FILE,OUT_FILE, SPHERE_DIAMETER, R_CUT, N_SIDE, R_GRID, FOR_COMOVING_INTEGRATION, NUMBER_OF_INPUT_FILES, N_IC_tot, TILEFAC);
