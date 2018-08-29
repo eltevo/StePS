@@ -1,22 +1,32 @@
 
-#---------------------------------------------------------------------------------------------
-# StePS Makefile
-# Gabor Racz, 2017-2018
-# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
-# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v0.3.2.1"'
-#---------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------#
+# StePS Makefile										#
+# Gabor Racz, 2017-2018										#
+# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
+# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
+VERSION='"v0.3.3.0"'#										#
+#-----------------------------------------------------------------------------------------------#
 
 
-#------------------------------- GPU and precision options
+#------------------------------- GPU and precision options for the force calculation
 USING_CUDA = NO
-SINGLE_PRECISION = 0
+#OPT += -DUSE_SINGLE_PRECISION
 
 #------------------------------- Glass making options
 #OPT += -DGLASS_MAKING=2048
 
-#------------------------------- Compiler and flags
+#------------------------------- Compiler
 CXX = g++
+
+#------------------------------- Location of the MPI libraries
+MPI_LIBS = /usr/lib
+MPI_INC = /usr/include/mpi
+
+#------------------------------- Location of the CUDA Toolkit
+CUDA_PATH       ?= /usr
+
+#---------------- Do not edit beyond this line! ----------------
+
 COMPILERVERSION=$(shell $(CXX) --version | head -1)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
 BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"'
@@ -25,13 +35,8 @@ CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-
 MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
 MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
 
-#------------------------------- Location of the MPI libraries
-MPI_LIBS = /usr/lib
-MPI_INC = /usr/include/mpi
-
 ifeq ($(USING_CUDA), YES)
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr/local/cuda
 OPT += -DUSE_CUDA
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
 
@@ -44,24 +49,13 @@ OBJ = main.o forces_cuda.o ewald_space.o step.o read_paramfile.o friedmann_solve
 DEPS = global_variables.h
 PROG = StePS_CUDA
 
-ifeq ($(SINGLE_PRECISION), 1)
-OPT += -DUSE_SINGLE_PRECISION=$(SINGLE_PRECISION)
 $(PROG): $(OBJ)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ)
 %.o: %.cc
 	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
 %.o: %.cu
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) $(OPT) -o $@ -c $<
-else
-$(PROG): $(OBJ)
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ)
-%.o: %.cc
-	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
-
-%.o: %.cu
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) $(OPT) -o $@ -c $<
-endif
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 clean:
 	rm -fv $(OBJ) $(PROG)
 
@@ -73,21 +67,11 @@ SRC = main.cc forces.cc ewald_space.cc step.cc read_paramfile.cc friedmann_solve
 OBJ = main.o forces.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
 DEPS = global_variables.h
 PROG = StePS
-ifeq ($(SINGLE_PRECISION), 1)
-OPT += -DUSE_SINGLE_PRECISION=$(SINGLE_PRECISION)
 $(PROG): $(OBJ)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ)
 
 %.o: %.cc
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
-else
-$(PROG): $(OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ)
-
-%.o: %.cc
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(E_INC) $(D_INC) $(E_LIB) $(D_LIB) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $< 
-
-endif
 
 clean:
 	rm -fv $(OBJ) $(PROG)

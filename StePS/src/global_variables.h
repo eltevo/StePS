@@ -1,4 +1,7 @@
 #define pi 3.14159265358979323846264338327950288419716939937510
+#define UNIT_T 47.14829951063323 //Unit time in Gy
+#define UNIT_V 20.738652969925447 //Unit velocity in km/s
+
 #ifdef GLASS_MAKING //Newtonian gravitational constant (in internal units)
 #define G -1.0 //Gravity is repulsive, if Glassmaking is on.
 #else
@@ -40,11 +43,6 @@ extern double h, h_min, h_max; //actual stepsize, minimal and maximal stepsize
 extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 
 extern double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
-
-extern int RESTART; //Restarted simulation(0=no, 1=yes)
-extern double T_RESTART; //Time of restart
-extern double A_RESTART; //Scalefactor at the time of restart
-extern double H_RESTART; //Hubble-parameter at the time of restart
 
 extern REAL* M; //Particle masses
 extern REAL M_tmp;

@@ -92,7 +92,7 @@ int gadget_format_conversion(void)
 	{
 		if(P[k].Type == 1)
 		{
-			//We do not use the h=H0/100km/s/Mpc factors
+			//We do not use the h=H0/100km/s/Mpc factors, and assume kpc/h input units
 			x[3*i] = (REAL)P[k].Pos[0]/1000.0/header1.HubbleParam;
 			x[3*i+1] = (REAL)P[k].Pos[1]/1000.0/header1.HubbleParam;
 			x[3*i+2] = (REAL)P[k].Pos[2]/1000.0/header1.HubbleParam;
@@ -109,9 +109,9 @@ int gadget_format_conversion(void)
 		if(P[k].Type == 1)
 		{
 			//Converting particle velocities (GADGET uses km/s)
-			v[3*i] = (REAL)P[k].Vel[0]*0.0482190732645461;
-			v[3*i+1] = (REAL)P[k].Vel[1]*0.0482190732645461;
-			v[3*i+2] = (REAL)P[k].Vel[2]*0.0482190732645461;
+			v[3*i] = (REAL)P[k].Vel[0];
+			v[3*i+1] = (REAL)P[k].Vel[1];
+			v[3*i+2] = (REAL)P[k].Vel[2];
 			i++;
 		}
 	}

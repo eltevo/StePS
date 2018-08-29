@@ -24,7 +24,7 @@ double friedmann_solver_start(double a0, double t0, double h, double Omega_lambd
 	double t_start_err=1e-20;
 	double h_var;
 	b = a_start;
-	printf("h=%eGy\n", h*47.1482347621227);
+	printf("h=%eGy\n", h*UNIT_T);
 	double Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 	//Solving the "da/dt = a*H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda)" differential equation
 	b_tmp = b;
@@ -36,7 +36,7 @@ double friedmann_solver_start(double a0, double t0, double h, double Omega_lambd
 	}
 	t_bigbang=t_cosm+h; //rough estimation for t_bibgang.
 	b = b_tmp;
-	printf("First guess: %.12f Gy\n\n", -t_bigbang*47.1482347621227);
+	printf("First guess: %.12f Gy\n\n", -t_bigbang*UNIT_T);
 	//Searching for t_start.
 	h_var = -0.5*h;
 	while(fabs(h_var)>t_start_err)

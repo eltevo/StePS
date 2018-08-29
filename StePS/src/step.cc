@@ -60,7 +60,10 @@ double calculate_init_h()
 			errmax = err;
 		}
 	}
-	printf("Initial timestep length calculated. h_start=%fGy\n",  (double) pow(2*mean_err/errmax, 0.5)*47.1482347621227);
+	if (pow(2*mean_err/errmax, 0.5)*UNIT_T >= 1.0)
+		printf("Initial timestep length calculated. h_start=%fGy\n",  (double) pow(2*mean_err/errmax, 0.5)*UNIT_T);
+	else
+		printf("Initial timestep length calculated. h_start=%fMy\n",  (double) pow(2*mean_err/errmax, 0.5)*UNIT_T*1000.0);
 	return (double) pow(2*mean_err/errmax, 0.5);
 
 }

@@ -7,13 +7,13 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.2.1
+v0.3.3.0
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
 ragraat@caesar.elte.hu
 
-This code is still under development!
+This code is under development!
 
 Cosmological simulation code for compactified cosmological simulations.
 - written in C++
@@ -53,10 +53,10 @@ If you comiled the code for CUDA simulation,  you can simply run it by typing:
 Output format for the particle data files:
 
 z*.dat, t*.dat:
-        x[Mpc]  y[Mpc]  z[Mpc]  v_x[20.7386814448645km/s] v_y[20.7386814448645km/s] v_z[20.7386814448645km/s] M[1e11M_sol]
+        x[Mpc]  y[Mpc]  z[Mpc]  v_x[km/s] v_y[km/s] v_z[km/s] M[1e11M_sol]
 
 redshift_cone.dat:
-	x[Mpc]  y[Mpc]  z[Mpc]  v_x[20.7386814448645km/s] v_y[20.7386814448645km/s] v_z[20.7386814448645km/s] M[1e11M_sol]	R[Mpc]	z(=Redshift)
+	x[Mpc]  y[Mpc]  z[Mpc]  v_x[km/s] v_y[km/s] v_z[km/s] M[1e11M_sol]	R[Mpc]	z(=Redshift)
 
 
 Output format for the logfile:

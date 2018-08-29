@@ -5,6 +5,7 @@
 #include <omp.h>
 #include <time.h>
 #include <algorithm>
+#include <unistd.h>
 #include "mpi.h"
 #include "global_variables.h"
 
@@ -65,12 +66,6 @@ REAL M_tmp;
 double a, a_start,a_prev,a_tmp;//Scalefactor, scalefactor at the starting time, previous scalefactor
 double Omega_m_eff; //Effective Omega_m
 double delta_a;
-
-int RESTART; //Restarted simulation(0=no, 1=yes)
-double T_RESTART; //Time of restart
-double A_RESTART; //Scalefactor at the time of restart
-double H_RESTART; //Hubble-parameter at the time of restart
-
 
 //Functions for reading GADGET2 format IC
 int gadget_format_conversion(void);
@@ -307,7 +302,7 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 				}
 				for(j=0; j<3; j++)
 				{
-					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
+					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //km/s output
 				}
 				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
 				IN_CONE[i] = true;
@@ -329,7 +324,7 @@ void kiiras(REAL* x, REAL *v)
 	{
 		if(OUTPUT_FORMAT == 0)
 		{
-			sprintf(A, "%d", (int)(round(100*t_next*47.1482347621227)));
+			sprintf(A, "%d", (int)(round(100*t_next*UNIT_T)));
 		}
 		else
 		{
@@ -357,7 +352,7 @@ void kiiras(REAL* x, REAL *v)
 	{
 		if(OUTPUT_FORMAT == 0)
 		{
-			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next*47.1482347621227, OUT_DIR, A);
+			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next*UNIT_T, OUT_DIR, A);
 		}
 		else
 		{
@@ -386,7 +381,7 @@ void kiiras(REAL* x, REAL *v)
 			#ifdef GLASS_MAKING
 			fprintf(coordinate_file, "%.16f\t", 0.0);
 			#else
-			fprintf(coordinate_file, "%.16f\t",v[3*i+k]);
+			fprintf(coordinate_file, "%.16f\t",v[3*i+k]*sqrt(a)*UNIT_V); //km/s * sqrt(a) output
 			#endif
 		}
 		fprintf(coordinate_file, "%.16f\t",M[i]);
@@ -403,7 +398,7 @@ void Log_write() //Writing logfile
 	char filename[0x100];
 	snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A);
 	LOGFILE = fopen(filename, "a");
-	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*47.1482347621227, errmax, h*47.1482347621227, a, 1.0/a-1.0, Hubble_param*20.7386814448645, Decel_param, Omega_m_eff);
+	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
 	fclose(LOGFILE);
 }
 
@@ -419,7 +414,18 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 	{
 		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Gabor Racz, 2017-2018\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
-		printf("Build date: %s\t\t\t\t\t\t\t|\n|Compiled with: %s\t\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n\n", BUILD_DATE, COMPILER_VERSION);
+		printf("Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
+		printf("Compiled with: %s", COMPILER_VERSION);
+		unsigned long int I;
+		for(I = 0; I<10-((sizeof(COMPILER_VERSION)-1)/8); I++)
+			printf("\t");
+		printf("|\n+-----------------------------------------------------------------------------------------------+\n\n");
+	}
+	char HOSTNAME_BUF[1024];
+	if(rank == 0)
+	{
+		gethostname(HOSTNAME_BUF, sizeof(HOSTNAME_BUF));
+		printf("\tRunning on %s.\n", HOSTNAME_BUF);
 	}
 	#ifdef USE_CUDA
 	if(rank == 0)
@@ -427,7 +433,7 @@ int main(int argc, char *argv[])
 	#endif
 	#ifdef GLASS_MAKING
 	if(rank == 0)
-		printf("\tGlass Making.\n");
+		printf("\tGlass making.\n");
 	#endif
 	#ifdef USE_SINGLE_PRECISION
 	if(rank == 0)
@@ -442,8 +448,6 @@ int main(int argc, char *argv[])
 	}
 	int i,j;
 	int CONE_ALL=0;
-	RESTART = 0;
-	T_RESTART = 0;
 	OUTPUT_FORMAT = 0;
 	if( argc < 2 )
 	{
@@ -498,12 +502,14 @@ int main(int argc, char *argv[])
 	}
 	if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT !=1)
 	{
-		fprintf(stderr, "Error: bad OUTPUT format!\nExiting.\n");
+		if(rank == 0)
+			fprintf(stderr, "Error: bad OUTPUT format!\nExiting.\n");
 		return (-2);
 	}
 	if(OUTPUT_FORMAT == 1 && COSMOLOGY != 1)
 	{
-		fprintf(stderr, "Error: you can not use redshift output format in non-cosmological simulations. \nExiting.\n");
+		if(rank == 0)
+			fprintf(stderr, "Error: you can not use redshift output format in non-cosmological simulations. \nExiting.\n");
 		return (-2);
 	}
 	if(OUTPUT_FORMAT ==1)
@@ -558,15 +564,15 @@ int main(int argc, char *argv[])
 			reordering();
 			gadget_format_conversion();
 		}
-		//Rescaling speeds. If one uses Gadget format: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
-		if(RESTART == 0 && COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
+		//Rescaling speeds. We are using the same convention that the Gadget uses: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
+		if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
 		{
-		for(i=0;i<N;i++)
-		{
-			v[3*i] = v[3*i]/sqrt(a_start);
-			v[3*i+1] = v[3*i+1]/sqrt(a_start);
-			v[3*i+2] = v[3*i+2]/sqrt(a_start);
-		}
+			for(i=0;i<N;i++)
+			{
+				v[3*i] = v[3*i]/sqrt(a_start)/UNIT_V;
+				v[3*i+1] = v[3*i+1]/sqrt(a_start)/UNIT_V;
+				v[3*i+2] = v[3*i+2]/sqrt(a_start)/UNIT_V;
+			}
 		}
 		if(numtasks > 1)
 		{
@@ -683,26 +689,13 @@ int main(int argc, char *argv[])
 		{
 			printf("a_start=%.9f\tz=%.9f\n", a, 1/a-1);
 		}
-		if(RESTART == 0)
-		{
-			T = friedmann_solver_start(1,0,h_min*0.00031,Omega_lambda,Omega_r,Omega_m,H0,a_start);
-		}
-		else
-		{
-			T = T_RESTART/47.1482347621227; //if the simulation is restarted
-			if(COMOVING_INTEGRATION == 1)
-			{
-			Hubble_param = H_RESTART;
-			a = A_RESTART;
-			recalculate_softening();
-			}
-		}
-		Delta_T_out = H_OUT/47.1482347621227; //Output frequency
+		T = friedmann_solver_start(1,0,h_min*0.00031,Omega_lambda,Omega_r,Omega_m,H0,a_start);
+		Delta_T_out = H_OUT/UNIT_T; //Output frequency
 		if(OUTPUT_FORMAT == 0)
 		{
 			if(FIRST_T_OUT >= T) //Calculating first output time
 			{
-				t_next = FIRST_T_OUT/47.1482347621227;
+				t_next = FIRST_T_OUT/UNIT_T;
 			}
 			else
 			{
@@ -732,15 +725,15 @@ int main(int argc, char *argv[])
 		}
 		if(COMOVING_INTEGRATION == 1)
 		{
-		printf("Initial time:\tt_start = %.10fGy\nInitial scalefactor:\ta_start = %.8f\nMaximal scalefactor:\t%.8f\n\n", T*47.1482347621227, a, a_max);
+		printf("Initial time:\tt_start = %.10fGy\nInitial scalefactor:\ta_start = %.8f\nMaximal scalefactor:\t%.8f\n\n", T*UNIT_T, a, a_max);
 		}
 		if(COMOVING_INTEGRATION == 0)
 		{
 			Hubble_param = 0;
 			a_tmp = 0;
-			a_max = a_max/47.1482347621227;
+			a_max = a_max/UNIT_T;
 			a = 1;
-			printf("Initial time:\tt_start = %.10fGy\nMaximal time:\t%.8f\n\n", T*47.1482347621227, a_max*47.1482347621227);
+			printf("Initial time:\tt_start = %.10fGy\nMaximal time:\t%.8f\n\n", T*UNIT_T, a_max*UNIT_T);
 		}
 	}
 	else
@@ -827,7 +820,7 @@ int main(int argc, char *argv[])
 		Hubble_tmp = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
 		Hubble_param = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
 		if(rank == 0)
-			printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*20.7386814448645);
+			printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*UNIT_V);
 	}
 	if(COSMOLOGY == 0 || COMOVING_INTEGRATION == 0)
 	{
@@ -857,11 +850,17 @@ int main(int argc, char *argv[])
                 {
 			if(COMOVING_INTEGRATION == 1)
 			{
-                        printf("Timestep %i, t=%.8fGy, h=%fGy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*47.1482347621227, h*47.1482347621227, a, Hubble_param*20.7386814448645, 1.0/a-1.0);
+				if(h*UNIT_T >= 1.0)
+                        		printf("Timestep %i, t=%.8fGy, h=%fGy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+				else
+					printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
 			}
 			else
 			{
-				printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*47.1482347621227, h*47.1482347621227);
+				if(h*UNIT_T >= 1.0)
+					printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*UNIT_T, h*UNIT_T);
+				else
+					printf("Timestep %i, t=%.8fGy, h=%fMy\n", t, T*UNIT_T, h*UNIT_T*1000.0);
 			}
                 }
                 else
@@ -885,7 +884,7 @@ int main(int argc, char *argv[])
 					t_next=t_next+Delta_T_out;
 					if(COSMOLOGY == 1)
 					{
-						printf("t = %f Gy\n\th=%f Gy\n", T*47.1482347621227, h*47.1482347621227);
+						printf("t = %f Gy\n\th=%f Gy\n", T*UNIT_T, h*UNIT_T);
 					}
 					else
 					{
@@ -962,7 +961,7 @@ int main(int argc, char *argv[])
 		{
 			if(COMOVING_INTEGRATION == 1)
 			{
-				printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*47.1482347621227, h*47.1482347621227, a, Hubble_param*20.7386814448645, 1.0/a-1.0);
+				printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
 
 				double a_end, b_end;
 				a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
@@ -972,11 +971,11 @@ int main(int argc, char *argv[])
 			        b_end = T_prev-a_end*a_prev;
 				double T_end = a_max*a_end+b_end;
 				printf("\nAt a = %f state, with linear interpolation:\n",a_max);
-				printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*47.1482347621227, a_max, H_end*20.7386814448645);
+				printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*UNIT_T, a_max, H_end*UNIT_V);
 			}
 			else
 			{
-				printf("Timestep %i, t=%.8fGy, h=%f\n", t, T*47.1482347621227, h*47.1482347621227);
+				printf("Timestep %i, t=%.8fGy, h=%f\n", t, T*UNIT_T, h*UNIT_T);
 			}
 		}
 		else

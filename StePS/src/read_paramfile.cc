@@ -76,10 +76,6 @@ char str23[] = "OUTPUT_FORMAT";
 char str24[] = "OUT_LST";
 char str25[] = "H_OUT";
 char str26[] = "ParticleRadi";
-char str27[] = "RESTART";
-char str28[] = "T_restart";
-char str29[] = "a_restart";
-char str30[] = "H_restart";
 char str31[] = "MIN_REDSHIFT";
 char str32[] = "REDSHIFT_CONE";
 
@@ -108,10 +104,8 @@ while(!feof(param_file))
 	if(strstr(c, str05) != NULL)
 	{
 		sscanf(c, "%s\t%lf", str05, &H0);
-		//Converting km/s/Mpc to 1/Gy:
-		H0 = H0*0.00102271216531915;
-		////We convert the 1/Gy to our unit system:
-		H0 = H0*47.1482347621227;
+		//We convert the km/s/Mpc to our unit system:
+		H0 = H0/UNIT_V;
 		
 		
 	}
@@ -215,23 +209,6 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%s\t%f", str26, &ParticleRadi);
 	}
-	if(strstr(c, str27) != NULL)
-        {
-                sscanf(c, "%s\t%i", str27, &RESTART);
-        }
-	if(strstr(c, str28) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str28, &T_RESTART);
-        }
-	if(strstr(c, str29) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str29, &A_RESTART);
-        }
-	if(strstr(c, str30) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str30, &H_RESTART);
-		H_RESTART = 0.0482190732645460*H_RESTART;
-	}
 	if(strstr(c, str31) != NULL)
 	{
 		sscanf(c, "%s\t%lf", str31, &MIN_REDSHIFT);
@@ -262,10 +239,8 @@ while(!feof(param_file))
         if(strstr(c, str05) != NULL)
         {
                 sscanf(c, "%s\t%lf", str05, &H0);
-                //Converting km/s/Mpc to 1/Gy:
-                H0 = H0*0.00102271216531915;
-                ////We convert the 1/Gy to our unit system:
-                H0 = H0*47.1482347621227;
+                //We convert the km/s/Mpc to our unit system:
+                H0 = H0/UNIT_V;
 
 
         }
@@ -369,23 +344,6 @@ while(!feof(param_file))
         {
                 sscanf(c, "%s\t%lf", str26, &ParticleRadi);
         }
-        if(strstr(c, str27) != NULL)
-        {
-                sscanf(c, "%s\t%i", str27, &RESTART);
-        }
-	if(strstr(c, str28) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str28, &T_RESTART);
-        }
-        if(strstr(c, str29) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str29, &A_RESTART);
-        }
-        if(strstr(c, str30) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str30, &H_RESTART);
-                H_RESTART = 0.0482190732645460*H_RESTART;
-        }
 	if(strstr(c, str31) != NULL)
 	{
 		sscanf(c, "%s\t%lf", str31, &MIN_REDSHIFT);
@@ -401,12 +359,12 @@ printf("...done.\n");
 fclose(param_file);
 if(COSMOLOGY == 1)
 {
-	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%f\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*20.7386814448645, a_start);
+	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%.14f\t(z_start = %f)\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*UNIT_V, a_start, (1.0/a_start - 1.0));
 	printf("COMOVING_INTEGRATION\t%i\n\n", COMOVING_INTEGRATION);
 	//Converting the Gy inputs into internal units
-	h_min /= 47.1482347621227;
-	h_max /= 47.1482347621227;
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min*47.1482347621227,h_max*47.1482347621227,IC_FILE,OUT_DIR);
+	h_min /= UNIT_T;
+	h_max /= UNIT_T;
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR);
 }
 else
 {
