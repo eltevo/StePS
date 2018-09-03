@@ -25,6 +25,10 @@ extern int IC_FORMAT; // 0: ascii, 1:GADGET
 extern int OUTPUT_FORMAT; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
+extern double *out_list; //Output redshits
+extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
+extern int out_list_size; //Number of output redshits
+extern bool* IN_CONE;
 
 extern int n_GPU; //number of cuda capable GPUs
 //variables for MPI
@@ -39,7 +43,7 @@ extern int e[2202][4]; //ewald space
 extern int H[2202][4]; //ewald space
 
 extern REAL x4, err, errmax, mean_err; //variables used for error calculations
-extern double h, h_min, h_max; //actual stepsize, minimal and maximal stepsize
+extern double h, h_min, h_max,  t_next; //actual stepsize, minimal and maximal stepsize, next time for output
 extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 
 extern double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy

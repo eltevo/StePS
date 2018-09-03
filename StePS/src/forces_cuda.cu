@@ -10,11 +10,6 @@
 
 #define BLOCKSIZE 256
 
-#ifdef USE_SINGLE_PRECISION
-	typedef float REAL;
-#else
-	typedef double REAL;
-#endif
 
 extern int H[2202][4];
 extern int e[2202][4];
@@ -110,7 +105,7 @@ __global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const 
 			F[3*(i-ID_min)+1] += Fy_tmp;
 			F[3*(i-ID_min)+2] += Fz_tmp;
 			Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
-			
+
 		}
 }
 
@@ -166,7 +161,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 					Fz_tmp += wij*(dz - ((REAL)e[m + 2])*L);
 				}
 			}
-			
+
 		}
 		F[3 * (i-ID_min)] += Fx_tmp;
 		F[3 * (i-ID_min) + 1] += Fy_tmp;
@@ -254,7 +249,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
-			
+
 			printf("MPI task %i: GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
 		}
 		#pragma omp critical

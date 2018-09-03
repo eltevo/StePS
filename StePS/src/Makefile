@@ -4,7 +4,7 @@
 # Gabor Racz, 2017-2018										#
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.3.0"'#										#
+VERSION='"v0.3.4.0"'#										#
 #-----------------------------------------------------------------------------------------------#
 
 
@@ -13,7 +13,7 @@ USING_CUDA = NO
 #OPT += -DUSE_SINGLE_PRECISION
 
 #------------------------------- Glass making options
-#OPT += -DGLASS_MAKING=2048
+#OPT += -DGLASS_MAKING
 
 #------------------------------- Compiler
 CXX = g++
@@ -44,8 +44,8 @@ NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
 CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi
 CUDA_INC = -I$(CUDA_PATH)/include
 
-SRC = main.cc forces_cuda.cu ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
-OBJ = main.o forces_cuda.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
+SRC = main.cc inputoutput.cc forces_cuda.cu ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
+OBJ = main.o inputoutput.o forces_cuda.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
 DEPS = global_variables.h
 PROG = StePS_CUDA
 
@@ -63,8 +63,8 @@ else
 
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS"'
 
-SRC = main.cc forces.cc ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
-OBJ = main.o forces.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
+SRC = main.cc inputoutput.cc forces.cc ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
+OBJ = main.o inputoutput.o forces.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
 DEPS = global_variables.h
 PROG = StePS
 $(PROG): $(OBJ)

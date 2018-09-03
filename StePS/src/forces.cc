@@ -6,11 +6,6 @@
 #include "mpi.h"
 #include "global_variables.h"
 
-#ifdef USE_SINGLE_PRECISION
-	typedef float REAL;
-#else
-	typedef double REAL;
-#endif
 
 extern int H[2202][4];
 extern int e[2202][4];
@@ -57,11 +52,11 @@ for(i=0; i<N_mpi_thread; i++)
 	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, betai)
 	{
 	#pragma omp for schedule(dynamic,chunk)
-        for(i=ID_min; i<ID_max+1; i++)
-        {
+	for(i=ID_min; i<ID_max+1; i++)
+  {
 		betai = cbrt(M[i]*const_beta);
-                for(j=0; j<N; j++)
-                {
+    for(j=0; j<N; j++)
+    {
 			beta_priv = (betai+cbrt(M[j]*const_beta))/2;
 			//calculating particle distances
                         dx=x[3*j]-x[3*i];
@@ -71,23 +66,23 @@ for(i=0; i<N_mpi_thread; i++)
 			if(IS_PERIODIC==1)
 			{
 				if(fabs(dx)>0.5*L)
-                        		dx = dx-L*dx/fabs(dx);
-                        	if(fabs(dy)>0.5*L)
-                       			dy = dy-L*dy/fabs(dy);
-                        	if(fabs(dz)>0.5*L)
-                        		dz = dz-L*dz/fabs(dz);
+					dx = dx-L*dx/fabs(dx);
+				if(fabs(dy)>0.5*L)
+					dy = dy-L*dy/fabs(dy);
+				if(fabs(dz)>0.5*L)
+					dz = dz-L*dz/fabs(dz);
 			}
 
-                        r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
+			r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
 			wij = 0;
 			if(r <= beta_priv)
-                        {
+			{
 				SOFT_CONST[0] = 32.0/pow(2.0*beta_priv, 6);
 				SOFT_CONST[1] = -38.4/pow(2.0*beta_priv, 5);
 				SOFT_CONST[2] = 32.0/(3.0*pow(2.0*beta_priv, 3));
 
 				wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
-                        }
+			}
 			if(r > beta_priv && r <= 2*beta_priv)
 			{
 				SOFT_CONST[0] = -32.0/(3.0*pow(2.0*beta_priv, 6));
@@ -169,7 +164,7 @@ REAL SOFT_CONST[5];
 			dy=x[3*j+1]-x[3*i+1];
 			dz=x[3*j+2]-x[3*i+2];
 			//In here we use multiple images
-			for(m=0;m<el;m++) 
+			for(m=0;m<el;m++)
 			{
 				r = sqrt(pow((dx-((REAL) e[m][0])*L), 2)+pow((dy-((REAL) e[m][1])*L), 2)+pow((dz-((REAL) e[m][2])*L), 2));
 				wij = 0;
@@ -193,7 +188,7 @@ REAL SOFT_CONST[5];
 				{
 					wij = M[j]/(pow(r, 3));
 				}
-				
+
 				if(wij != 0)
 				{
 					Fx_tmp += wij*(dx-((REAL) e[m][0])*L);
@@ -216,5 +211,3 @@ double omp_end_time = omp_get_wtime();
 printf("Force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
 return;
 }
-
-

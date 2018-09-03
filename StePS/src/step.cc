@@ -6,12 +6,6 @@
 #include "mpi.h"
 #include "global_variables.h"
 
-#ifdef USE_SINGLE_PRECISION
-typedef float REAL;
-#else
-typedef double REAL;
-#endif
-
 //This file describe one simulation timestep
 //We use KDK integrator for the N-body simulation
 
@@ -74,47 +68,66 @@ void step(REAL* x, REAL* v, REAL* F)
 	double step_omp_start_time = omp_get_wtime();
 	//Timing
 	int i, j, k;
+	REAL disp;
 	#ifdef GLASS_MAKING
-	REAL disp,dmax,dmean;
+	REAL dmax,dmean;
 	dmax = 0.0;
 	dmean = 0.0;
 	#endif
+	#ifdef USE_CUDA
+		omp_set_dynamic(0);		// Explicitly disable dynamic teams
+		omp_set_num_threads(n_GPU);	// Use n_GPU threads
+	#endif
+	int chunk = N/omp_get_max_threads();
 	REAL ACCELERATION[3];
 	errmax = 0;
 	if(rank == 0)
 	{
 		printf("KDK Leapfrog integration...\n");
-		for(i=0; i<N; i++)
+		#pragma omp parallel default(shared) private(i,k,ACCELERATION,disp)
 		{
-			for(k=0; k<3; k++)
+			#pragma omp for schedule(dynamic,chunk)
+			for(i=0; i<N; i++)
 			{
-				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
-				v[3*i+k] = v[3*i+k] + ACCELERATION[k]*(REAL)(h/2.0);
-				x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
+				for(k=0; k<3; k++)
+				{
+					ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+					disp = ACCELERATION[k]*(REAL)(h/2.0);
+					#pragma omp atomic
+					v[3*i+k] += disp;
+					disp = v[3*i+k]*(REAL)(h);
+					#pragma omp atomic
+					x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
+				}
+				#ifdef GLASS_MAKING
+					disp = sqrt(pow(v[3*i]*(REAL)(h), 2) + pow(v[3*i+1]*(REAL)(h), 2) + pow(v[3*i+2]*(REAL)(h), 2));
+					#pragma omp atomic
+					dmean +=  disp;
+					#pragma omp critical
+					{
+						#pragma omp flush(dmax)
+						if(dmax <= disp)
+							dmax = disp;
+					}
+				#endif
 			}
-			#ifdef GLASS_MAKING
-				disp = sqrt(pow(v[3*i]*(REAL)(h), 2) + pow(v[3*i+1]*(REAL)(h), 2) + pow(v[3*i+2]*(REAL)(h), 2));
-				dmean +=  disp;
-				if(dmax <= disp)
-					dmax = disp;
-			#endif
 		}
 		//If we are using periodic boundary conditions, the code move every "out-of-box" particle inside the box
 		if(IS_PERIODIC != 0)
 		{
-			for(i=0; i<N; i++)
+			#pragma omp parallel default(shared) private(i,k)
 			{
-			for(k=0;k<3;k++)
-			{
-			if(x[3*i+k]<0)
-			{
-			x[3*i+k] = x[3*i+k] + L;
-			}
-			if(x[3*i+k]>=L)
-			{
-			x[3*i+k] = x[3*i+k] - L;
-			}
-			}
+				#pragma omp for schedule(dynamic,chunk)
+				for(i=0; i<N; i++)
+				{
+					for(k=0;k<3;k++)
+					{
+						if(x[3*i+k]<0)
+							x[3*i+k] = x[3*i+k] + L;
+						if(x[3*i+k]>=L)
+							x[3*i+k] = x[3*i+k] - L;
+					}
+				}
 			}
 		}
 	}
@@ -185,27 +198,34 @@ void step(REAL* x, REAL* v, REAL* F)
 	}
 	else
 	{
-		//For non-cosmological simulation, taking into account the T_max
+		//For non-cosmological simulation
 		a_tmp = T;
 	}
 	if(rank == 0)
 	{
 		REAL const_beta = 3.0/rho_part/(4.0*pi);
+		#pragma omp parallel default(shared) private(i,k,ACCELERATION,err)
+		{
+		#pragma omp for schedule(dynamic,chunk)
 		for(i=0; i<N; i++)
 		{
 			for(k=0; k<3; k++)
 			{
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
-				v[3*i+k] = v[3*i+k] + ACCELERATION[k]*(REAL)(h/2.0);
+				v[3*i+k] += ACCELERATION[k]*(REAL)(h/2.0);
 			}
 			#ifdef GLASS_MAKING
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
 			#else
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*pow(a, 2.0);
 			#endif
-			if(err>errmax)
+			#pragma omp critical
 			{
+				if(err>errmax)
+				{
 					errmax = err;
+				}
+			}
 			}
 		}
 		printf("KDK Leapfrog integration...done.\n");
@@ -214,18 +234,7 @@ void step(REAL* x, REAL* v, REAL* F)
 		if(dmax>1.0)
 			printf("Glass making: A_max = %e\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n", errmax/pow(a, 2.0),dmean,dmax);
 		else
-			 printf("Glass making: A_max = %e\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n", errmax/pow(a, 2.0),dmean*1000,dmax*1000);
-		if( t % int(GLASS_MAKING) == 0)
-		{
-			printf("Glass making: setting all velocities to zero.\n");
-			for(i=0; i<N; i++)
-                	{
-                        	for(k=0; k<3; k++)
-                        	{
-					v[3*i+k] = 0.0;
-				}
-			}
-		}
+			printf("Glass making: A_max = %e\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n", errmax/pow(a, 2.0),dmean*1000,dmax*1000);
 		#endif
 	}
 	//Timing

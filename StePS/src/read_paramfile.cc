@@ -31,7 +31,6 @@ void BCAST_global_parameters()
 	//Simulation parameters
 	//the rank != 0 tasks do not need all of the simulation parameters
 	MPI_Bcast(&IS_PERIODIC,1,MPI_INT,0,MPI_COMM_WORLD);
-	MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&a_max,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&a_start,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&COMOVING_INTEGRATION,1,MPI_INT,0,MPI_COMM_WORLD);
@@ -45,7 +44,7 @@ void BCAST_global_parameters()
 	MPI_Bcast(&mean_err,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
-return;	
+return;
 }
 
 void read_param(FILE *param_file)
@@ -60,13 +59,12 @@ char str05[] = "H0";
 char str06[] = "IC_FILE";
 char str07[] = "L_box";
 char str08[] = "IS_PERIODIC";
-char str09[] = "N_particle";
+//char str09[] = "N_particle";
 char str10[] = "OUT_DIR";
 char str11[] = "a_max";
 char str13[] = "mean_err";
 char str14[] = "h_min";
 char str15[] = "COSMOLOGY";
-char str16[] = "Particle_mass";
 char str17[] = "a_start";
 char str18[] = "h_max";
 char str19[] = "COMOVING_INTEGRATION";
@@ -106,8 +104,8 @@ while(!feof(param_file))
 		sscanf(c, "%s\t%lf", str05, &H0);
 		//We convert the km/s/Mpc to our unit system:
 		H0 = H0/UNIT_V;
-		
-		
+
+
 	}
 	if(strstr(c, str06) != NULL)
 	{
@@ -128,10 +126,6 @@ while(!feof(param_file))
 			printf("Error: IS_PERIODIC > 2: No such boundary condition\n: IS_PERIODIC is set to 2");
 			IS_PERIODIC = 2;
 		}
-	}
-	if(strstr(c, str09) != NULL)
-	{
-		sscanf(c, "%s\t%i", str09, &N);
 	}
 	if(strstr(c, str10) != NULL)
 	{
@@ -155,10 +149,6 @@ while(!feof(param_file))
 	if(strstr(c, str15) != NULL)
 	{
 		sscanf(c, "%s\t%i", str15, &COSMOLOGY);
-	}
-	if(strstr(c, str16) != NULL)
-	{
-		sscanf(c, "%s\t%f", str16, &M_tmp);
 	}
 	if(strstr(c, str17) != NULL)
 	{
@@ -264,10 +254,6 @@ while(!feof(param_file))
                         IS_PERIODIC = 2;
                 }
         }
-        if(strstr(c, str09) != NULL)
-        {
-                sscanf(c, "%s\t%i", str09, &N);
-        }
 	if(strstr(c, str10) != NULL)
         {
                 for(i=9; c[i] != '\n';i++)
@@ -290,10 +276,6 @@ while(!feof(param_file))
         if(strstr(c, str15) != NULL)
         {
                 sscanf(c, "%s\t%i", str15, &COSMOLOGY);
-        }
-        if(strstr(c, str16) != NULL)
-        {
-                sscanf(c, "%s\t%lf", str16, &M_tmp);
         }
         if(strstr(c, str17) != NULL)
         {
@@ -354,7 +336,7 @@ while(!feof(param_file))
 	}
 #endif
 }
-	
+
 printf("...done.\n");
 fclose(param_file);
 if(COSMOLOGY == 1)
@@ -364,15 +346,13 @@ if(COSMOLOGY == 1)
 	//Converting the Gy inputs into internal units
 	h_min /= UNIT_T;
 	h_max /= UNIT_T;
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR);
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%fMpc\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,mean_err,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR);
 }
 else
 {
-	printf("Non cosmological simulation.\n---------------------------\nParticle masses:\t%f\n\n", M_tmp);
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\nNumber of particles\t\t%i\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n\n",IS_PERIODIC,L,N,a_max,mean_err,h_min,IC_FILE,OUT_DIR);
+	printf("Non-cosmological simulation.\n");
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,mean_err,h_min,IC_FILE,OUT_DIR);
 }
 Hubble_param = 0.0;
 return;
 }
-
-

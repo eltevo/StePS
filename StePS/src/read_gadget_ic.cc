@@ -69,6 +69,7 @@ int gadget_format_conversion(void)
 {
 	int k, i;
 	printf("Nuber of particles = %i\n", NumPart);
+  N = NumPart;
 	printf("Time = %f Redshift= %f\n", Time, (1/Time)-1);
 	printf("\nCosmological parameters:\n------------------------\n");
 	printf("Boxsize \t %f kpc/h\n", header1.BoxSize);
@@ -85,7 +86,10 @@ int gadget_format_conversion(void)
 	printf("Bulge: \t\t\t%f\n", header1.mass[3]);
 	printf("Stars: \t\t\t%f\n", header1.mass[4]);
 	printf("Bndry: \t\t\t%f\n\n", header1.mass[5]);
-	
+  x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
+	v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
+	F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
+  M = (REAL*)malloc(N*sizeof(REAL));
 	i=0;
 	printf("Converting particle positions...\n");
 	for(k=1;k<NumPart+1;++k)
@@ -119,12 +123,6 @@ int gadget_format_conversion(void)
 	return 0;
 
 }
-
-
-
-
-
-
 
 
 
@@ -285,7 +283,7 @@ int load_snapshot(char *fname, int files)
 
 
 
-/* this routine allocates the memory for the 
+/* this routine allocates the memory for the
  * particle data.
  */
 int allocate_memory(void)

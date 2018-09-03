@@ -74,12 +74,8 @@ int allocate_memory(void);
 int reordering(void);
 
 
-void read_ic(FILE *ic_file, int N);
 void read_param(FILE *param_file);
-int read_OUT_LST();
 void step(REAL* x, REAL* v, REAL* F);
-void kiiras(REAL* x, REAL* v);
-void Log_write();
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
 double friedmann_solver_start(double a0, double t0, double h, double Omega_lambda, double Omega_r, double Omega_m, double H0, double a_start);
@@ -89,319 +85,15 @@ double CALCULATE_decel_param(double a);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
 
-void read_ic(FILE *ic_file, int N)
-{
-int i,j;
-
-x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
-v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
-F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-M = (REAL*)malloc(N*sizeof(REAL));
-
-
-printf("\nReading IC from the %s file...\n", IC_FILE);
-for(i=0; i<N; i++) //reading
-{
-	//Reading particle coordinates
-	for(j=0; j<3; j++)
-	{
-		#ifdef USE_SINGLE_PRECISION
-		fscanf(ic_file, "%f", &x[3*i + j]);
-		#else
-		fscanf(ic_file, "%lf", &x[3*i + j]);
-		#endif
-
-	}
-	//Reading the velocities
-	for(j=0; j<3; j++)
-	{
-		#ifdef USE_SINGLE_PRECISION
-		fscanf(ic_file, "%f", &v[3*i + j]);
-		#else
-		fscanf(ic_file, "%lf", &v[3*i + j]);
-		#endif
-	}
-	//Reading particle masses
-	#ifdef USE_SINGLE_PRECISION
-	fscanf(ic_file, "%f", & M[i]);
-	#else
-	fscanf(ic_file, "%lf", & M[i]);
-	#endif
-
-}
-printf("...done.\n\n");
-fclose(ic_file);
-return;
-}
-
-int read_OUT_LST()
-{
-	FILE *infile = fopen(OUT_LST, "r");
-	FILE *in_bin_file;
-	char BIN_LIST[1038];
-	snprintf(BIN_LIST, sizeof(BIN_LIST), "%s_rlimits", OUT_LST);
-	char *buffer, *buffer1;
-	char ch;
-	int data[2]; //[0]: previous char; [1]: actual char
-	int i, j, size;
-	fseek(infile,0,SEEK_END);
-	size = ftell(infile);
-	fseek(infile,0,SEEK_SET);
-	buffer = (char*)malloc((size+1)*sizeof(char));
-	i=0;
-	while((ch=fgetc(infile)) != EOF)
-	{
-		buffer[i] = ch;
-		i++;
-	}
-	fclose(infile);
-	data[0] = 0;
-	data[1] = 0;
-	size = 0;
-	for(j=0; j<i+1; j++)
-	{
-		if(i!=0)
-		{
-			data[0] = data[1];
-		}
-		if(buffer[j] == '\t' || buffer[j] == ' ' || buffer[j] == '\n' || buffer[j] == '\0')
-		{
-			data[1] = 0;
-		}
-		else
-		{
-			data[1] = 1;
-		}
-
-		if(data[1] == 0 && data[0] == 1)
-		{
-			size++;
-		}
-	}
-	out_list = (double*)malloc(size*sizeof(double));
-	int offset;
-	for(i=0; i<size; i++)
-	{
-		sscanf(buffer, "%lf%n", &out_list[i], &offset);
-		buffer += offset;
-	}
-	std::sort(out_list, out_list+size, std::greater<double>());
-	out_list_size = size;
-	size = 0;
-	if(REDSHIFT_CONE == 1)
-	{
-		//reading the limist of the comoving distance bins
-		in_bin_file = fopen(BIN_LIST, "r");
-		fseek(in_bin_file,0,SEEK_END);
-		size = ftell(in_bin_file);
-		fseek(in_bin_file,0,SEEK_SET);
-		buffer1 = (char*)malloc((size+1)*sizeof(char));
-		i=0;
-		while((ch=fgetc(in_bin_file)) != EOF)
-		{
-			buffer1[i] = ch;
-			i++;
-		}
-		fclose(in_bin_file);
-		data[0] = 0;
-		data[1] = 0;
-		size = 0;
-		for(j=0; j<i+1; j++)
-		{
-			if(i!=0)
-			{
-				data[0] = data[1];
-			}
-			if(buffer1[j] == '\t' || buffer1[j] == ' ' || buffer1[j] == '\n' || buffer1[j] == '\0')
-			{
-				data[1] = 0;
-			}
-			else
-			{
-				data[1] = 1;
-			}
-
-			if(data[1] == 0 && data[0] == 1)
-			{
-				size++;
-			}
-		}
-		r_bin_limits = (double*)malloc(size*sizeof(double));
-		for(i=0; i<size; i++)
-		{
-			sscanf(buffer1, "%lf%n", &r_bin_limits[i], &offset);
-			buffer1 += offset;
-		}
-		std::sort(r_bin_limits, r_bin_limits+size, std::greater<double>());
-		if(size - 1 != out_list_size)
-		{
-			fprintf(stderr, "Error: The number of redshift bins (=%i) and radial bins (=%i) are not equal!\n", size - 1, out_list_size);
-			return (-1);
-		}
-	}
-	printf("\n");
-	return 0;
-
-}
-
-void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL)
-{
-	//Writing out the redshift cone
-	char filename[0x400];
-	int i, j;
-	int COUNT=0;
-	double COMOVING_DISTANCE, z_write;
-	z_write = out_list[z_index];
-	snprintf(filename, sizeof(filename), "%sredshift_cone.dat", OUT_DIR);
-	if(ALL == 0)
-		printf("Saving: z=%f:\t%fMpc<Dc<%fMpc bin of the\n%s redshift cone.\ndelta_z_index = %i\n",out_list[z_index], limits[z_index+1], limits[z_index-delta_z_index+1], filename, delta_z_index);
-	else
-		printf("Saving: z=%f:\tDc<%fMpc\n%s\n redshift cone.\n", t_next, limits[z_index-delta_z_index+1], filename);
-	FILE *redshiftcone_file = fopen(filename, "a");
-	if(ALL == 0)
-	{
-		for(i=0; i<N; i++)
-		{
-			COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
-			if(limits[z_index+1] <= COMOVING_DISTANCE && IN_CONE[i] == false )
-			{
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
-				}
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
-				}
-				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
-				IN_CONE[i] = true;
-				COUNT++;
-			}
-		}
-	}
-	else
-	{
-		for(i=0; i<N; i++)
-		{
-			COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
-			if(IN_CONE[i] == false)
-			{
-				//searching for the proper redshift shell
-				j=z_index;
-				while(j++)
-				{
-					if(limits[j] <= COMOVING_DISTANCE)
-					{
-						z_write = out_list[j];
-						break;
-					}
-				}
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
-				}
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //km/s output
-				}
-				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
-				IN_CONE[i] = true;
-				COUNT++;
-			}
-		}
-	}
-	fclose(redshiftcone_file);
-	printf("%i particles were written out.\n", COUNT);
-	COUNT = 0;
-
-}
-
-void kiiras(REAL* x, REAL *v)
-{
-	int i,k;
-	char A[20];
-	if(COSMOLOGY == 1)
-	{
-		if(OUTPUT_FORMAT == 0)
-		{
-			sprintf(A, "%d", (int)(round(100*t_next*UNIT_T)));
-		}
-		else
-		{
-			sprintf(A, "%d", (int)(round(1000*t_next)));
-		}
-	}
-	else
-	{
-		sprintf(A, "%d", (int)(round(100*t_next)));
-	}
-	char filename[0x400];
-	if(OUTPUT_FORMAT == 0)
-	{
-		snprintf(filename, sizeof(filename), "%st%s.dat", OUT_DIR, A);
-	}
-	else
-	{
-		snprintf(filename, sizeof(filename), "%sz%s.dat", OUT_DIR, A);
-	}
-	if(COSMOLOGY == 0)
-	{
-			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next, OUT_DIR, A);
-	}
-	else
-	{
-		if(OUTPUT_FORMAT == 0)
-		{
-			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next*UNIT_T, OUT_DIR, A);
-		}
-		else
-		{
-			printf("Saving: z= %f, file: \"%sz%s.dat\" \n", t_next, OUT_DIR, A);
-		}
-	}
-	FILE *coordinate_file;
-	if(t < 1)
-	{
-		coordinate_file = fopen(filename, "w");
-	}
-	else
-	{
-		coordinate_file = fopen(filename, "a");
-	}
-
-	for(i=0; i<N; i++)
-	{
-		for(k=0; k<3; k++)
-		{
-			fprintf(coordinate_file, "%.16f\t",x[3*i+k]);
-		}
-		for(k=0; k<3; k++)
-		{
-			//writing out zero speeds if glassmaking is on
-			#ifdef GLASS_MAKING
-			fprintf(coordinate_file, "%.16f\t", 0.0);
-			#else
-			fprintf(coordinate_file, "%.16f\t",v[3*i+k]*sqrt(a)*UNIT_V); //km/s * sqrt(a) output
-			#endif
-		}
-		fprintf(coordinate_file, "%.16f\t",M[i]);
-		fprintf(coordinate_file, "\n");
-	}
-
-	fclose(coordinate_file);
-}
-
-void Log_write() //Writing logfile
-{
-	FILE *LOGFILE;
-	char A[] = "Logfile.dat";
-	char filename[0x100];
-	snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A);
-	LOGFILE = fopen(filename, "a");
-	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
-	fclose(LOGFILE);
-}
-
+//Input/Output functions
+int file_exist(char *file_name);
+int dir_exist(char *dir_name);
+int measure_N_part_from_ascii_snapshot(char * filename);
+void read_ic(FILE *ic_file, int N);
+int read_OUT_LST();
+void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL);
+void write_ascii_snapshot(REAL* x, REAL *v);
+void Log_write();
 
 int main(int argc, char *argv[])
 {
@@ -474,24 +166,21 @@ int main(int argc, char *argv[])
 	//the rank=0 thread reads the paramfile, and bcast the variables to the other threads
 	if(rank == 0)
 	{
-		FILE *param_file = fopen(argv[1], "r");
+		if(file_exist(argv[1]) == 0)
+		{
+			fprintf(stderr, "Error: The %s parameter file does not exist!\nExiting.\n", argv[1]);
+			return (-1);
+		}
+		FILE *param_file;
+		param_file = fopen(argv[1], "r");
 		read_param(param_file);
+		if(dir_exist(OUT_DIR) == 0)
+		{
+			fprintf(stderr, "Error: The %s output directory does not exist!\nExiting.\n",OUT_DIR);
+			return (-1);
+		}
 	}
 	BCAST_global_parameters();
-	if(rank == 0)
-		N_mpi_thread = (N/numtasks) + (N%numtasks);
-	else
-		N_mpi_thread = N/numtasks;
-	if(argc == 3)
-	{
-		n_GPU = atoi( argv[2] );
-		if(rank == 0)
-			printf("Using %i cuda capable GPU per MPI task.\n", n_GPU);
-	}
-	else
-	{
-		n_GPU = 1;
-	}
 	if(IS_PERIODIC>1)
 	{
 		el = ewald_space(3.6,e);
@@ -525,6 +214,36 @@ int main(int argc, char *argv[])
 	}
 	if(rank == 0)
 	{
+		if(IC_FORMAT != 0 && IC_FORMAT != 1)
+		{
+			fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+			return (-1);
+		}
+		if(IC_FORMAT == 0)
+		{
+			if(file_exist(IC_FILE) == 0)
+			{
+				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+				return (-1);
+			}
+			N = measure_N_part_from_ascii_snapshot(IC_FILE);
+			FILE *ic_file = fopen(IC_FILE, "r");
+			read_ic(ic_file, N);
+		}
+		if(IC_FORMAT == 1)
+		{
+			int files;
+			printf("The IC file is in Gadget format.\nThe IC determines the box size.\n");
+			files = 1;      /* number of files per snapshot */
+			if(file_exist(IC_FILE) == 0)
+			{
+				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+				return (-1);
+			}
+			load_snapshot(IC_FILE, files);
+			reordering();
+			gadget_format_conversion();
+		}
 		if(REDSHIFT_CONE == 1 && COSMOLOGY != 1)
 		{
 			fprintf(stderr, "Error: you can not use redshift cone output format in non-cosmological simulations. \nExiting.\n");
@@ -541,29 +260,6 @@ int main(int argc, char *argv[])
 			IN_CONE = new bool[N];
 			std::fill(IN_CONE, IN_CONE+N, false ); //setting every element to false
 		}
-		if(IC_FORMAT != 0 && IC_FORMAT != 1)
-		{
-			fprintf(stderr, "Error: bad IC format!\nExiting.\n");
-			return (-1);
-		}
-		if(IC_FORMAT == 0)
-		{
-			FILE *ic_file = fopen(IC_FILE, "r");
-			read_ic(ic_file, N);
-		}
-		if(IC_FORMAT == 1)
-		{
-			int files;
-			printf("The IC file is in Gadget format.\nThe IC determines the box size.\n");
-			files = 1;      /* number of files per snapshot */
-			x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
-			v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
-			F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-			M = (REAL*)malloc(N*sizeof(REAL));
-			load_snapshot(IC_FILE, files);
-			reordering();
-			gadget_format_conversion();
-		}
 		//Rescaling speeds. We are using the same convention that the Gadget uses: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
 		if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
 		{
@@ -579,7 +275,25 @@ int main(int argc, char *argv[])
 			F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL));
 		}
 	}
+	#ifdef USE_CUDA
+	if(argc == 3)
+	{
+		n_GPU = atoi( argv[2] );
+		if(rank == 0)
+			printf("Using %i cuda capable GPU per MPI task.\n", n_GPU);
+	}
 	else
+	{
+		n_GPU = 1;
+	}
+	#endif
+	//Bcasting the particle number
+	MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
+	if(rank == 0)
+		N_mpi_thread = (N/numtasks) + (N%numtasks);
+	else
+		N_mpi_thread = N/numtasks;
+	if(rank != 0)
 	{
 		//Allocating memory for the particle datas on the rank != 0 MPI threads
 		x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory fo the coordinates
@@ -616,7 +330,7 @@ int main(int argc, char *argv[])
 	{
 		Omega_m = Omega_b+Omega_dm;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
-		rho_crit = 3*H0*H0/(8*pi);
+		rho_crit = 3.0*H0*H0/(8.0*pi);
 		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((REAL) N);
 		if(IS_PERIODIC>0)
@@ -871,7 +585,6 @@ int main(int argc, char *argv[])
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
 		T = T+h;
-		fflush(stdout);
 		step(x, v, F);
 		if(rank == 0)
 		{
@@ -880,7 +593,7 @@ int main(int argc, char *argv[])
 			{
 				if(T > t_next)
 				{
-					kiiras(x, v);
+					write_ascii_snapshot(x, v);
 					t_next=t_next+Delta_T_out;
 					if(COSMOLOGY == 1)
 					{
@@ -898,7 +611,7 @@ int main(int argc, char *argv[])
 				{
 					if(REDSHIFT_CONE != 1)
 					{
-						kiiras(x, v);
+						write_ascii_snapshot(x, v);
 						out_z_index += delta_z_index;
                                                 t_next = out_list[out_z_index];
 					}
@@ -908,7 +621,7 @@ int main(int argc, char *argv[])
 						{
 							CONE_ALL = 1;
 							printf("Last timestep.\n");
-							kiiras(x, v);
+							write_ascii_snapshot(x, v);
 						}
 						write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
 						if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
@@ -948,10 +661,12 @@ int main(int argc, char *argv[])
 			}
 		}
 		MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+		fflush(stdout);
+		MPI_Barrier(MPI_COMM_WORLD);
 	}
 	if(OUTPUT_FORMAT == 0 && rank == 0)
 	{
-		kiiras(x, v); //writing output
+		write_ascii_snapshot(x, v); //writing output
 	}
 	if(rank == 0)
 	{
@@ -961,7 +676,7 @@ int main(int argc, char *argv[])
 		{
 			if(COMOVING_INTEGRATION == 1)
 			{
-				printf("Timestep %i, t=%.8fGy, h=%f, a=%.8f, H=%.8f, z=%.8f\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+				printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8f, z=%.8f\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
 
 				double a_end, b_end;
 				a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
@@ -975,7 +690,7 @@ int main(int argc, char *argv[])
 			}
 			else
 			{
-				printf("Timestep %i, t=%.8fGy, h=%f\n", t, T*UNIT_T, h*UNIT_T);
+				printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*UNIT_T, h*UNIT_T);
 			}
 		}
 		else

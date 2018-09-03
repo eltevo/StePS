@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.3.0
+v0.3.4.0
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -85,7 +85,6 @@ COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when 
 L_box           1860.0531					%linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file
 IC_FORMAT       0						%ic file format 0: ascii, 1:GADGET
-N_particle      1470017						%Number of particles in the IC
 OUT_DIR         ../examples/LCDM_SP_1260_343M_com_VOI_1000/		%output directory
 OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output redshift list
 OUTPUT_FORMAT   1						%output format 0: time, 1: redshift
