@@ -18,24 +18,23 @@ double calculate_init_h()
 	int i,k;
 	errmax = 0;
 	REAL ACCELERATION[3];
-	if(IS_PERIODIC != 0)
+	#ifdef PERIODIC
+	for(i=0;i<N;i++)
 	{
-		for(i=0;i<N;i++)
+		for(k=0;k<3;k++)
 		{
-			for(k=0;k<3;k++)
+			//If we are using periodic boundary conditions, the code move every "out-of-box" particle inside the box
+			if(x[3*i+k]<0)
 			{
-				//If we are using periodic boundary conditions, the code move every "out-of-box" particle inside the box
-				if(x[3*i+k]<0)
-				{
 				x[3*i+k] = x[3*i+k] + L;
-				}
-				if(x[3*i+k]>=L)
-				{
+			}
+			if(x[3*i+k]>=L)
+			{
 				x[3*i+k] = x[3*i+k] - L;
-				}
 			}
 		}
 	}
+	#endif
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
 	for(i=0; i<N; i++)
 	{
@@ -113,23 +112,22 @@ void step(REAL* x, REAL* v, REAL* F)
 			}
 		}
 		//If we are using periodic boundary conditions, the code move every "out-of-box" particle inside the box
-		if(IS_PERIODIC != 0)
+		#ifdef PERIODIC
+		#pragma omp parallel default(shared) private(i,k)
 		{
-			#pragma omp parallel default(shared) private(i,k)
+			#pragma omp for schedule(dynamic,chunk)
+			for(i=0; i<N; i++)
 			{
-				#pragma omp for schedule(dynamic,chunk)
-				for(i=0; i<N; i++)
+				for(k=0;k<3;k++)
 				{
-					for(k=0;k<3;k++)
-					{
-						if(x[3*i+k]<0)
-							x[3*i+k] = x[3*i+k] + L;
-						if(x[3*i+k]>=L)
-							x[3*i+k] = x[3*i+k] - L;
-					}
+					if(x[3*i+k]<0)
+						x[3*i+k] = x[3*i+k] + L;
+					if(x[3*i+k]>=L)
+						x[3*i+k] = x[3*i+k] - L;
 				}
 			}
 		}
+		#endif
 	}
 	//Bcasting the particle coordinates
 #ifdef USE_SINGLE_PRECISION
@@ -140,14 +138,11 @@ void step(REAL* x, REAL* v, REAL* F)
 	//Force calculation
 	if(rank == 0)
 		printf("Calculating Forces...\n");
-	if(IS_PERIODIC < 2)
-	{
+	#ifndef PERIODIC
 		forces(x, F, ID_MPI_min, ID_MPI_max);
-	}
-	if(IS_PERIODIC == 2)
-	{
+	#else
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
-	}
+	#endif
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
 	if(rank !=0)
 	{

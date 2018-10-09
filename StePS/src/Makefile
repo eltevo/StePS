@@ -4,7 +4,7 @@
 # Gabor Racz, 2017-2018										#
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.4.0"'#										#
+VERSION='"v0.3.5.0"'#										#
 #-----------------------------------------------------------------------------------------------#
 
 
@@ -12,7 +12,10 @@ VERSION='"v0.3.4.0"'#										#
 USING_CUDA = NO
 #OPT += -DUSE_SINGLE_PRECISION
 
-#------------------------------- Glass making options
+#------------------------------- Option for periodic boundary condition
+#OPT += -DPERIODIC
+
+#------------------------------- Glass making option
 #OPT += -DGLASS_MAKING
 
 #------------------------------- Compiler

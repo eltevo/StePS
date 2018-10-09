@@ -14,3 +14,6 @@ G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulation
 
 ![alt text](Images/LCDM_SP_0500Mpc_64M_StePS_glass_tilefac3_LBOX2214.png "A slice from a simulation volume.")
 ![alt text](Images/LCDM_SP_0500Mpc_64M_StePS_glass_tilefac3_LBOX738.png "The center of the slice.")
+
+![alt text](Images/VOI100_InnerRegion.png "Particles in the center of a simulation volume.")
+![alt text](Images/VOI100_Disp_InnerRegion.png "The displacement field in the same volume at z=0.")

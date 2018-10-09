@@ -127,7 +127,10 @@ int read_OUT_LST()
 			size++;
 		}
 	}
-	out_list = (double*)malloc((size+1)*sizeof(double));
+	if(OUTPUT_FORMAT == 1)
+		out_list = (double*)malloc((size+1)*sizeof(double));
+	else
+		out_list = (double*)malloc((size)*sizeof(double));
 	int offset;
 	for(i=0; i<size; i++)
 	{
@@ -135,8 +138,19 @@ int read_OUT_LST()
 		buffer += offset;
 	}
 	out_list[size] = 1.0/a_max-1.0;
-	std::sort(out_list, out_list+size, std::greater<double>());
-	out_list_size = size;
+	if(OUTPUT_FORMAT == 1)
+	{
+		out_list[size] = 1.0/a_max-1.0;
+		std::sort(out_list, out_list+size, std::greater<double>());
+		out_list_size = size;
+	}
+	else
+	{
+		std::sort(out_list, out_list+size-1, std::less<double>());
+		out_list_size = size-1;
+		for(i=0; i<out_list_size; i++)
+			out_list[i] /= UNIT_T; //converting input Gy to internal units
+	}
 	size = 0;
 	if(REDSHIFT_CONE == 1)
 	{
@@ -194,7 +208,6 @@ int read_OUT_LST()
 			return (-1);
 		}
 	}
-	printf("\n");
 	return 0;
 
 }

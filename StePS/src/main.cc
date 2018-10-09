@@ -53,6 +53,7 @@ int IC_FORMAT; // 0: ascii, 1:GADGET
 int OUTPUT_FORMAT; // 0: time, 1: redshift
 double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
+int HAVE_OUT_LIST; // 0: output list not found. 1: output list found
 double *out_list; //Output redshits
 double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
@@ -129,10 +130,17 @@ int main(int argc, char *argv[])
 	#endif
 	#ifdef USE_SINGLE_PRECISION
 	if(rank == 0)
-		printf("\tSingle precision (32bit) force calculation.\n\n");
+		printf("\tSingle precision (32bit) force calculation.\n");
 	#else
 	if(rank == 0)
-		printf("\tDouble precision (64bit) force calculation.\n\n");
+		printf("\tDouble precision (64bit) force calculation.\n");
+	#endif
+	#ifdef PERIODIC
+	if(rank == 0)
+		printf("\tPeriodic boundary conditions.\n\n");
+	#else
+	if(rank == 0)
+		printf("\tNon-periodic boundary conditions.\n\n");
 	#endif
 	if(numtasks != 1 && rank == 0)
 	{
@@ -158,7 +166,7 @@ int main(int argc, char *argv[])
 			#ifndef USE_CUDA
 				fprintf(stderr, "Call with: ./%s  <parameter file>\n", PROGRAMNAME);
 			#else
-				fprintf(stderr, "Call with: ./%s  <parameter file> \'i\', where \'i\' is the number of the CUDA capable GPUs.\nif \'i\' is not set, than one GPU will be used.\n", PROGRAMNAME);
+				fprintf(stderr, "Call with: ./%s  <parameter file> \'i\', where \'i\' is the number of the CUDA capable GPUs per node.\nif \'i\' is not set, than one GPU per MPI task will be used.\n", PROGRAMNAME);
 			#endif
 		}
 		return (-1);
@@ -181,14 +189,44 @@ int main(int argc, char *argv[])
 		}
 	}
 	BCAST_global_parameters();
-	if(IS_PERIODIC>1)
-	{
-		el = ewald_space(3.6,e);
-		if(IS_PERIODIC>2)
+	#ifdef PERIODIC
+		if(IS_PERIODIC < 1 || IS_PERIODIC > 2)
 		{
-			hl = ewald_space(8.0,H);
+			if(rank == 0)
+				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to run periodic simulations only.\nExiting.\n");
+			return (-2);
 		}
-	}
+
+		if(IS_PERIODIC>1)
+		{
+			el = ewald_space(3.6,e);
+ 			if(IS_PERIODIC>2)
+			{
+				hl = ewald_space(8.0,H);
+			}
+		}
+		else
+		{
+			el = 2202;
+			for(i=0;i<el;i++)
+			{
+				for(j=0;j<3;j++)
+				{
+					e[i][j]=0.0;
+				}
+			}
+			i=0;
+			j=0;
+		}
+
+	#else
+		if(IS_PERIODIC  != 0)
+		{
+			if(rank == 0)
+				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to run non-periodic simulations only.\nExiting.\n");
+			return (-2);
+		}
+	#endif
 	if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT !=1)
 	{
 		if(rank == 0)
@@ -201,15 +239,29 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Error: you can not use redshift output format in non-cosmological simulations. \nExiting.\n");
 		return (-2);
 	}
-	if(OUTPUT_FORMAT ==1)
+	if(rank == 0)
 	{
-		if(rank == 0)
+		if(file_exist(OUT_LST) == 0)
 		{
-			if(0 != read_OUT_LST())
-			{
-				fprintf(stderr, "Exiting.\n");
-				return (-2);
-			}
+			HAVE_OUT_LIST = 0;
+			printf("Output list not found. Using the FIRST_T_OUT and H_OUT variables for calculating the output");
+		}
+		else
+		{
+			HAVE_OUT_LIST = 1;
+			printf("Output list found. Using the contents of this file for the output");
+		}
+		if(OUTPUT_FORMAT == 1)
+			printf(" redshifts.\n");
+		else
+			printf(" times.\n");
+	}
+	if(HAVE_OUT_LIST==1 && rank==0)
+	{
+		if(0 != read_OUT_LST())
+		{
+			fprintf(stderr, "Exiting.\n");
+			return (-2);
 		}
 	}
 	if(rank == 0)
@@ -287,7 +339,7 @@ int main(int argc, char *argv[])
 		n_GPU = 1;
 	}
 	#endif
-	//Bcasting the particle number
+	//Bcasting the number of particles
 	MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
 	if(rank == 0)
 		N_mpi_thread = (N/numtasks) + (N%numtasks);
@@ -361,7 +413,7 @@ int main(int argc, char *argv[])
 	else
 	{
 		if(rank == 0)
-			printf("Running classical gravitational N-body simulation.\n");
+			printf("Running non-cosmological gravitational N-body simulation.\n");
 	}
 	//Searching the minimal mass particle
 	if(rank == 0)
@@ -404,35 +456,74 @@ int main(int argc, char *argv[])
 			printf("a_start=%.9f\tz=%.9f\n", a, 1/a-1);
 		}
 		T = friedmann_solver_start(1,0,h_min*0.00031,Omega_lambda,Omega_r,Omega_m,H0,a_start);
-		Delta_T_out = H_OUT/UNIT_T; //Output frequency
-		if(OUTPUT_FORMAT == 0)
+		if(HAVE_OUT_LIST == 0)
 		{
-			if(FIRST_T_OUT >= T) //Calculating first output time
+			if(OUTPUT_FORMAT==0)
 			{
-				t_next = FIRST_T_OUT/UNIT_T;
+				Delta_T_out = H_OUT/UNIT_T; //Output frequency in internal time units
+				if(FIRST_T_OUT >= T) //Calculating first output time
+				{
+					t_next = FIRST_T_OUT/UNIT_T;
+				}
+				else
+				{
+					t_next = T+Delta_T_out;
+				}
 			}
 			else
 			{
-				t_next = T+Delta_T_out;
+				Delta_T_out = H_OUT; //Output frequency in redshift
+				if(FIRST_T_OUT >= T) //Calculating first output redshift
+				{
+					t_next = FIRST_T_OUT;
+				}
+				else
+				{
+					t_next = FIRST_T_OUT - Delta_T_out;
+				}
 			}
 		}
 		else
 		{
-			if(1.0/a-1.0 > out_list[0])
+			if(OUTPUT_FORMAT==1)
 			{
-				t_next = out_list[0];
+				if(1.0/a-1.0 > out_list[0])
+				{
+					t_next = out_list[0];
+				}
+				else
+				{
+					i=0;
+					while(out_list[i] > 1.0/a-1.0)
+					{
+						t_next = out_list[i];
+						i++;
+						if(i == out_list_size && out_list[i] > 1.0/a-1.0)
+						{
+							fprintf(stderr, "Error: No valid output redshift!\nExiting.\n");
+							return (-2);
+						}
+					}
+				}
 			}
 			else
 			{
-				i=0;
-				while(out_list[i] > 1.0/a-1.0)
+				if(T < out_list[0])
 				{
-					t_next = out_list[i];
-					i++;
-					if(i == out_list_size && out_list[i] > 1.0/a-1.0)
+					t_next = out_list[0];
+				}
+				else
+				{
+					i=0;
+					while(out_list[i] < T)
 					{
-						fprintf(stderr, "Error: No valid output redshift!\nExiting.\n");
-						return (-2);
+						t_next = out_list[i];
+						i++;
+						if(i == out_list_size && out_list[i] < T)
+						{
+							fprintf(stderr, "Error: No valid output time found in the OUT_LST file!\nExiting.\n");
+							return (-2);
+						}
 					}
 				}
 			}
@@ -458,7 +549,24 @@ int main(int argc, char *argv[])
 		printf("t_start = %f\tt_max = %f\n", T, a_max);
 		a_tmp = 0;
 		Delta_T_out = H_OUT;
-		t_next = T+Delta_T_out;
+		if(HAVE_OUT_LIST==0)
+		{
+			t_next = T+Delta_T_out;
+		}
+		else
+		{
+			i = 0;
+			while(out_list[i] < 0.0)
+			{
+				t_next=out_list[i];
+				i++;
+				if(i == out_list_size && out_list[i] < T)
+				{
+					fprintf(stderr, "Error: No valid output time found in the OUT_LST file!\nExiting.\n");
+					return (-2);
+				}
+			}
+		}
 	}
 	}
 	//Bcasting the initial time and other variables
@@ -475,27 +583,21 @@ int main(int argc, char *argv[])
 	{
 		ID_MPI_min = 0;
 		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-		if(IS_PERIODIC < 2)
-		{
+		#ifndef PERIODIC
 			forces(x, F, ID_MPI_min, ID_MPI_max);
-		}
-		if(IS_PERIODIC == 2)
-		{
+		#else
 			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
-		}
+		#endif
 	}
 	else
 	{
 		ID_MPI_min = (N%numtasks) + (rank)*(N/numtasks);
 		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-		if(IS_PERIODIC < 2)
-		{
+		#ifndef PERIODIC
 			forces(x, F, ID_MPI_min, ID_MPI_max);
-		}
-		if(IS_PERIODIC == 2)
-		{
+		#else
 			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
-		}
+		#endif
 	}
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
 	if(rank !=0)
@@ -589,63 +691,101 @@ int main(int argc, char *argv[])
 		if(rank == 0)
 		{
 			Log_write();	//Writing logfile
-			if(OUTPUT_FORMAT == 0)
+			if(HAVE_OUT_LIST == 0)
 			{
-				if(T > t_next)
+				if(OUTPUT_FORMAT == 0)
 				{
-					write_ascii_snapshot(x, v);
-					t_next=t_next+Delta_T_out;
-					if(COSMOLOGY == 1)
+					if(T > t_next)
 					{
-						printf("t = %f Gy\n\th=%f Gy\n", T*UNIT_T, h*UNIT_T);
+						write_ascii_snapshot(x, v);
+						t_next+=Delta_T_out;
+						if(COSMOLOGY == 1)
+						{
+							printf("t = %f Gy\n\th=%f Gy\n", T*UNIT_T, h*UNIT_T);
+						}
+						else
+						{
+							printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
+						}
 					}
-					else
+				}
+				else
+				{
+					if( 1.0/a-1.0 < t_next)
 					{
-						printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
+						write_ascii_snapshot(x, v);
+						t_next-=Delta_T_out;
+						if(COSMOLOGY == 1)
+						{
+							printf("t = %f Gy\n\th=%f Gy\n", T*UNIT_T, h*UNIT_T);
+						}
+						else
+						{
+							printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
+						}
 					}
 				}
 			}
 			else
 			{
-				if( 1.0/a-1.0 < t_next)
+				if(OUTPUT_FORMAT == 1)
 				{
-					if(REDSHIFT_CONE != 1)
+					if( 1.0/a-1.0 < t_next)
 					{
-						write_ascii_snapshot(x, v);
-						out_z_index += delta_z_index;
-                                                t_next = out_list[out_z_index];
-					}
-					else
-					{
-						if(a_tmp >= a_max)
+						if(REDSHIFT_CONE != 1)
 						{
-							CONE_ALL = 1;
-							printf("Last timestep.\n");
 							write_ascii_snapshot(x, v);
-						}
-						write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
-						if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
-						{
-							if( (out_z_index+delta_z_index+8) < out_list_size)
-								delta_z_index += 8;
-							else
-								CONE_ALL = 1;
-						}
-						if(CONE_ALL == 1)
-						{
-							t_next = 0.0;
-						}
-						else
-						{
 							out_z_index += delta_z_index;
 							t_next = out_list[out_z_index];
 						}
-						if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
+						else
 						{
-							CONE_ALL = 1;
-							printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
-
-							t_next = 0.0;
+							if(a_tmp >= a_max)
+							{
+								CONE_ALL = 1;
+								printf("Last timestep.\n");
+								write_ascii_snapshot(x, v);
+							}
+							write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
+							if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
+							{
+								if( (out_z_index+delta_z_index+8) < out_list_size)
+									delta_z_index += 8;
+								else
+									CONE_ALL = 1;
+							}
+							if(CONE_ALL == 1)
+							{
+								t_next = 0.0;
+							}
+							else
+							{
+								out_z_index += delta_z_index;
+								t_next = out_list[out_z_index];
+							}
+							if(MIN_REDSHIFT>t_next && CONE_ALL != 1)
+							{
+								CONE_ALL = 1;
+								printf("Warning: The simulation reached the minimal z = %f redshift. After this point the z=0 coordinates will be written out with redshifts taken from the input file. This can cause inconsistencies, if this minimal redshift is not low enough.\n", MIN_REDSHIFT);
+								t_next = 0.0;
+							}
+						}
+					}
+				}
+				else
+				{
+					if(T > t_next)
+					{
+						write_ascii_snapshot(x, v);
+						out_z_index += delta_z_index;
+						t_next = out_list[out_z_index];
+						if(COSMOLOGY == 1)
+						{
+							printf("t = %f Gy\n\th=%f Gy\n", T*UNIT_T, h*UNIT_T);
+						}
+						else
+						{
+							printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
 						}
 					}
 				}

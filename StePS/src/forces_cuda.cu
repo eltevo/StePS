@@ -16,31 +16,36 @@ extern int e[2202][4];
 extern REAL w[3];
 extern int N, hl, el;
 
-int ewald_space(REAL R, int ewald_index[2102][4]);
-
-
+#ifndef PERIODIC
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
+#else
+int ewald_space(REAL R, int ewald_index[2102][4]);
 cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
+#endif
 
+#ifndef PERIODIC
 void forces(REAL*x, REAL*F, int ID_min, int ID_max)
 {
 	forces_cuda(x, F, n_GPU, ID_min, ID_max);
 	return;
 }
-
+#endif
+#ifdef PERIODIC
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)
 {
 	forces_periodic_cuda(x, F, n_GPU, ID_min, ID_max);
 	return;
 }
+#endif
 
 
 void recalculate_softening();
 
-__global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, int IS_PERIODIC, REAL* M, REAL L, REAL rho_part, REAL mass_in_unit_sphere, int COSMOLOGY, int COMOVING_INTEGRATION, int ID_min, int ID_max)
+#ifndef PERIODIC
+__global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, REAL* M, REAL L, REAL rho_part, REAL mass_in_unit_sphere, int COSMOLOGY, int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
-	REAL r, dx, dy, dz, wij, beta_priv, betai;
+	REAL r, dx, dy, dz, wij, beta_priv, beta_privp2, betai;
 	REAL SOFT_CONST[5];
 	int i, j, id;
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
@@ -52,50 +57,39 @@ __global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const 
 			betai = cbrt(M[i]*const_beta);
 			for (j = 0; j<N; j++)
 			{
-				beta_priv = (betai+cbrt(M[j]*const_beta))/2.0;
+				beta_priv = (betai+cbrt(M[j]*const_beta));
+				beta_privp2 = beta_priv*0.5;
 				//calculating particle distances
 				dx = (xx[j] - xx[i]);
 				dy = (xy[j] - xy[i]);
 				dz = (xz[j] - xz[i]);
-				//in this function we use only the nearest image
-				if (IS_PERIODIC == 1)
-				{
-					if (fabs(dx)>0.5*L)
-						dx = dx - L*dx / fabs(dx);
-					if (fabs(dy)>0.5*L)
-						dy = dy - L*dy / fabs(dy);
-					if (fabs(dz)>0.5*L)
-						dz = dz - L*dz / fabs(dz);
-				}
-
 				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-				wij = 0.0;
-				if (r <= beta_priv)
+				if (r >= beta_priv)
 				{
-					SOFT_CONST[0] = 32.0/pow(2.0*beta_priv, 6);
-					SOFT_CONST[1] = -38.4/pow(2.0*beta_priv, 5);
-					SOFT_CONST[2] = 32.0/(3.0*pow(2.0*beta_priv, 3));
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
+					wij = M[j] / (pow(r, 3));
 				}
-				if (r > beta_priv && r <= 2 * beta_priv)
+				else if (r > beta_privp2 && r < beta_priv)
 				{
-					SOFT_CONST[0] = -32.0/(3.0*pow(2*beta_priv, 6));
-					SOFT_CONST[1] = 38.4/pow(2.0*beta_priv, 5);
-					SOFT_CONST[2] = -48.0/pow(2.0*beta_priv, 4);
-					SOFT_CONST[3] = 64.0/(3.0*pow(2.0*beta_priv, 3));
+					SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
+					SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
+					SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
+					SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
 					SOFT_CONST[4] = -1.0/15.0;
 					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
 				}
-				if (r > 2 * beta_priv)
+				else
 				{
-					wij = M[j] / (pow(r, 3));
+					SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
+					SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
+					SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
+					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
 				}
 				Fx_tmp += wij*(dx);
 				Fy_tmp += wij*(dy);
 				Fz_tmp += wij*(dz);
 
 			}
-			if(COSMOLOGY == 1 && IS_PERIODIC == 0 && COMOVING_INTEGRATION == 1)//Adding the external force from the outside of the simulation volume, if we run non-periodic comoving cosmological simulation
+			if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)//Adding the external force from the outside of the simulation volume, if we run non-periodic comoving cosmological simulation
 			{
 				Fx_tmp += mass_in_unit_sphere * xx[i];
 				Fy_tmp += mass_in_unit_sphere * xy[i];
@@ -108,69 +102,128 @@ __global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const 
 
 		}
 }
+#endif
 
+#ifdef PERIODIC
 __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, int IS_PERIODIC, REAL* M, REAL L, REAL rho_part, int *e, int el, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
-	REAL r, dx, dy, dz, wij, beta_priv, betai;
+	REAL r, dx, dy, dz, wij, beta_priv, beta_privp2, betai;
 	REAL SOFT_CONST[5];
 	int i, j, m, id;
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
 
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0;
-	for (i = (ID_min+id); i<=ID_max; i=i+n)
+	if (IS_PERIODIC == 1)
 	{
-		betai = cbrt(M[i]*const_beta);
-		for (j = 0; j<N; j++)
+		for (i = (ID_min+id); i<=ID_max; i+=n)
 		{
-			beta_priv = (betai+cbrt(M[j]*const_beta))/2.0;
-			//calculating particle distances
-			dx = (xx[j] - xx[i]);
-			dy = (xy[j] - xy[i]);
-			dz = (xz[j] - xz[i]);
-			//in this function we use multiple images
-			for (m = 0; m < 3*el; m = m+3)
+			betai = cbrt(M[i]*const_beta);
+			for (j = 0; j<N; j++)
 			{
-				r = sqrt(pow((dx - ((REAL)e[m])*L), 2) + pow((dy - ((REAL)e[m+1])*L), 2) + pow((dz-((REAL)e[m+2])*L), 2));
-				wij = 0.0;
-				if (r <= beta_priv)
-				{
-					SOFT_CONST[0] = 32.0/pow(2.0*beta_priv, 6);
-                                        SOFT_CONST[1] = -38.4/pow(2.0*beta_priv, 5);
-                                        SOFT_CONST[2] = 32.0/(3.0*pow(2.0*beta_priv, 3));
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
-				}
-				if (r > beta_priv && r <= 2 * beta_priv)
-				{
-					SOFT_CONST[0] = -32.0/(3.0*pow(2*beta_priv, 6));
-                                        SOFT_CONST[1] = 38.4/pow(2.0*beta_priv, 5);
-                                        SOFT_CONST[2] = -48.0/pow(2.0*beta_priv, 4);
-                                        SOFT_CONST[3] = 64.0/(3.0*pow(2.0*beta_priv, 3));
-                                        SOFT_CONST[4] = -1.0/15.0;
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-				}
-				if (r > 2 * beta_priv && r < 2.6*L)
+				beta_priv = (betai+cbrt(M[j]*const_beta));
+				beta_privp2 = beta_priv*0.5;
+				//calculating particle distances
+				dx = (xx[j] - xx[i]);
+				dy = (xy[j] - xy[i]);
+				dz = (xz[j] - xz[i]);
+				//in this quasi-periodic caes, we use only the nearest image
+				if (fabs(dx)>0.5*L)
+					dx = dx - L*dx / fabs(dx);
+				if (fabs(dy)>0.5*L)
+					dy = dy - L*dy / fabs(dy);
+				if (fabs(dz)>0.5*L)
+					dz = dz - L*dz / fabs(dz);
+				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+                                wij = 0.0;
+				if (r >= beta_priv)
 				{
 					wij = M[j] / (pow(r, 3));
 				}
-				if (wij != 0)
+				else if (r > beta_privp2 && r < beta_priv)
+                                {
+					SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
+					SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
+					SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
+					SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
+					SOFT_CONST[4] = -1.0/15.0;
+					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
+				}				
+				else
 				{
-					Fx_tmp += wij*(dx - ((REAL)e[m])*L);
-					Fy_tmp += wij*(dy - ((REAL)e[m + 1])*L);
-					Fz_tmp += wij*(dz - ((REAL)e[m + 2])*L);
+					SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
+					SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
+					SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
+					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
 				}
-			}
+				Fx_tmp += wij*(dx);
+				Fy_tmp += wij*(dy);
+				Fz_tmp += wij*(dz);
 
+			}
+			F[3*(i-ID_min)] += Fx_tmp;
+			F[3*(i-ID_min)+1] += Fy_tmp;
+			F[3*(i-ID_min)+2] += Fz_tmp;
+			Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
 		}
-		F[3 * (i-ID_min)] += Fx_tmp;
-		F[3 * (i-ID_min) + 1] += Fy_tmp;
-		F[3 * (i-ID_min) + 2] += Fz_tmp;
-		Fx_tmp = Fy_tmp = Fz_tmp = 0;
+	}
+	else if (IS_PERIODIC == 2)
+	{
+		for (i = (ID_min+id); i<=ID_max; i=i+n)
+		{
+			betai = cbrt(M[i]*const_beta);
+			for (j = 0; j<N; j++)
+			{
+				beta_priv = (betai+cbrt(M[j]*const_beta));
+				beta_privp2 = beta_priv*0.5;
+				//calculating particle distances
+				dx = (xx[j] - xx[i]);
+				dy = (xy[j] - xy[i]);
+				dz = (xz[j] - xz[i]);
+				//in this function we use multiple images
+				for (m = 0; m < 3*el; m = m+3)
+				{
+					r = sqrt(pow((dx - ((REAL)e[m])*L), 2) + pow((dy - ((REAL)e[m+1])*L), 2) + pow((dz-((REAL)e[m+2])*L), 2));
+					wij = 0.0;
+					if (r >= beta_priv && r < 2.6*L)
+					{
+						wij = M[j] / (pow(r, 3));
+					}
+					else if (r > beta_privp2 && r <= beta_priv)
+					{
+						SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
+						SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
+						SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
+						SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
+						SOFT_CONST[4] = -1.0/15.0;
+						wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
+					}
+					else if (r <= beta_privp2)
+					{
+						SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
+						SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
+						SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
+						wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
+					}
+					if (wij != 0)
+					{
+						Fx_tmp += wij*(dx - ((REAL)e[m])*L);
+						Fy_tmp += wij*(dy - ((REAL)e[m + 1])*L);
+						Fz_tmp += wij*(dz - ((REAL)e[m + 2])*L);
+					}
+				}
+
+			}
+			F[3 * (i-ID_min)] += Fx_tmp;
+			F[3 * (i-ID_min) + 1] += Fy_tmp;
+			F[3 * (i-ID_min) + 2] += Fz_tmp;
+			Fx_tmp = Fy_tmp = Fz_tmp = 0;
+		}
 	}
 
 }
-
+#endif
 
 void recalculate_softening()
 {
@@ -181,6 +234,7 @@ void recalculate_softening()
 	}
 }
 
+#ifndef PERIODIC
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation on GPU
 {
 	int i, j;
@@ -313,7 +367,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU
-		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
 		if (cudaStatus != cudaSuccess) {
@@ -372,8 +426,9 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	printf("Force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
 	return cudaStatus;
 }
+#endif
 
-
+#ifdef PERIODIC
 cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation with multiple images on GPU
 {
 	int i, j;
@@ -584,3 +639,4 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 	printf("Force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
 	return cudaStatus;
 }
+#endif

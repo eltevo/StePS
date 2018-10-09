@@ -25,6 +25,7 @@ extern int IC_FORMAT; // 0: ascii, 1:GADGET
 extern int OUTPUT_FORMAT; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
+extern int HAVE_OUT_LIST;
 extern double *out_list; //Output redshits
 extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 extern int out_list_size; //Number of output redshits
