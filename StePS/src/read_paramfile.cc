@@ -34,14 +34,14 @@ void BCAST_global_parameters()
 	MPI_Bcast(&a_max,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&a_start,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&COMOVING_INTEGRATION,1,MPI_INT,0,MPI_COMM_WORLD);
-	MPI_Bcast(&OUTPUT_FORMAT,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&OUTPUT_TIME_VARIABLE,1,MPI_INT,0,MPI_COMM_WORLD);
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&L,1,MPI_FLOAT,0,MPI_COMM_WORLD);
-	MPI_Bcast(&mean_err,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&ACC_PARAM,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(&L,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
-	MPI_Bcast(&mean_err,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&ACC_PARAM,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
 return;
@@ -59,10 +59,10 @@ char str05[] = "H0";
 char str06[] = "IC_FILE";
 char str07[] = "L_box";
 char str08[] = "IS_PERIODIC";
-//char str09[] = "N_particle";
+char str09[] = "OUTPUT_FORMAT";
 char str10[] = "OUT_DIR";
 char str11[] = "a_max";
-char str13[] = "mean_err";
+char str13[] = "ACC_PARAM";
 char str14[] = "h_min";
 char str15[] = "COSMOLOGY";
 char str17[] = "a_start";
@@ -70,7 +70,7 @@ char str18[] = "h_max";
 char str19[] = "COMOVING_INTEGRATION";
 char str21[] = "FIRST_T_OUT";
 char str22[] = "IC_FORMAT";
-char str23[] = "OUTPUT_FORMAT";
+char str23[] = "OUTPUT_TIME_VARIABLE";
 char str24[] = "OUT_LST";
 char str25[] = "H_OUT";
 char str26[] = "ParticleRadi";
@@ -127,6 +127,17 @@ while(!feof(param_file))
 			IS_PERIODIC = 2;
 		}
 	}
+
+	if(strstr(c, str09) != NULL)
+        {
+                sscanf(c, "%s\t%i", str09, &OUTPUT_FORMAT);
+                if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT != 2)
+                {
+                        printf("Error: Unkown output format\n: OUTPUT_FORMAT is set to 0 (ASCII)");
+                        OUTPUT_FORMAT = 0;
+                }
+        }
+
 	if(strstr(c, str10) != NULL)
 	{
 		for(i=9; c[i] != '\n';i++)
@@ -140,7 +151,7 @@ while(!feof(param_file))
 	}
 	if(strstr(c, str13) != NULL)
 	{
-		sscanf(c, "%s\t%f", str13, &mean_err);
+		sscanf(c, "%s\t%f", str13, &ACC_PARAM);
 	}
 	if(strstr(c, str14) != NULL)
 	{
@@ -181,7 +192,7 @@ while(!feof(param_file))
 	}
 	if(strstr(c, str23) != NULL)
         {
-                sscanf(c, "%s\t%i", str22, &OUTPUT_FORMAT);
+                sscanf(c, "%s\t%i", str22, &OUTPUT_TIME_VARIABLE);
         }
 	if(strstr(c, str24) != NULL)
         {
@@ -254,6 +265,15 @@ while(!feof(param_file))
                         IS_PERIODIC = 2;
                 }
         }
+	if(strstr(c, str09) != NULL)
+	{
+		sscanf(c, "%s\t%i", str09, &OUTPUT_FORMAT);
+		if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT != 2)
+		{
+			printf("Error: Unkown output format\n: OUTPUT_FORMAT is set to 0 (ASCII)");
+			OUTPUT_FORMAT = 0;
+		}
+	}
 	if(strstr(c, str10) != NULL)
         {
                 for(i=9; c[i] != '\n';i++)
@@ -267,7 +287,7 @@ while(!feof(param_file))
         }
         if(strstr(c, str13) != NULL)
         {
-                sscanf(c, "%s\t%lf", str13, &mean_err);
+                sscanf(c, "%s\t%lf", str13, &ACC_PARAM);
         }
         if(strstr(c, str14) != NULL)
         {
@@ -308,7 +328,7 @@ while(!feof(param_file))
         }
 	if(strstr(c, str23) != NULL)
         {
-                sscanf(c, "%s\t%i", str22, &OUTPUT_FORMAT);
+                sscanf(c, "%s\t%i", str22, &OUTPUT_TIME_VARIABLE);
         }
 	if(strstr(c, str24) != NULL)
         {
@@ -346,12 +366,12 @@ if(COSMOLOGY == 1)
 	//Converting the Gy inputs into internal units
 	h_min /= UNIT_T;
 	h_max /= UNIT_T;
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%fMpc\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,mean_err,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR);
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%fMpc\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR);
 }
 else
 {
 	printf("Non-cosmological simulation.\n");
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,mean_err,h_min,IC_FILE,OUT_DIR);
+	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
 }
 Hubble_param = 0.0;
 return;

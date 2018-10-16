@@ -8,6 +8,12 @@
 #include "mpi.h"
 #include "global_variables.h"
 
+#ifdef HAVE_HDF5
+#include <hdf5.h>
+
+void write_header_attributes_in_hdf5(hid_t handle);
+#endif
+
 int file_exist(char *file_name)
 {
 	struct stat file_stat;
@@ -127,7 +133,7 @@ int read_OUT_LST()
 			size++;
 		}
 	}
-	if(OUTPUT_FORMAT == 1)
+	if(OUTPUT_TIME_VARIABLE == 1)
 		out_list = (double*)malloc((size+1)*sizeof(double));
 	else
 		out_list = (double*)malloc((size)*sizeof(double));
@@ -138,7 +144,7 @@ int read_OUT_LST()
 		buffer += offset;
 	}
 	out_list[size] = 1.0/a_max-1.0;
-	if(OUTPUT_FORMAT == 1)
+	if(OUTPUT_TIME_VARIABLE == 1)
 	{
 		out_list[size] = 1.0/a_max-1.0;
 		std::sort(out_list, out_list+size, std::greater<double>());
@@ -290,7 +296,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 	char A[20];
 	if(COSMOLOGY == 1)
 	{
-		if(OUTPUT_FORMAT == 0)
+		if(OUTPUT_TIME_VARIABLE == 0)
 		{
 			sprintf(A, "%d", (int)(round(100*t_next*UNIT_T)));
 		}
@@ -304,7 +310,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 		sprintf(A, "%d", (int)(round(100*t_next)));
 	}
 	char filename[0x400];
-	if(OUTPUT_FORMAT == 0)
+	if(OUTPUT_TIME_VARIABLE == 0)
 	{
 		snprintf(filename, sizeof(filename), "%st%s.dat", OUT_DIR, A);
 	}
@@ -318,7 +324,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 	}
 	else
 	{
-		if(OUTPUT_FORMAT == 0)
+		if(OUTPUT_TIME_VARIABLE == 0)
 		{
 			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next*UNIT_T, OUT_DIR, A);
 		}
@@ -369,3 +375,305 @@ void Log_write() //Writing logfile
 	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
 	fclose(LOGFILE);
 }
+
+#ifdef HAVE_HDF5
+void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
+{
+	int i, rank;
+	char buf[500];
+	 //setting up the output filename
+	char A[20];
+	if(COSMOLOGY == 1)
+	{
+		if(OUTPUT_TIME_VARIABLE == 0)
+		{
+			sprintf(A, "%d", (int)(round(100*t_next*UNIT_T)));
+		}
+		else
+		{
+			sprintf(A, "%d", (int)(round(1000*t_next)));
+		}
+	}
+	else
+	{
+		sprintf(A, "%d", (int)(round(100*t_next)));
+	}
+	char filename[0x400];
+	if(OUTPUT_TIME_VARIABLE == 0)
+	{
+		snprintf(filename, sizeof(filename), "%st%s.hdf5", OUT_DIR, A);
+	}
+	else
+	{
+		snprintf(filename, sizeof(filename), "%sz%s.hdf5", OUT_DIR, A);
+	}
+	if(COSMOLOGY == 0)
+	{
+		printf("Saving: t= %f, file: \"%st%s.hdf5\" \n", t_next, OUT_DIR, A);
+	}
+	else
+	{
+		if(OUTPUT_TIME_VARIABLE == 0)
+		{
+			printf("Saving: t= %f, file: \"%st%s.hdf5\" \n", t_next*UNIT_T, OUT_DIR, A);
+		}
+		else
+		{
+			printf("Saving: z= %f, file: \"%sz%s.hdf5\" \n", t_next, OUT_DIR, A);
+		}
+	}
+	//Output filename set. Creating the output file
+	hid_t snapshot = 0;
+	hid_t hdf5_grp[6]; //group for the data types (only DM are used in this version)
+	hid_t headergrp = 0;
+	hid_t dataspace_in_file = 0;
+	hid_t dataset = 0;
+	hid_t datatype = 0;
+	hid_t dataspace_memory;
+	herr_t status;
+	hsize_t dims[2], count[2], start[2];
+	snapshot = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+	//Output file created. Creating the header group, and write the header into the file
+	headergrp = H5Gcreate(snapshot, "/Header", 0, H5P_DEFAULT,H5P_DEFAULT);
+	//This code only uses DM particles, so type=1 (we do this for gadget compatibility)
+	int type = 1;
+	sprintf(buf, "/PartType%d", type);
+	hdf5_grp[type] = H5Gcreate(snapshot, buf, 0, H5P_DEFAULT,H5P_DEFAULT);
+	write_header_attributes_in_hdf5(headergrp);
+	//header written.
+	//Writing out the particle positions
+	dims[0] = N;
+	dims[1] = 3; //rank = 2 [if dims[1] = 1: 1; else: 2]
+	rank = 2;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //coordinates saved as float
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //coordinates saved as double
+	#endif
+	strcpy(buf, "Coordinates");
+	dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+	dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	start[0] = 0;
+	start[1] = 0;
+	count[0] = N;
+	count[1] = 3;
+	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+	dataspace_memory = H5Screate_simple(rank, dims, NULL);
+	status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, x);
+	H5Sclose(dataspace_memory);
+	H5Dclose(dataset);
+	H5Sclose(dataspace_in_file);
+	H5Tclose(datatype);
+
+	//Writing out particle velocities
+	dims[0] = N;
+	dims[1] = 3; //rank = 2 [if dims[1] = 1: 1; else: 2]
+	rank = 2;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //velocities saved as float
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //velocities saved as double
+	#endif
+	strcpy(buf, "Velocities");
+	dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+	dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	start[0] = 0;
+	start[1] = 0;
+	count[0] = N;
+	count[1] = 3;
+	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+	dataspace_memory = H5Screate_simple(rank, dims, NULL);
+	REAL *Velocity_buf;
+	Velocity_buf = (REAL *)malloc(3*N*sizeof(REAL));
+	for(i=0;i<3*N;i++)
+			Velocity_buf[i] = v[i]*(REAL)sqrt(a)*(REAL)UNIT_V; //km/s * sqrt(a) output
+	status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, Velocity_buf);
+	H5Sclose(dataspace_memory);
+	H5Dclose(dataset);
+	H5Sclose(dataspace_in_file);
+	H5Tclose(datatype);
+
+	//Writing out particle IDs
+	dims[0] = N;
+	dims[1] = 1; //rank = 2 [if dims[1] = 1: 1; else: 2]
+	rank = 1;
+	datatype = H5Tcopy(H5T_NATIVE_UINT64); //IDs are saved as unsigned 64 bit ints
+	strcpy(buf, "ParticleIDs");
+	dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+	dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	start[0] = 0;
+	start[1] = 0;
+	count[0] = N;
+	count[1] = 1;
+	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+	dataspace_memory = H5Screate_simple(rank, dims, NULL);
+	unsigned long long int *ID;
+	ID = (unsigned long long int *)malloc(N*sizeof(unsigned long long int));
+	for(i=0;i<N;i++)
+		ID[i] = i;
+	status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, ID);
+	H5Sclose(dataspace_memory);
+	H5Dclose(dataset);
+	H5Sclose(dataspace_in_file);
+	H5Tclose(datatype);
+
+	//Writing out particle Masses
+        dims[0] = N;
+        dims[1] = 1; //rank = 2 [if dims[1] = 1: 1; else: 2]
+        rank = 1;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Masses saved as float
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Masses saved as double
+	#endif
+        strcpy(buf, "Masses");
+        dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+        dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        start[0] = 0;
+        start[1] = 0;
+        count[0] = N;
+        count[1] = 1;
+        H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+        dataspace_memory = H5Screate_simple(rank, dims, NULL);
+        status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, M);
+        H5Sclose(dataspace_memory);
+        H5Dclose(dataset);
+        H5Sclose(dataspace_in_file);
+        H5Tclose(datatype);
+
+	H5Gclose(hdf5_grp[1]);
+	H5Gclose(headergrp);
+	H5Fclose(snapshot);
+
+}
+
+void write_header_attributes_in_hdf5(hid_t handle)
+{
+	int i;
+	hsize_t adim[1] = { 6 };
+	hid_t hdf5_dataspace, hdf5_attribute;
+
+	hdf5_dataspace = H5Screate(H5S_SIMPLE);
+	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
+	hdf5_attribute = H5Acreate(handle, "NumPart_ThisFile", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
+	int npart[6];
+	for(i=0; i<6; i++)
+		npart[i] = 0;
+	npart[1] = (int) N;
+	H5Awrite(hdf5_attribute, H5T_NATIVE_UINT, npart);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SIMPLE);
+	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
+	hdf5_attribute = H5Acreate(handle, "NumPart_Total", H5T_NATIVE_UINT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_UINT, npart);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SIMPLE);
+	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
+	for(i=0; i<6; i++)
+		npart[i] = 0;
+	hdf5_attribute = H5Acreate(handle, "NumPart_Total_HighWord", H5T_NATIVE_UINT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_UINT, npart);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+
+	hdf5_dataspace = H5Screate(H5S_SIMPLE);
+	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
+	double mass[6];
+	for(i=0; i<6; i++)
+		mass[i] = 0;
+	mass[1] = (double) M_min;
+	hdf5_attribute = H5Acreate(handle, "MassTable", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, mass);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Time", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &a); //scalefactor!
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Redshift", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	double redshift=(1.0/a-1.0);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &redshift);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "BoxSize", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L); //Linear simulation size
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "NumFilesPerSnapshot", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	int numfiles = 1;
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &numfiles);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Omega0", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Omega_m);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "OmegaLambda", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Omega_lambda);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "HubbleParam", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	redshift = H0*UNIT_V/100.0;
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &redshift); //H0 - Hubble constant in 100km/s/Mpc units
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Flag_Sfr", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	int zero = 0;
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &zero);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Flag_Cooling", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &zero);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Flag_StellarAge", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &zero);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Flag_Metals", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &zero);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "Flag_Feedback", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &zero);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	hdf5_dataspace = H5Screate(H5S_SIMPLE);
+	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
+	hdf5_attribute = H5Acreate(handle, "Flag_Entropy_ICs", H5T_NATIVE_UINT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_UINT, &zero);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+}
+
+#endif

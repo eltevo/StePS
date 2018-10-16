@@ -4,7 +4,7 @@
 # Gabor Racz, 2017-2018										#
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.5.0"'#										#
+VERSION='"v0.3.6.0"'#										#
 #-----------------------------------------------------------------------------------------------#
 
 
@@ -15,6 +15,9 @@ USING_CUDA = NO
 #------------------------------- Option for periodic boundary condition
 #OPT += -DPERIODIC
 
+#------------------------------- Option of HDF5
+OPT += -DHAVE_HDF5
+
 #------------------------------- Glass making option
 #OPT += -DGLASS_MAKING
 
@@ -22,11 +25,15 @@ USING_CUDA = NO
 CXX = g++
 
 #------------------------------- Location of the MPI libraries
-MPI_LIBS = /usr/lib
-MPI_INC = /usr/include/mpi
+MPI_LIBS = -L/usr/lib
+MPI_INC = -I/usr/include/mpi
 
 #------------------------------- Location of the CUDA Toolkit
 CUDA_PATH       ?= /usr
+
+#------------------------------- Location of the HDF5 libraries
+HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
+HDF5_INC = -I/usr/include/hdf5/serial 
 
 #---------------- Do not edit beyond this line! ----------------
 
@@ -53,12 +60,12 @@ DEPS = global_variables.h
 PROG = StePS_CUDA
 
 $(PROG): $(OBJ)
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ)
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
 %.o: %.cc
-	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
 %.o: %.cu
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) -L$(MPI_LIBS) -I$(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(MPI_LIBS) $(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 clean:
 	rm -fv $(OBJ) $(PROG)
 
@@ -71,10 +78,10 @@ OBJ = main.o inputoutput.o forces.o ewald_space.o step.o read_paramfile.o friedm
 DEPS = global_variables.h
 PROG = StePS
 $(PROG): $(OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
 
 %.o: %.cc
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
 clean:
 	rm -fv $(OBJ) $(PROG)

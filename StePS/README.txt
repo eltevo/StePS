@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.4.0
+v0.3.6.0
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -20,21 +20,46 @@ Cosmological simulation code for compactified cosmological simulations.
 - parallelized with MPI, OpenMP and CUDA
 - able to use multiple GPUs in a large computing cluster
 - direct N^2 force calculation
-- can read Gadget2 and ascii IC formats
-- the output is in ascii format
+- can read Gadget2 and ASCII IC formats
+- the output is in ASCII or HDF5 format
 - able to run standard periodic and spherical cosmological simulations
 - able to make periodic, quasiperiodic and spherical glass
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************
 
-Installation:
-	For the successful compilation, the code needs the following libraries:
-		-OpenMPI (https://www.open-mpi.org/) other MPI implemetations should work too.
-		-CUDA (https://developer.nvidia.com/cuda-downloads) this is optional. Use only if you want to accelerate the simulations with Nvidia GPUs
-	You should modify the Makefile, to tell the compiler where can it find the necessary libraries. After the modification, simply type:
+Downloading the code:
+	Under linux, the source files of the StePS code can be downloaded with the 
 
-        make
+	$ git clone https://github.com/eltevo/StePS
+
+	command.
+
+Installation:
+	For the successful compilation, the code needs the OpenMPI (https://www.open-mpi.org/) library. Other MPI implemetations should work too.
+	Optional libraries:
+		-CUDA (https://developer.nvidia.com/cuda-downloads) Use only if you want to accelerate the simulations with Nvidia GPUs
+		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for writing out files 
+	You should specify the library directories in the Makefile. For editing the makefile, you should type:
+
+	$ git clone https://github.com/eltevo/StePS
+	$ gedit Makefile
+
+	Some features of the StePS code are controlled with compile time options in the makefile. With this technique a more optimalized executable can be generated. The following options can
+be found in the makefile:
+		-USE SINGLE PRECISION 
+			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 30 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory.
+		-GLASSMAKING
+			This option should be set for glass making. In this case the code will use reversed gravity.
+		-HAVE_HDF5
+			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
+		-PERIODIC
+			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two option are contradicting each other, then the program will exit with an error message.
+	After you saved the Makefile, the code can be compiled with the
+
+	$ make
+
+	command.
 
 *********************************************************************************************
 
@@ -50,7 +75,7 @@ If you comiled the code for CUDA simulation,  you can simply run it by typing:
 
 *********************************************************************************************
 
-Output format for the particle data files:
+Output format for the particle data files in ASCII format:
 
 z*.dat, t*.dat:
         x[Mpc]  y[Mpc]  z[Mpc]  v_x[km/s] v_y[km/s] v_z[km/s] M[1e11M_sol]
@@ -86,12 +111,13 @@ L_box           1860.0531					%linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file
 IC_FORMAT       0						%ic file format 0: ascii, 1:GADGET
 OUT_DIR         ../examples/LCDM_SP_1260_343M_com_VOI_1000/		%output directory
-OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output redshift list
-OUTPUT_FORMAT   1						%output format 0: time, 1: redshift
+OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output list file
+OUTPUT_TIME_VARIABLE	1					%output time variable 0: physical time, 1: redshift
+OUTPUT_FORMAT   1						%output format 0: ASCII 2: HDF5
 REDSHIFT_CONE   1						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 a_max           1.0						%The final scalefactor
-mean_err        0.030						%Accuracy parameter
+ACC_PARAM	0.030						%Accuracy parameter
 h_min           0.00025						%minimal timestep length (in Gy)
 h_max           0.03125						%maximal timestep length (in Gy)
 ParticleRadi    0.134226516867827				%smoothing length of particle with minimal mass

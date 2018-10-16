@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include "mpi.h"
 #include "global_variables.h"
+#ifdef HAVE_HDF5
+#include <hdf5.h>
+#endif
 
 #ifdef USE_SINGLE_PRECISION
 typedef float REAL;
@@ -26,7 +29,7 @@ REAL* v;
 REAL* F;
 bool* IN_CONE;
 double h, h_min, h_max, T, t_next, t_bigbang;
-REAL mean_err;
+REAL ACC_PARAM;
 double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
 double rho_crit; //Critical density
 REAL mass_in_unit_sphere; //Mass in unit sphere
@@ -47,10 +50,11 @@ int COMOVING_INTEGRATION; //Comoving integration 0=no, 1=yes, used only when  CO
 REAL L;
 char IC_FILE[1024];
 char OUT_DIR[1024];
-char OUT_LST[1024]; //output redshift list file. only used when OUTPUT_FORMAT=1
+char OUT_LST[1024]; //output redshift list file. only used when OUTPUT_TIME_VARIABLE=1
 extern char __BUILD_DATE;
-int IC_FORMAT; // 0: ascii, 1:GADGET
-int OUTPUT_FORMAT; // 0: time, 1: redshift
+int IC_FORMAT; // 0: ASCII, 1:GADGET
+int OUTPUT_FORMAT; // 0:ASCII, 2:HDF5
+int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 int HAVE_OUT_LIST; // 0: output list not found. 1: output list found
@@ -74,7 +78,6 @@ int load_snapshot(char *fname, int files);
 int allocate_memory(void);
 int reordering(void);
 
-
 void read_param(FILE *param_file);
 void step(REAL* x, REAL* v, REAL* F);
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
@@ -95,6 +98,11 @@ int read_OUT_LST();
 void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL);
 void write_ascii_snapshot(REAL* x, REAL *v);
 void Log_write();
+#ifdef HAVE_HDF5
+//Functions for HDF5 I/O
+void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M);
+void write_header_attributes_in_hdf5(hid_t handle);
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -148,7 +156,7 @@ int main(int argc, char *argv[])
 	}
 	int i,j;
 	int CONE_ALL=0;
-	OUTPUT_FORMAT = 0;
+	OUTPUT_TIME_VARIABLE = 0;
 	if( argc < 2 )
 	{
 		if(rank == 0)
@@ -193,7 +201,7 @@ int main(int argc, char *argv[])
 		if(IS_PERIODIC < 1 || IS_PERIODIC > 2)
 		{
 			if(rank == 0)
-				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to run periodic simulations only.\nExiting.\n");
+				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are only able to deal with periodic simulation.\nExiting.\n");
 			return (-2);
 		}
 
@@ -227,13 +235,13 @@ int main(int argc, char *argv[])
 			return (-2);
 		}
 	#endif
-	if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT !=1)
+	if(OUTPUT_TIME_VARIABLE != 0 && OUTPUT_TIME_VARIABLE !=1)
 	{
 		if(rank == 0)
 			fprintf(stderr, "Error: bad OUTPUT format!\nExiting.\n");
 		return (-2);
 	}
-	if(OUTPUT_FORMAT == 1 && COSMOLOGY != 1)
+	if(OUTPUT_TIME_VARIABLE == 1 && COSMOLOGY != 1)
 	{
 		if(rank == 0)
 			fprintf(stderr, "Error: you can not use redshift output format in non-cosmological simulations. \nExiting.\n");
@@ -251,7 +259,7 @@ int main(int argc, char *argv[])
 			HAVE_OUT_LIST = 1;
 			printf("Output list found. Using the contents of this file for the output");
 		}
-		if(OUTPUT_FORMAT == 1)
+		if(OUTPUT_TIME_VARIABLE == 1)
 			printf(" redshifts.\n");
 		else
 			printf(" times.\n");
@@ -301,7 +309,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Error: you can not use redshift cone output format in non-cosmological simulations. \nExiting.\n");
 			return (-2);
 		}
-		if(REDSHIFT_CONE == 1 && OUTPUT_FORMAT != 1)
+		if(REDSHIFT_CONE == 1 && OUTPUT_TIME_VARIABLE != 1)
 		{
 			fprintf(stderr, "Error: you must use redshift output format in redshift cone simulations. \nExiting.\n");
 			return (-2);
@@ -458,7 +466,7 @@ int main(int argc, char *argv[])
 		T = friedmann_solver_start(1,0,h_min*0.00031,Omega_lambda,Omega_r,Omega_m,H0,a_start);
 		if(HAVE_OUT_LIST == 0)
 		{
-			if(OUTPUT_FORMAT==0)
+			if(OUTPUT_TIME_VARIABLE==0)
 			{
 				Delta_T_out = H_OUT/UNIT_T; //Output frequency in internal time units
 				if(FIRST_T_OUT >= T) //Calculating first output time
@@ -485,7 +493,7 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			if(OUTPUT_FORMAT==1)
+			if(OUTPUT_TIME_VARIABLE==1)
 			{
 				if(1.0/a-1.0 > out_list[0])
 				{
@@ -693,11 +701,16 @@ int main(int argc, char *argv[])
 			Log_write();	//Writing logfile
 			if(HAVE_OUT_LIST == 0)
 			{
-				if(OUTPUT_FORMAT == 0)
+				if(OUTPUT_TIME_VARIABLE == 0)
 				{
 					if(T > t_next)
 					{
-						write_ascii_snapshot(x, v);
+						if(OUTPUT_FORMAT == 0)
+							write_ascii_snapshot(x, v);
+						#ifdef HAVE_HDF5
+						if(OUTPUT_FORMAT == 2)
+							write_hdf5_snapshot(x, v, M);
+						#endif
 						t_next+=Delta_T_out;
 						if(COSMOLOGY == 1)
 						{
@@ -713,7 +726,12 @@ int main(int argc, char *argv[])
 				{
 					if( 1.0/a-1.0 < t_next)
 					{
-						write_ascii_snapshot(x, v);
+						if(OUTPUT_FORMAT == 0)
+							write_ascii_snapshot(x, v);
+						#ifdef HAVE_HDF5
+						if(OUTPUT_FORMAT == 2)
+							write_hdf5_snapshot(x, v, M);
+						#endif
 						t_next-=Delta_T_out;
 						if(COSMOLOGY == 1)
 						{
@@ -728,13 +746,18 @@ int main(int argc, char *argv[])
 			}
 			else
 			{
-				if(OUTPUT_FORMAT == 1)
+				if(OUTPUT_TIME_VARIABLE == 1)
 				{
 					if( 1.0/a-1.0 < t_next)
 					{
 						if(REDSHIFT_CONE != 1)
 						{
-							write_ascii_snapshot(x, v);
+							if(OUTPUT_FORMAT == 0)
+								write_ascii_snapshot(x, v);
+							#ifdef HAVE_HDF5
+							if(OUTPUT_FORMAT == 2)
+								write_hdf5_snapshot(x, v, M);
+							#endif
 							out_z_index += delta_z_index;
 							t_next = out_list[out_z_index];
 						}
@@ -744,7 +767,12 @@ int main(int argc, char *argv[])
 							{
 								CONE_ALL = 1;
 								printf("Last timestep.\n");
-								write_ascii_snapshot(x, v);
+								if(OUTPUT_FORMAT == 0)
+									write_ascii_snapshot(x, v);
+								#ifdef HAVE_HDF5
+								if(OUTPUT_FORMAT == 2)
+									write_hdf5_snapshot(x, v, M);
+								#endif
 							}
 							write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
 							if(1.0/a-1.0 <= out_list[out_z_index+delta_z_index])
@@ -776,7 +804,12 @@ int main(int argc, char *argv[])
 				{
 					if(T > t_next)
 					{
-						write_ascii_snapshot(x, v);
+						if(OUTPUT_FORMAT == 0)
+							write_ascii_snapshot(x, v);
+						#ifdef HAVE_HDF5
+						if(OUTPUT_FORMAT == 2)
+							write_hdf5_snapshot(x, v, M);
+						#endif
 						out_z_index += delta_z_index;
 						t_next = out_list[out_z_index];
 						if(COSMOLOGY == 1)
@@ -790,7 +823,7 @@ int main(int argc, char *argv[])
 					}
 				}
 			}
-			h = (double) pow(2*mean_err/errmax, 0.5);
+			h = (double) pow(2*ACC_PARAM/errmax, 0.5);
 			if(h<h_min)
 			{
 				h=h_min;
@@ -804,9 +837,14 @@ int main(int argc, char *argv[])
 		fflush(stdout);
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
-	if(OUTPUT_FORMAT == 0 && rank == 0)
+	if(OUTPUT_TIME_VARIABLE == 0 && rank == 0)
 	{
-		write_ascii_snapshot(x, v); //writing output
+		if(OUTPUT_FORMAT == 0)
+			write_ascii_snapshot(x, v); //writing output
+		#ifdef HAVE_HDF5
+		if(OUTPUT_FORMAT == 2)
+			write_hdf5_snapshot(x, v, M);
+		#endif
 	}
 	if(rank == 0)
 	{

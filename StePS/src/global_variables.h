@@ -20,9 +20,10 @@ extern int COMOVING_INTEGRATION; //Comoving integration 0=no, 1=yes, used only w
 extern REAL L; //Size of the simulation box
 extern char IC_FILE[1024]; //input file
 extern char OUT_DIR[1024]; //output directory
-extern char OUT_LST[1024]; //output redshift list file. only used when OUTPUT_FORMAT=1
+extern char OUT_LST[1024]; //output redshift list file. only used when OUTPUT_TIME_VARIABLE=1
 extern int IC_FORMAT; // 0: ascii, 1:GADGET
-extern int OUTPUT_FORMAT; // 0: time, 1: redshift
+extern int OUTPUT_FORMAT; //Output format 0: ASCII 2:HDF5
+extern int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 extern int HAVE_OUT_LIST;
@@ -43,7 +44,7 @@ extern int BUFFER_start_ID;
 extern int e[2202][4]; //ewald space
 extern int H[2202][4]; //ewald space
 
-extern REAL x4, err, errmax, mean_err; //variables used for error calculations
+extern REAL x4, err, errmax, ACC_PARAM; //variables used for error calculations
 extern double h, h_min, h_max,  t_next; //actual stepsize, minimal and maximal stepsize, next time for output
 extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 
