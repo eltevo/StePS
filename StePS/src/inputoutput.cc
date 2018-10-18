@@ -226,65 +226,484 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 	int COUNT=0;
 	double COMOVING_DISTANCE, z_write;
 	z_write = out_list[z_index];
-	snprintf(filename, sizeof(filename), "%sredshift_cone.dat", OUT_DIR);
+	if(OUTPUT_FORMAT == 0)
+		snprintf(filename, sizeof(filename), "%sredshift_cone.dat", OUT_DIR);
+	#ifdef HAVE_HDF5
+	if(OUTPUT_FORMAT == 2)
+		snprintf(filename, sizeof(filename), "%sredshift_cone.hdf5", OUT_DIR);
+	#endif
 	if(ALL == 0)
 		printf("Saving: z=%f:\t%fMpc<Dc<%fMpc bin of the\n%s redshift cone.\ndelta_z_index = %i\n",out_list[z_index], limits[z_index+1], limits[z_index-delta_z_index+1], filename, delta_z_index);
 	else
 		printf("Saving: z=%f:\tDc<%fMpc\n%s\n redshift cone.\n", t_next, limits[z_index-delta_z_index+1], filename);
-	FILE *redshiftcone_file = fopen(filename, "a");
-	if(ALL == 0)
+	if(OUTPUT_FORMAT == 0)
 	{
-		for(i=0; i<N; i++)
+		FILE *redshiftcone_file = fopen(filename, "a");
+		if(ALL == 0)
 		{
-			COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
-			if(limits[z_index+1] <= COMOVING_DISTANCE && IN_CONE[i] == false )
+			for(i=0; i<N; i++)
 			{
-				for(j=0; j<3; j++)
+				COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
+				if(limits[z_index+1] <= COMOVING_DISTANCE && IN_CONE[i] == false )
 				{
-					fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
-				}
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
-				}
-				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
-				IN_CONE[i] = true;
-				COUNT++;
-			}
-		}
-	}
-	else
-	{
-		for(i=0; i<N; i++)
-		{
-			COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
-			if(IN_CONE[i] == false)
-			{
-				//searching for the proper redshift shell
-				j=z_index;
-				while(j++)
-				{
-					if(limits[j] <= COMOVING_DISTANCE)
+					for(j=0; j<3; j++)
 					{
-						z_write = out_list[j];
-						break;
+						fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
 					}
+					for(j=0; j<3; j++)
+					{
+						fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
+					}
+					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
+					IN_CONE[i] = true;
+					COUNT++;
 				}
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
-				}
-				for(j=0; j<3; j++)
-				{
-					fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //km/s output
-				}
-				fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
-				IN_CONE[i] = true;
-				COUNT++;
 			}
 		}
+		else
+		{
+			for(i=0; i<N; i++)
+			{
+				COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
+				if(IN_CONE[i] == false)
+				{
+					//searching for the proper redshift shell
+					j=z_index;
+					while(j++)
+					{
+						if(limits[j] <= COMOVING_DISTANCE)
+						{
+							z_write = out_list[j];
+							break;
+						}
+					}
+					for(j=0; j<3; j++)
+					{
+						fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
+					}
+					for(j=0; j<3; j++)
+					{
+						fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //km/s output
+					}
+					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
+					IN_CONE[i] = true;
+					COUNT++;
+				}
+			}
+		}
+		fclose(redshiftcone_file);
 	}
-	fclose(redshiftcone_file);
+	#ifdef HAVE_HDF5
+	char buf[500];
+	REAL bufvec[3];
+	unsigned long long int *ID;
+	ID = (unsigned long long int *)malloc(1*sizeof(unsigned long long int));
+	REAL *bufscalar;
+	bufscalar = (REAL *)malloc(1*sizeof(REAL));
+	int hdf5_rank;
+	if(OUTPUT_FORMAT == 2)
+	{
+		hid_t redshiftcone = 0;
+		hid_t hdf5_grp[6]; //group for the data types (only DM are used in this version)
+		hid_t headergrp = 0;
+		hid_t dataspace_in_file = 0;
+		hid_t dataset = 0;
+		hid_t datatype = 0;
+		hid_t dataspace_memory;
+		hsize_t dims[2], count[2], start[2];
+		if(HDF5_redshiftcone_firstshell == 1)
+		{
+			//this is the first shell of the HDF5 format redshift cone.
+			//Creating and saving the empty redshiftcone file.
+			redshiftcone = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+			//Output file created. Creating the header group, and write the header into the file
+			headergrp = H5Gcreate(redshiftcone, "/Header", 0, H5P_DEFAULT,H5P_DEFAULT);
+			//This code only uses DM particles, so type=1 (we do this for gadget compatibility)
+			int type = 1;
+			sprintf(buf, "/PartType%d", type);
+			hdf5_grp[type] = H5Gcreate(redshiftcone, buf, 0, H5P_DEFAULT,H5P_DEFAULT);
+			write_header_attributes_in_hdf5(headergrp);
+			//header written.
+			//Creating dataspace for the particle positions
+			dims[0] = N;
+			dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+			hdf5_rank = 2;
+			#ifdef USE_SINGLE_PRECISION
+				datatype = H5Tcopy(H5T_NATIVE_FLOAT); //coordinates saved as float
+			#else
+				datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //coordinates saved as double
+			#endif
+			strcpy(buf, "Coordinates");
+			dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+			dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			H5Dclose(dataset);
+			H5Sclose(dataspace_in_file);
+			H5Tclose(datatype);
+			//Creating dataspace for the particle velocities
+			dims[0] = N;
+			dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+			hdf5_rank = 2;
+			#ifdef USE_SINGLE_PRECISION
+				datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Velocities saved as float
+			#else
+				datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Velocities saved as double
+			#endif
+			strcpy(buf, "Velocities");
+			dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+			dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			H5Dclose(dataset);
+			H5Sclose(dataspace_in_file);
+			H5Tclose(datatype);
+			//Creating dataspace for the particle IDs
+			dims[0] = N;
+			dims[1] = 1; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+			hdf5_rank = 1;
+			datatype = H5Tcopy(H5T_NATIVE_UINT64); //IDs are saved as unsigned 64 bit ints
+			strcpy(buf, "ParticleIDs");
+			dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+			dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			H5Dclose(dataset);
+			H5Sclose(dataspace_in_file);
+			H5Tclose(datatype);
+			//Creating dataspace for the particle Masses
+			dims[0] = N;
+			dims[1] = 1; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+			hdf5_rank = 1;
+			#ifdef USE_SINGLE_PRECISION
+				datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Masses saved as float
+			#else
+				datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Masses saved as double
+			#endif
+			strcpy(buf, "Masses");
+			dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+			dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			H5Dclose(dataset);
+			H5Sclose(dataspace_in_file);
+			H5Tclose(datatype);
+			//Creating dataspace for the particle Comoving distance
+			dims[0] = N;
+			dims[1] = 1; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+			hdf5_rank = 1;
+			#ifdef USE_SINGLE_PRECISION
+				datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Masses saved as float
+			#else
+				datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Masses saved as double
+			#endif
+			strcpy(buf, "ComovingDistances");
+			dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+			dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			H5Dclose(dataset);
+			H5Sclose(dataspace_in_file);
+			H5Tclose(datatype);
+			//Creating dataspace for the particle redshifts
+			dims[0] = N;
+			dims[1] = 1; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+			hdf5_rank = 1;
+			#ifdef USE_SINGLE_PRECISION
+				datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Masses saved as float
+			#else
+				datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Masses saved as double
+			#endif
+			strcpy(buf, "Redshifts");
+			dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+			dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+			H5Dclose(dataset);
+			H5Sclose(dataspace_in_file);
+			H5Tclose(datatype);
+
+			H5Fclose(redshiftcone);
+			HDF5_redshiftcone_firstshell = 0;
+		}
+		//Opening the redshiftcone.hdf5 file
+		redshiftcone = H5Fopen(filename, H5F_ACC_RDWR, H5P_DEFAULT);
+		if(ALL == 0)
+		{
+			for(i=0; i<N; i++)
+			{
+				COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
+				if(limits[z_index+1] <= COMOVING_DISTANCE && IN_CONE[i] == false )
+				{
+					//writing out the i-th particle's coordiate vector
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Coordinates", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 2;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 3;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufvec[0] = x[3*i];
+					bufvec[1] = x[3*i+1];
+					bufvec[2] = x[3*i+2];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's velocity vector
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Velocities", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 2;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 3;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufvec[0] = v[3*i];
+					bufvec[1] = v[3*i+1];
+					bufvec[2] = v[3*i+2];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's ID
+					dataset = H5Dopen2(redshiftcone, "/PartType1/ParticleIDs", H5P_DEFAULT);
+                                        dataspace_in_file = H5Dget_space(dataset);
+                                        datatype =  H5Dget_type(dataset);
+                                        dims[0] = 1;
+                                        dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+                                        hdf5_rank = 1;
+                                        start[0] = N_redshiftcone;
+                                        start[1] = 0;
+                                        count[0] = 1;
+                                        count[1] = 1;
+                                        dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					ID[0] = i;
+                                        H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+                                        H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, ID);
+                                        H5Dclose(dataset);
+                                        H5Sclose(dataspace_memory);
+                                        H5Sclose(dataspace_in_file);
+                                        H5Tclose(datatype);
+
+					//writing out the i-th particle's Mass
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Masses", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufscalar[0] = M[i];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's comoving distance from the center
+					dataset = H5Dopen2(redshiftcone, "/PartType1/ComovingDistances", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufscalar[0] = COMOVING_DISTANCE;
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's redshift
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Redshifts", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufscalar[0] = out_list[z_index];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					IN_CONE[i] = true;
+					N_redshiftcone++;
+					COUNT++;
+				}
+			}
+		}
+		else
+		{
+			for(i=0; i<N; i++)
+			{
+				COMOVING_DISTANCE = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] +x[3*i+2]*x[3*i+2]);
+				if(IN_CONE[i] == false)
+				{
+					//searching for the proper redshift shell
+					j=z_index;
+					while(j++)
+					{
+						if(limits[j] <= COMOVING_DISTANCE)
+						{
+							z_write = out_list[j];
+							break;
+						}
+					}
+					//writing out the i-th particle's coordiate vector
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Coordinates", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 2;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 3;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufvec[0] = x[3*i];
+					bufvec[1] = x[3*i+1];
+ 					bufvec[2] = x[3*i+2];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's velocity vector
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Velocities", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+ 					dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 2;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 3;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufvec[0] = v[3*i];
+					bufvec[1] = v[3*i+1];
+					bufvec[2] = v[3*i+2];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's ID
+					dataset = H5Dopen2(redshiftcone, "/PartType1/ParticleIDs", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					ID[0] = i;
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, ID);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's Mass
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Masses", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufscalar[0] = M[i];
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's comoving distance from the center
+					dataset = H5Dopen2(redshiftcone, "/PartType1/ComovingDistances", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufscalar[0] = COMOVING_DISTANCE;
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					//writing out the i-th particle's redshift
+					dataset = H5Dopen2(redshiftcone, "/PartType1/Redshifts", H5P_DEFAULT);
+					dataspace_in_file = H5Dget_space(dataset);
+					datatype =  H5Dget_type(dataset);
+					dims[0] = 1;
+					dims[1] = 1; //hdf5_rank = 1 [if dims[1] = 1: 1; else: 2]
+					hdf5_rank = 1;
+					start[0] = N_redshiftcone;
+					start[1] = 0;
+					count[0] = 1;
+					count[1] = 1;
+					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+					bufscalar[0] = z_write;
+					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
+					H5Dclose(dataset);
+					H5Sclose(dataspace_memory);
+					H5Sclose(dataspace_in_file);
+					H5Tclose(datatype);
+
+					IN_CONE[i] = true;
+					N_redshiftcone++;
+					COUNT++;
+				}
+			}
+		}
+		H5Fclose(redshiftcone);
+
+	}
+	#endif
 	printf("%i particles were written out.\n", COUNT);
 	COUNT = 0;
 
@@ -379,7 +798,7 @@ void Log_write() //Writing logfile
 #ifdef HAVE_HDF5
 void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 {
-	int i, rank;
+	int i, hdf5_rank;
 	char buf[500];
 	 //setting up the output filename
 	char A[20];
@@ -430,7 +849,6 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	hid_t dataset = 0;
 	hid_t datatype = 0;
 	hid_t dataspace_memory;
-	herr_t status;
 	hsize_t dims[2], count[2], start[2];
 	snapshot = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 	//Output file created. Creating the header group, and write the header into the file
@@ -443,23 +861,23 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	//header written.
 	//Writing out the particle positions
 	dims[0] = N;
-	dims[1] = 3; //rank = 2 [if dims[1] = 1: 1; else: 2]
-	rank = 2;
+	dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+	hdf5_rank = 2;
 	#ifdef USE_SINGLE_PRECISION
 		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //coordinates saved as float
 	#else
 		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //coordinates saved as double
 	#endif
 	strcpy(buf, "Coordinates");
-	dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+	dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
 	dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 	start[0] = 0;
 	start[1] = 0;
 	count[0] = N;
 	count[1] = 3;
 	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
-	dataspace_memory = H5Screate_simple(rank, dims, NULL);
-	status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, x);
+	dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, x);
 	H5Sclose(dataspace_memory);
 	H5Dclose(dataset);
 	H5Sclose(dataspace_in_file);
@@ -467,27 +885,27 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 
 	//Writing out particle velocities
 	dims[0] = N;
-	dims[1] = 3; //rank = 2 [if dims[1] = 1: 1; else: 2]
-	rank = 2;
+	dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+	hdf5_rank = 2;
 	#ifdef USE_SINGLE_PRECISION
 		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //velocities saved as float
 	#else
 		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //velocities saved as double
 	#endif
 	strcpy(buf, "Velocities");
-	dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+	dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
 	dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 	start[0] = 0;
 	start[1] = 0;
 	count[0] = N;
 	count[1] = 3;
 	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
-	dataspace_memory = H5Screate_simple(rank, dims, NULL);
+	dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
 	REAL *Velocity_buf;
 	Velocity_buf = (REAL *)malloc(3*N*sizeof(REAL));
 	for(i=0;i<3*N;i++)
 			Velocity_buf[i] = v[i]*(REAL)sqrt(a)*(REAL)UNIT_V; //km/s * sqrt(a) output
-	status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, Velocity_buf);
+	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, Velocity_buf);
 	H5Sclose(dataspace_memory);
 	H5Dclose(dataset);
 	H5Sclose(dataspace_in_file);
@@ -495,23 +913,23 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 
 	//Writing out particle IDs
 	dims[0] = N;
-	dims[1] = 1; //rank = 2 [if dims[1] = 1: 1; else: 2]
-	rank = 1;
+	dims[1] = 1; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+	hdf5_rank = 1;
 	datatype = H5Tcopy(H5T_NATIVE_UINT64); //IDs are saved as unsigned 64 bit ints
 	strcpy(buf, "ParticleIDs");
-	dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+	dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
 	dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 	start[0] = 0;
 	start[1] = 0;
 	count[0] = N;
 	count[1] = 1;
 	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
-	dataspace_memory = H5Screate_simple(rank, dims, NULL);
+	dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
 	unsigned long long int *ID;
 	ID = (unsigned long long int *)malloc(N*sizeof(unsigned long long int));
 	for(i=0;i<N;i++)
 		ID[i] = i;
-	status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, ID);
+	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, ID);
 	H5Sclose(dataspace_memory);
 	H5Dclose(dataset);
 	H5Sclose(dataspace_in_file);
@@ -519,23 +937,23 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 
 	//Writing out particle Masses
         dims[0] = N;
-        dims[1] = 1; //rank = 2 [if dims[1] = 1: 1; else: 2]
-        rank = 1;
+        dims[1] = 1; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+        hdf5_rank = 1;
 	#ifdef USE_SINGLE_PRECISION
 		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Masses saved as float
 	#else
 		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Masses saved as double
 	#endif
         strcpy(buf, "Masses");
-        dataspace_in_file = H5Screate_simple(rank, dims, NULL);
+        dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
         dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         start[0] = 0;
         start[1] = 0;
         count[0] = N;
         count[1] = 1;
         H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
-        dataspace_memory = H5Screate_simple(rank, dims, NULL);
-        status = H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, M);
+        dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+        H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, M);
         H5Sclose(dataspace_memory);
         H5Dclose(dataset);
         H5Sclose(dataspace_in_file);

@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.6.0
+v0.3.6.1
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -19,11 +19,11 @@ Cosmological simulation code for compactified cosmological simulations.
 - written in C++
 - parallelized with MPI, OpenMP and CUDA
 - able to use multiple GPUs in a large computing cluster
-- direct N^2 force calculation
+- direct force calculation
 - can read Gadget2 and ASCII IC formats
 - the output is in ASCII or HDF5 format
 - able to run standard periodic and spherical cosmological simulations
-- able to make periodic, quasiperiodic and spherical glass
+- able to make periodic, quasiperiodic or spherical glass
 - in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************
@@ -42,11 +42,10 @@ Installation:
 		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for writing out files 
 	You should specify the library directories in the Makefile. For editing the makefile, you should type:
 
-	$ git clone https://github.com/eltevo/StePS
+	$ cd StePS/StePS/src
 	$ gedit Makefile
 
-	Some features of the StePS code are controlled with compile time options in the makefile. With this technique a more optimalized executable can be generated. The following options can
-be found in the makefile:
+	Some features of the StePS code are controlled with compile time options in the makefile. With this technique a more optimalized executable can be generated. The following options can be found in the makefile:
 		-USE SINGLE PRECISION 
 			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 30 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory.
 		-GLASSMAKING
@@ -55,6 +54,7 @@ be found in the makefile:
 			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
 		-PERIODIC
 			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two option are contradicting each other, then the program will exit with an error message.
+
 	After you saved the Makefile, the code can be compiled with the
 
 	$ make

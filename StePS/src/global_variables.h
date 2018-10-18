@@ -64,7 +64,10 @@ extern REAL rho_part; //One particle density
 //extern REAL SOFT_CONST[8]; //Parameters for smoothing in force calculation
 extern REAL M_min; //minimal particle mass
 extern REAL mass_in_unit_sphere; //Mass in unit sphere
-
+#ifdef HAVE_HDF5
+extern int HDF5_redshiftcone_firstshell;
+extern int N_redshiftcone; //number of particles written out to the redshiftcone file
+#endif
 //Cosmological parameters
 extern double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param, Hubble_tmp;
 extern double rho_crit; //Critical density

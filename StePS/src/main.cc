@@ -99,6 +99,7 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 void write_ascii_snapshot(REAL* x, REAL *v);
 void Log_write();
 #ifdef HAVE_HDF5
+int N_redshiftcone, HDF5_redshiftcone_firstshell;
 //Functions for HDF5 I/O
 void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M);
 void write_header_attributes_in_hdf5(hid_t handle);
@@ -156,7 +157,7 @@ int main(int argc, char *argv[])
 	}
 	int i,j;
 	int CONE_ALL=0;
-	OUTPUT_TIME_VARIABLE = 0;
+	OUTPUT_TIME_VARIABLE = -1;
 	if( argc < 2 )
 	{
 		if(rank == 0)
@@ -319,6 +320,10 @@ int main(int argc, char *argv[])
 			//Allocating memory for the bool array
 			IN_CONE = new bool[N];
 			std::fill(IN_CONE, IN_CONE+N, false ); //setting every element to false
+			#ifdef HAVE_HDF5
+			HDF5_redshiftcone_firstshell = 1;
+			N_redshiftcone = 0; //number of particles written out to the redshiftcone
+			#endif
 		}
 		//Rescaling speeds. We are using the same convention that the Gadget uses: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
 		if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
