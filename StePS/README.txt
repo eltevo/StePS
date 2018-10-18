@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.6.1
+v0.3.6.2
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -20,7 +20,7 @@ Cosmological simulation code for compactified cosmological simulations.
 - parallelized with MPI, OpenMP and CUDA
 - able to use multiple GPUs in a large computing cluster
 - direct force calculation
-- can read Gadget2 and ASCII IC formats
+- can read HDF5, Gadget2 and ASCII IC formats
 - the output is in ASCII or HDF5 format
 - able to run standard periodic and spherical cosmological simulations
 - able to make periodic, quasiperiodic or spherical glass
@@ -109,11 +109,11 @@ IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=ewald for
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 L_box           1860.0531					%linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file
-IC_FORMAT       0						%ic file format 0: ascii, 1:GADGET
+IC_FORMAT       0						%ic file format 0: ascii, 1:GADGET, 2:(Gadget-)HDF5
 OUT_DIR         ../examples/LCDM_SP_1260_343M_com_VOI_1000/		%output directory
 OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output list file
 OUTPUT_TIME_VARIABLE	1					%output time variable 0: physical time, 1: redshift
-OUTPUT_FORMAT   1						%output format 0: ASCII 2: HDF5
+OUTPUT_FORMAT   1						%output format 0: ASCII 2: (Gadget-)HDF5
 REDSHIFT_CONE   1						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 a_max           1.0						%The final scalefactor

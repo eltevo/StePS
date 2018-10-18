@@ -93,7 +93,7 @@ void BCAST_global_parameters();
 int file_exist(char *file_name);
 int dir_exist(char *dir_name);
 int measure_N_part_from_ascii_snapshot(char * filename);
-void read_ic(FILE *ic_file, int N);
+void read_ascii_ic(FILE *ic_file, int N);
 int read_OUT_LST();
 void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL);
 void write_ascii_snapshot(REAL* x, REAL *v);
@@ -101,8 +101,9 @@ void Log_write();
 #ifdef HAVE_HDF5
 int N_redshiftcone, HDF5_redshiftcone_firstshell;
 //Functions for HDF5 I/O
-void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M);
+void write_hdf5_snapshot(REAL *x, REAL *v, REAL *M);
 void write_header_attributes_in_hdf5(hid_t handle);
+void read_hdf5_ic(char *ic_file);
 #endif
 
 int main(int argc, char *argv[])
@@ -202,7 +203,7 @@ int main(int argc, char *argv[])
 		if(IS_PERIODIC < 1 || IS_PERIODIC > 2)
 		{
 			if(rank == 0)
-				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are only able to deal with periodic simulation.\nExiting.\n");
+				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to deal with periodic simulation only.\nExiting.\n");
 			return (-2);
 		}
 
@@ -275,13 +276,22 @@ int main(int argc, char *argv[])
 	}
 	if(rank == 0)
 	{
+		#ifndef HAVE_HDF5
 		if(IC_FORMAT != 0 && IC_FORMAT != 1)
 		{
 			fprintf(stderr, "Error: bad IC format!\nExiting.\n");
 			return (-1);
 		}
+		#else
+		if(IC_FORMAT < 0 || IC_FORMAT > 2)
+                {
+                        fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+                        return (-1);
+                }
+		#endif
 		if(IC_FORMAT == 0)
 		{
+			printf("\nThe IC file is in ASCII format.\n");
 			if(file_exist(IC_FILE) == 0)
 			{
 				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
@@ -289,12 +299,12 @@ int main(int argc, char *argv[])
 			}
 			N = measure_N_part_from_ascii_snapshot(IC_FILE);
 			FILE *ic_file = fopen(IC_FILE, "r");
-			read_ic(ic_file, N);
+			read_ascii_ic(ic_file, N);
 		}
 		if(IC_FORMAT == 1)
 		{
 			int files;
-			printf("The IC file is in Gadget format.\nThe IC determines the box size.\n");
+			printf("\nThe IC file is in Gadget format.\nThe IC determines the box size.\n");
 			files = 1;      /* number of files per snapshot */
 			if(file_exist(IC_FILE) == 0)
 			{
@@ -305,6 +315,18 @@ int main(int argc, char *argv[])
 			reordering();
 			gadget_format_conversion();
 		}
+		#ifdef HAVE_HDF5
+		if(IC_FORMAT == 2)
+		{
+			printf("\nThe IC is in HDF5 format\n");
+			if(file_exist(IC_FILE) == 0)
+			{
+				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+				return (-1);
+			}
+			read_hdf5_ic(IC_FILE);
+		}
+		#endif
 		if(REDSHIFT_CONE == 1 && COSMOLOGY != 1)
 		{
 			fprintf(stderr, "Error: you can not use redshift cone output format in non-cosmological simulations. \nExiting.\n");

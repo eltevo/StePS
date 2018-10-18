@@ -4,7 +4,7 @@
 # Gabor Racz, 2017-2018										#
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.6.1"'#										#
+VERSION='"v0.3.6.2"'#										#
 #-----------------------------------------------------------------------------------------------#
 
 

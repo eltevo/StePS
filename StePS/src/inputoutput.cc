@@ -39,14 +39,14 @@ int measure_N_part_from_ascii_snapshot(char * filename)
 	return lines;
 }
 
-void read_ic(FILE *ic_file, int N)
+void read_ascii_ic(FILE *ic_file, int N)
 {
 int i,j;
 
 x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
 v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
 F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-M = (REAL*)malloc(N*sizeof(REAL));
+M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
 
 
 printf("\nReading IC from the %s file...\n", IC_FILE);
@@ -796,6 +796,61 @@ void Log_write() //Writing logfile
 }
 
 #ifdef HAVE_HDF5
+
+void read_hdf5_ic(char *ic_file)
+{
+	hid_t attr_id = 0;
+	hid_t group = 0;
+	hid_t dataset = 0;
+	hid_t datatype = 0;
+	hid_t dataspace_in_file = 0;
+	hid_t IC = 0;
+	int *Nbuf;
+	Nbuf = (int *)malloc(6*sizeof(int));
+	printf("Reading the %s IC file...\n", ic_file);
+	IC = H5Fopen(ic_file, H5F_ACC_RDONLY, H5P_DEFAULT);
+	//reading the total number of particles from the header
+	group = H5Gopen2(IC,"Header", H5P_DEFAULT);
+	attr_id = H5Aopen(group, "NumPart_ThisFile", H5P_DEFAULT);
+	H5Aread(attr_id,  H5T_NATIVE_INT, Nbuf);
+	N = Nbuf[1];
+	printf("The number of particles:\t%i\n", N);
+	H5Aclose(attr_id);
+	H5Gclose(group);
+	//Allocating memory
+	x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
+	v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
+	F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
+	M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
+	//reading the particle coordinates
+	dataset = H5Dopen2(IC, "/PartType1/Coordinates", H5P_DEFAULT);
+        dataspace_in_file = H5Dget_space(dataset);
+	datatype =  H5Dget_type(dataset);
+	H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, x);
+	H5Tclose(datatype);
+	H5Sclose(dataspace_in_file);
+	H5Dclose(dataset);
+	//reading the particle velocities
+	dataset = H5Dopen2(IC, "/PartType1/Velocities", H5P_DEFAULT);
+	dataspace_in_file = H5Dget_space(dataset);
+	datatype =  H5Dget_type(dataset);
+	H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, v);
+	H5Tclose(datatype);
+	H5Sclose(dataspace_in_file);
+	H5Dclose(dataset);	
+	//reading the particle masses
+	dataset = H5Dopen2(IC, "/PartType1/Masses", H5P_DEFAULT);
+	dataspace_in_file = H5Dget_space(dataset);
+	datatype =  H5Dget_type(dataset);
+	H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, M);
+	H5Tclose(datatype);
+	H5Sclose(dataspace_in_file);
+	H5Dclose(dataset);
+	
+	H5Fclose(IC);
+	printf("...done\n\n");
+}
+
 void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 {
 	int i, hdf5_rank;
@@ -1093,5 +1148,4 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 }
-
 #endif
