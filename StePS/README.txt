@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.6.2
+v0.3.6.3
 Gábor Rácz, 2017-2018
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -39,7 +39,7 @@ Installation:
 	For the successful compilation, the code needs the OpenMPI (https://www.open-mpi.org/) library. Other MPI implemetations should work too.
 	Optional libraries:
 		-CUDA (https://developer.nvidia.com/cuda-downloads) Use only if you want to accelerate the simulations with Nvidia GPUs
-		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for writing out files 
+		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for reading and writing HDF5 files 
 	You should specify the library directories in the Makefile. For editing the makefile, you should type:
 
 	$ cd StePS/StePS/src

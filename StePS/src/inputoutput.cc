@@ -855,45 +855,22 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 {
 	int i, hdf5_rank;
 	char buf[500];
-	 //setting up the output filename
-	char A[20];
-	if(COSMOLOGY == 1)
-	{
-		if(OUTPUT_TIME_VARIABLE == 0)
-		{
-			sprintf(A, "%d", (int)(round(100*t_next*UNIT_T)));
-		}
-		else
-		{
-			sprintf(A, "%d", (int)(round(1000*t_next)));
-		}
-	}
-	else
-	{
-		sprintf(A, "%d", (int)(round(100*t_next)));
-	}
+	//setting up the output filename
 	char filename[0x400];
-	if(OUTPUT_TIME_VARIABLE == 0)
-	{
-		snprintf(filename, sizeof(filename), "%st%s.hdf5", OUT_DIR, A);
-	}
-	else
-	{
-		snprintf(filename, sizeof(filename), "%sz%s.hdf5", OUT_DIR, A);
-	}
+	snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot);
 	if(COSMOLOGY == 0)
 	{
-		printf("Saving: t= %f, file: \"%st%s.hdf5\" \n", t_next, OUT_DIR, A);
+		printf("Saving: t= %f, file: \"%s\" \n", t_next, filename);
 	}
 	else
 	{
 		if(OUTPUT_TIME_VARIABLE == 0)
 		{
-			printf("Saving: t= %f, file: \"%st%s.hdf5\" \n", t_next*UNIT_T, OUT_DIR, A);
+			printf("Saving: t= %f, file: \"%s\" \n", t_next*UNIT_T, filename);
 		}
 		else
 		{
-			printf("Saving: z= %f, file: \"%sz%s.hdf5\" \n", t_next, OUT_DIR, A);
+			printf("Saving: z= %f, file: \"%s\" \n", t_next, filename);
 		}
 	}
 	//Output filename set. Creating the output file
@@ -1017,12 +994,14 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	H5Gclose(hdf5_grp[1]);
 	H5Gclose(headergrp);
 	H5Fclose(snapshot);
+	N_snapshot++;
 
 }
 
 void write_header_attributes_in_hdf5(hid_t handle)
 {
 	int i;
+	double doublebuf;
 	hsize_t adim[1] = { 6 };
 	hid_t hdf5_dataspace, hdf5_attribute;
 
@@ -1067,7 +1046,11 @@ void write_header_attributes_in_hdf5(hid_t handle)
 
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Time", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
-	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &a); //scalefactor!
+	if(COSMOLOGY == 0)
+		doublebuf = T*UNIT_T; //physical time
+	else
+		doublebuf = a; //scalefactor
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &doublebuf);
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 

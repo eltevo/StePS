@@ -131,11 +131,19 @@ while(!feof(param_file))
 	if(strstr(c, str09) != NULL)
         {
                 sscanf(c, "%s\t%i", str09, &OUTPUT_FORMAT);
+		#ifdef HAVE_HDF5
                 if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT != 2)
                 {
-                        printf("Error: Unkown output format\n: OUTPUT_FORMAT is set to 0 (ASCII)");
+                        printf("Error: Unkown output format %i. The supported formats are: 0 (ASCII) and 2 (HDF5).\nOUTPUT_FORMAT is set to 0 (ASCII).\n", OUTPUT_FORMAT);
                         OUTPUT_FORMAT = 0;
                 }
+		#else
+		if(OUTPUT_FORMAT != 0)
+		{
+			printf("Error: Unkown output format %i. The only supported format is 0 (ASCII).\nOUTPUT_FORMAT is set to 0 (ASCII).\n", OUTPUT_FORMAT);
+			OUTPUT_FORMAT = 0;
+		}
+		#endif
         }
 
 	if(strstr(c, str10) != NULL)
@@ -268,11 +276,19 @@ while(!feof(param_file))
 	if(strstr(c, str09) != NULL)
 	{
 		sscanf(c, "%s\t%i", str09, &OUTPUT_FORMAT);
+		#ifdef HAVE_HDF5
 		if(OUTPUT_FORMAT != 0 && OUTPUT_FORMAT != 2)
 		{
-			printf("Error: Unkown output format\n: OUTPUT_FORMAT is set to 0 (ASCII)");
+			printf("Error: Unkown output format %i. The supported formats are: 0 (ASCII) and 2 (HDF5).\nOUTPUT_FORMAT is set to 0 (ASCII).\n", OUTPUT_FORMAT);
 			OUTPUT_FORMAT = 0;
 		}
+		#else
+		if(OUTPUT_FORMAT != 0)
+		{
+			printf("Error: Unkown output format %i. The only supported format is 0 (ASCII).\nOUTPUT_FORMAT is set to 0 (ASCII).\n", OUTPUT_FORMAT);
+			OUTPUT_FORMAT = 0;
+		}
+		#endif
 	}
 	if(strstr(c, str10) != NULL)
         {
@@ -357,7 +373,7 @@ while(!feof(param_file))
 #endif
 }
 
-printf("...done.\n");
+printf("...done.\n\n");
 fclose(param_file);
 if(COSMOLOGY == 1)
 {

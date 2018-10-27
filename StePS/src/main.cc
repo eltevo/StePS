@@ -61,6 +61,7 @@ int HAVE_OUT_LIST; // 0: output list not found. 1: output list found
 double *out_list; //Output redshits
 double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
+unsigned int N_snapshot; //number of written out snapshots
 
 double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param, Hubble_tmp; //Cosmologycal parameters
 
@@ -158,6 +159,7 @@ int main(int argc, char *argv[])
 	}
 	int i,j;
 	int CONE_ALL=0;
+	N_snapshot = 0;
 	OUTPUT_TIME_VARIABLE = -1;
 	if( argc < 2 )
 	{
@@ -240,7 +242,7 @@ int main(int argc, char *argv[])
 	if(OUTPUT_TIME_VARIABLE != 0 && OUTPUT_TIME_VARIABLE !=1)
 	{
 		if(rank == 0)
-			fprintf(stderr, "Error: bad OUTPUT format!\nExiting.\n");
+			fprintf(stderr, "Error: bad OUTPUT time variable %i!\nExiting.\n", OUTPUT_TIME_VARIABLE);
 		return (-2);
 	}
 	if(OUTPUT_TIME_VARIABLE == 1 && COSMOLOGY != 1)
@@ -684,6 +686,10 @@ int main(int argc, char *argv[])
                 {
 			h=h_max;
                 }
+		else if(h<h_min)
+		{
+			h = h_min;
+		}
 	}
 	MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	if(rank == 0)
@@ -855,7 +861,7 @@ int main(int argc, char *argv[])
 			{
 				h=h_min;
 			}
-			if(h>h_max)
+			else if(h>h_max)
 			{
 				h=h_max;
 			}

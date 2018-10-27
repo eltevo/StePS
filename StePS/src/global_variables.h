@@ -30,6 +30,7 @@ extern int HAVE_OUT_LIST;
 extern double *out_list; //Output redshits
 extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 extern int out_list_size; //Number of output redshits
+extern unsigned int N_snapshot; //number of written out snapshots
 extern bool* IN_CONE;
 
 extern int n_GPU; //number of cuda capable GPUs

@@ -12,6 +12,10 @@ If you plan to publish an academic paper using this software, please consider ci
 
 G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulations of the Infinite Universe": MNRAS, Volume 477, Issue 2, p.1949-1957
 
+![](Images/evolution_full.gif)
+![](Images/evolution_center.gif)
+![](Images/rotation.gif)
+
 ![alt text](Images/LCDM_SP_0500Mpc_64M_StePS_glass_tilefac3_LBOX2214.png "A slice from a simulation volume.")
 ![alt text](Images/LCDM_SP_0500Mpc_64M_StePS_glass_tilefac3_LBOX738.png "The center of the slice.")
 
