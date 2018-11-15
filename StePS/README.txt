@@ -7,11 +7,21 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.6.3
-Gábor Rácz, 2017-2018
+v0.3.6.5
+Copyright (C) 2017-2018 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
 ragraat@caesar.elte.hu
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
 
 This code is under development!
 
