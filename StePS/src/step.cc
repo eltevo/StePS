@@ -77,54 +77,38 @@ void step(REAL* x, REAL* v, REAL* F)
 		omp_set_dynamic(0);		// Explicitly disable dynamic teams
 		omp_set_num_threads(n_GPU);	// Use n_GPU threads
 	#endif
-	int chunk = N/omp_get_max_threads();
 	REAL ACCELERATION[3];
 	errmax = 0;
 	if(rank == 0)
 	{
 		printf("KDK Leapfrog integration...\n");
-		#pragma omp parallel default(shared) private(i,k,ACCELERATION,disp)
+		for(i=0; i<N; i++)
 		{
-			#pragma omp for schedule(dynamic,chunk)
-			for(i=0; i<N; i++)
+			for(k=0; k<3; k++)
 			{
-				for(k=0; k<3; k++)
-				{
-					ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
-					disp = ACCELERATION[k]*(REAL)(h/2.0);
-					#pragma omp atomic
-					v[3*i+k] += disp;
-					disp = v[3*i+k]*(REAL)(h);
-					#pragma omp atomic
-					x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
-				}
-				#ifdef GLASS_MAKING
-					disp = sqrt(pow(v[3*i]*(REAL)(h), 2) + pow(v[3*i+1]*(REAL)(h), 2) + pow(v[3*i+2]*(REAL)(h), 2));
-					#pragma omp atomic
-					dmean +=  disp;
-					#pragma omp critical
-					{
-						#pragma omp flush(dmax)
-						if(dmax <= disp)
-							dmax = disp;
-					}
-				#endif
+				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+				disp = ACCELERATION[k]*(REAL)(h/2.0);
+				v[3*i+k] += disp;
+				disp = v[3*i+k]*(REAL)(h);
+				x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
 			}
-		}
+			#ifdef GLASS_MAKING
+				disp = sqrt(pow(v[3*i]*(REAL)(h), 2) + pow(v[3*i+1]*(REAL)(h), 2) + pow(v[3*i+2]*(REAL)(h), 2));
+				dmean +=  disp;
+				if(dmax <= disp)
+					dmax = disp;
+			#endif
+			}
 		//If we are using periodic boundary conditions, the code move every "out-of-box" particle inside the box
 		#ifdef PERIODIC
-		#pragma omp parallel default(shared) private(i,k)
+		for(i=0; i<N; i++)
 		{
-			#pragma omp for schedule(dynamic,chunk)
-			for(i=0; i<N; i++)
+			for(k=0;k<3;k++)
 			{
-				for(k=0;k<3;k++)
-				{
-					if(x[3*i+k]<0)
-						x[3*i+k] = x[3*i+k] + L;
-					if(x[3*i+k]>=L)
-						x[3*i+k] = x[3*i+k] - L;
-				}
+				if(x[3*i+k]<0)
+					x[3*i+k] = x[3*i+k] + L;
+				if(x[3*i+k]>=L)
+					x[3*i+k] = x[3*i+k] - L;
 			}
 		}
 		#endif
@@ -199,9 +183,6 @@ void step(REAL* x, REAL* v, REAL* F)
 	if(rank == 0)
 	{
 		REAL const_beta = 3.0/rho_part/(4.0*pi);
-		#pragma omp parallel default(shared) private(i,k,ACCELERATION,err)
-		{
-		#pragma omp for schedule(dynamic,chunk)
 		for(i=0; i<N; i++)
 		{
 			for(k=0; k<3; k++)
@@ -214,13 +195,9 @@ void step(REAL* x, REAL* v, REAL* F)
 			#else
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*a;
 			#endif
-			#pragma omp critical
+			if(err>errmax)
 			{
-				if(err>errmax)
-				{
-					errmax = err;
-				}
-			}
+				errmax = err;
 			}
 		}
 		printf("KDK Leapfrog integration...done.\n");

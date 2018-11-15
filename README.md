@@ -6,18 +6,13 @@ We present a novel N-body simulation method that compactifies the infinite spati
 
 This code is under development.
 
-For more information see: [astro-ph](https://arxiv.org/abs/1711.04959)
+For more information see: [astro-ph](https://arxiv.org/abs/1711.04959) and [astro-ph](https://arxiv.org/abs/1811.05903)
 
 If you plan to publish an academic paper using this software, please consider citing the following publication:
 
 G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulations of the Infinite Universe": MNRAS, Volume 477, Issue 2, p.1949-1957
 
-![](Images/evolution_full.gif)
-![](Images/evolution_center.gif)
-![](Images/rotation.gif)
-
-![alt text](Images/LCDM_SP_0500Mpc_64M_StePS_glass_tilefac3_LBOX2214.png "A slice from a simulation volume.")
-![alt text](Images/LCDM_SP_0500Mpc_64M_StePS_glass_tilefac3_LBOX738.png "The center of the slice.")
+[![StePS example simulation #1](Images/example_simulation_01.png)](https://www.youtube.com/watch?v=PnP1kLr8m-E "StePS example simulation #1")
 
 ![alt text](Images/VOI100_InnerRegion.png "Particles in the center of a simulation volume.")
 ![alt text](Images/VOI100_Disp_InnerRegion.png "The displacement field in the same volume at z=0.")
