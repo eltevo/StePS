@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
 		for(I = 0; I<10-((sizeof(COMPILER_VERSION)-1)/8); I++)
 			printf("\t");
 		printf("|\n+-----------------------------------------------------------------------------------------------+\n\n");
-		printf("\tStePS comes with ABSOLUTELY NO WARRANTY.\n\tThis is free software, and you are welcome to redistribute it\n\tunder certain conditions. See the LICENSE file for details.\n\n");
+		printf("+---------------------------------------------------------------+\n| StePS comes with ABSOLUTELY NO WARRANTY.\t\t\t|\n| This is free software, and you are welcome to redistribute it\t|\n| under certain conditions. See the LICENSE file for details.\t|\n+---------------------------------------------------------------+\n\n");
 	}
 	char HOSTNAME_BUF[1024];
 	if(rank == 0)

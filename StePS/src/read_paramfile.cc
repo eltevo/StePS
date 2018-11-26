@@ -77,6 +77,7 @@ char str08[] = "IS_PERIODIC";
 char str09[] = "OUTPUT_FORMAT";
 char str10[] = "OUT_DIR";
 char str11[] = "a_max";
+char str12[] = "SNAPSHOT_START_NUMBER";
 char str13[] = "ACC_PARAM";
 char str14[] = "h_min";
 char str15[] = "COSMOLOGY";
@@ -171,6 +172,10 @@ while(!feof(param_file))
 	if(strstr(c, str11) != NULL)
 	{
 		sscanf(c, "%s\t%lf", str11, &a_max);
+	}
+	if(strstr(c, str12) != NULL)
+	{
+		sscanf(c, "%s\t%u", str12, &N_snapshot);
 	}
 	if(strstr(c, str13) != NULL)
 	{
@@ -316,6 +321,10 @@ while(!feof(param_file))
         {
                 sscanf(c, "%s\t%lf", str11, &a_max);
         }
+	if(strstr(c, str12) != NULL)
+	{
+		sscanf(c, "%s\t%u", str12, &N_snapshot);
+	}
         if(strstr(c, str13) != NULL)
         {
                 sscanf(c, "%s\t%lf", str13, &ACC_PARAM);
@@ -403,6 +412,10 @@ else
 {
 	printf("Non-cosmological simulation.\n");
 	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
+}
+if(N_snapshot != 0)
+{
+	printf("Initial snapshot ID number:\t%u\n", N_snapshot);
 }
 Hubble_param = 0.0;
 return;

@@ -58,11 +58,7 @@ double calculate_init_h()
 			//calculating the maximal acceleration for the initial timestep
 			ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 		}
-		#ifdef GLASS_MAKING
                 err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
-                #else
-		err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*a;
-		#endif
 		if(err>errmax)
 		{
 			errmax = err;
@@ -205,11 +201,7 @@ void step(REAL* x, REAL* v, REAL* F)
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 				v[3*i+k] += ACCELERATION[k]*(REAL)(h/2.0);
 			}
-			#ifdef GLASS_MAKING
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
-			#else
-			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta)*a;
-			#endif
 			if(err>errmax)
 			{
 				errmax = err;

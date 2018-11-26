@@ -34,28 +34,28 @@ Cosmological simulation code for compactified cosmological simulations.
 - the output is in ASCII or HDF5 format
 - able to run standard periodic and spherical cosmological simulations
 - able to make periodic, quasiperiodic or spherical glass
-- in this early version the code does not make difference between baryonic and dark matter (dark matter only simulations)
+- in this early version the code does not make a difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************
 
 Downloading the code:
-	Under linux, the source files of the StePS code can be downloaded with the 
+	Under Linux, the source files of the StePS code can be downloaded with the 
 
 	$ git clone https://github.com/eltevo/StePS
 
 	command.
 
 Installation:
-	For the successful compilation, the code needs the OpenMPI (https://www.open-mpi.org/) library. Other MPI implemetations should work too.
+	For the successful compilation, the code needs the OpenMPI (https://www.open-mpi.org/) library. Other MPI implementations should work too.
 	Optional libraries:
 		-CUDA (https://developer.nvidia.com/cuda-downloads) Use only if you want to accelerate the simulations with Nvidia GPUs
 		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for reading and writing HDF5 files 
-	You should specify the library directories in the Makefile. For editing the makefile, you should type:
+	You should specify the library directories in the Makefile. For editing the Makefile, you should type:
 
 	$ cd StePS/StePS/src
 	$ gedit Makefile
 
-	Some features of the StePS code are controlled with compile time options in the makefile. With this technique a more optimalized executable can be generated. The following options can be found in the makefile:
+	Some features of the StePS code are controlled with compile time options in the Makefile. With this technique a more optimized executable can be generated. The following options can be found in the Makefile:
 		-USE SINGLE PRECISION 
 			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 30 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory.
 		-GLASSMAKING
@@ -63,7 +63,7 @@ Installation:
 		-HAVE_HDF5
 			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
 		-PERIODIC
-			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two option are contradicting each other, then the program will exit with an error message.
+			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
 
 	After you saved the Makefile, the code can be compiled with the
 
