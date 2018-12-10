@@ -123,4 +123,10 @@ FILEWITHINPUTSPECTRUM: ./input_spectrum.txt	% Input spectrum file
 UNITLENGTH_IN_CM: 3.085678e24	
 UNITMASS_IN_G: 1.989e43
 UNITVELOCITY_IN_CM_PER_S: 1e5
+MPITASKS: 2			% Number of MPI task that will be used in the IC making
+OUTPUTFORMAT: 2			% Format of the output IC:
+				%  "0": ASCII
+				%  "2": HDF5
 
+OUTPUTPRECISION: 0		% "0": 32bit IC
+				% "1": 64bit IC
