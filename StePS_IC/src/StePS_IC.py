@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
 
+#*******************************************************************************#
+#  StePS_IC.py - An initial condition generator for                             #
+#     STEreographically Projected cosmological Simulations                      #
+#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#                                                                               #
+#    This program is free software; you can redistribute it and/or modify       #
+#    it under the terms of the GNU General Public License as published by       #
+#    the Free Software Foundation; either version 2 of the License, or          #
+#    (at your option) any later version.                                        #
+#                                                                               #
+#    This program is distributed in the hope that it will be useful,            #
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
+#    GNU General Public License for more details.                               #
+#*******************************************************************************#
+
 import sys
 import time
 import yaml
@@ -61,7 +77,12 @@ print("+------------------------------------------------------------------------
 "| |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |\t\t\t\t\t|\n" \
 "|                                               | |     __/ |\t\t\t\t\t|\n" \
 "|                                               |_|    |___/ \t\t\t\t\t|\n" \
-"|StePS_IC.py v0.2.0.0\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Gabor Racz, 2018\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n\n")
+"|StePS_IC.py v0.2.0.1\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2018 Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n")
+print("+---------------------------------------------------------------+\n" \
+"| StePS_IC.py comes with ABSOLUTELY NO WARRANTY.                |\n" \
+"| This is free software, and you are welcome to redistribute it |\n" \
+"| under certain conditions. See the LICENSE file for details.   |\n" \
+"+---------------------------------------------------------------+\n\n")
 if len(sys.argv) != 2:
     print("Error: missing yaml file!")
     print("usage: ./StePS_IC.py <input yaml file>\nExiting.")
@@ -178,7 +199,7 @@ if Params['NMESH'] == 0:
     for i in range(0,len(Nsample_tab)):
         paramfile_name[i] = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".param"
         if Params['ICGENERATORTYPE'] == 0:
-            Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
+            Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
         elif Params['ICGENERATORTYPE'] == 1:
             Write_NgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
         elif Params['ICGENERATORTYPE'] == 2:
@@ -255,7 +276,7 @@ else:
     paramfile_name = Params['OUTDIR'] + Params['FILEBASE'] + ".param"
     Nsample = np.uint32(np.ceil(np.cbrt(M_tot_box/np.min(Mass_list))))
     if Params['ICGENERATORTYPE'] == 0:
-        Write_2LPTic_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
+        Write_2LPTic_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
     elif Params['ICGENERATORTYPE'] == 1:
         Write_NgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
     elif Params['ICGENERATORTYPE'] == 2:

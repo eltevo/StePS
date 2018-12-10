@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
 
+#*******************************************************************************#
+#  StePS_IC.py - An initial condition generator for                             #
+#     STEreographically Projected cosmological Simulations                      #
+#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#                                                                               #
+#    This program is free software; you can redistribute it and/or modify       #
+#    it under the terms of the GNU General Public License as published by       #
+#    the Free Software Foundation; either version 2 of the License, or          #
+#    (at your option) any later version.                                        #
+#                                                                               #
+#    This program is distributed in the hope that it will be useful,            #
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
+#    GNU General Public License for more details.                               #
+#*******************************************************************************#
+
 def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
