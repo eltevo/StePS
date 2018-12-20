@@ -17,7 +17,7 @@ G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulation
 [![StePS example simulation #1, slice](Images/Example1_R480_slice_youtube.png)](https://youtu.be/INuRIqUu0IA "StePS example simulation #1, slice")
 
 
-[![StePS example simulation #1, cerntral part](Images/Example1_evolution_center_youtube.png)](https://youtu.be/NzGt-pt4TiY "StePS example simulation #1, cerntral part")
+[![StePS example simulation #1, cerntral part](Images/Example1_evolution_center_youtube.png)](https://youtu.be/NzGt-pt4TiY "StePS example simulation #1, central high resolution volume")
 
 ![alt text](Images/VOI100_InnerRegion.png "Particles in the center of a simulation volume.")
 ![alt text](Images/VOI100_Disp_InnerRegion.png "The displacement field in the same volume at z=0.")
