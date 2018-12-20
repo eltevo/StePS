@@ -4,7 +4,7 @@
 # Copyright (C) 2018 Gabor Racz									#
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.6.6"'#										#
+VERSION='"v0.3.7.0"'#										#
 #    This program is free software; you can redistribute it and/or modify			#
 #    it under the terms of the GNU General Public License as published by			#
 #    the Free Software Foundation; either version 2 of the License, or				#

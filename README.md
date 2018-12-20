@@ -12,7 +12,12 @@ If you plan to publish an academic paper using this software, please consider ci
 
 G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulations of the Infinite Universe": MNRAS, Volume 477, Issue 2, p.1949-1957
 
-[![StePS example simulation #1](Images/example_simulation_01.png)](https://www.youtube.com/watch?v=PnP1kLr8m-E "StePS example simulation #1")
+![alt text](Images/Example_simulation1_R480Mpc_slice.png "A slice from the density field in the StePS example simulation #1")
+
+[![StePS example simulation #1, slice](Images/Example1_R480_slice_youtube.png)](https://youtu.be/INuRIqUu0IA "StePS example simulation #1, slice")
+
+
+[![StePS example simulation #1, cerntral part](Images/Example1_evolution_center_youtube.png)](https://youtu.be/NzGt-pt4TiY "StePS example simulation #1, cerntral part")
 
 ![alt text](Images/VOI100_InnerRegion.png "Particles in the center of a simulation volume.")
 ![alt text](Images/VOI100_Disp_InnerRegion.png "The displacement field in the same volume at z=0.")

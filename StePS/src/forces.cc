@@ -50,6 +50,8 @@ double omp_start_time = omp_get_wtime();
 REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2;
 REAL SOFT_CONST[5];
 
+REAL DE = (REAL) H0*H0*Omega_lambda;
+
 int i, j, k, chunk;
 for(i=0; i<N_mpi_thread; i++)
 {
@@ -119,6 +121,12 @@ for(i=0; i<N_mpi_thread; i++)
 			F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i];
 			F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];
 			F[3*(i-ID_min)+2] += mass_in_unit_sphere * x[3*i+2];
+		}
+		else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+		{
+			F[3*(i-ID_min)] +=  DE * x[3*i];
+			F[3*(i-ID_min)+1] += DE * x[3*i+1];
+			F[3*(i-ID_min)+2] += DE * x[3*i+2];
 		}
 	}
 

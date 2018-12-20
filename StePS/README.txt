@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.6.6
+v0.3.7.0
 Copyright (C) 2017-2018 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -130,7 +130,7 @@ a_max           1.0						%The final scalefactor
 ACC_PARAM	0.030						%Accuracy parameter
 h_min           0.00025						%minimal timestep length (in Gy)
 h_max           0.03125						%maximal timestep length (in Gy)
-ParticleRadi    0.134226516867827				%smoothing length of particle with minimal mass
+ParticleRadi    0.134226516867827				%softening length of particle with minimal mass
 FIRST_T_OUT     0.50						%first output time
 H_OUT           0.50						%output frequency
 

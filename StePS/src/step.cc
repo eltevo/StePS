@@ -98,8 +98,10 @@ void step(REAL* x, REAL* v, REAL* F)
 			for(k=0; k<3; k++)
 			{
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+				//'Kick' operation (h/2)
 				disp = ACCELERATION[k]*(REAL)(h/2.0);
 				v[3*i+k] += disp;
+				//'Drift' operation (h)
 				disp = v[3*i+k]*(REAL)(h);
 				x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
 			}
@@ -199,6 +201,7 @@ void step(REAL* x, REAL* v, REAL* F)
 			for(k=0; k<3; k++)
 			{
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
+				//'Kick' operation (h/2)
 				v[3*i+k] += ACCELERATION[k]*(REAL)(h/2.0);
 			}
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);

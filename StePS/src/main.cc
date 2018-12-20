@@ -375,6 +375,15 @@ int main(int argc, char *argv[])
 				v[3*i+2] = v[3*i+2]/sqrt(a_start)/UNIT_V;
 			}
 		}
+		else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+		{
+			for(i=0;i<N;i++)
+			{
+				v[3*i] = v[3*i]/UNIT_V;
+				v[3*i+1] = v[3*i+1]/UNIT_V;
+				v[3*i+2] = v[3*i+2]/UNIT_V;
+			}
+		}
 		if(numtasks > 1)
 		{
 			F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL));
@@ -438,15 +447,35 @@ int main(int argc, char *argv[])
 		rho_crit = 3.0*H0*H0/(8.0*pi);
 		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((REAL) N);
-		if(IS_PERIODIC>0)
+		#ifdef PERIODIC
+		if(IC_FORMAT == 1)
 		{
-		if(rank == 0)
-			printf("Every particle has the same mass in periodic cosmological simulations.\nM=%.10f*10e+11M_sol\n", M_tmp);
-		for(i=0;i<N;i++)//Every particle has the same mass in periodic cosmological simulations
+			if(rank == 0)
+				printf("Every particle has the same mass in periodic cosmological simulations, if the input is in GADGET format.\nM=%.10f*10e+11M_sol\n", M_tmp);
+			for(i=0;i<N;i++)//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
+			{
+				M[i] = M_tmp;
+			}
+		}
+		//Calculating the total mean desity of the simulation volume
+		//in here we sum the total particle mass with Kahan summation
+		REAL rho_mean_full_box = 0.0;
+		REAL Kahan_compensation = 0.0;
+		REAL Kahan_t, Kahan_y;
+		for(i=0;i<N;i++)
 		{
-			M[i] = M_tmp;
+			Kahan_y = M[i] - Kahan_compensation;
+			Kahan_t = rho_mean_full_box + Kahan_y;
+			Kahan_compensation = (Kahan_t - rho_mean_full_box) - Kahan_y;
+			rho_mean_full_box = Kahan_t;
 		}
+		rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
+		if(fabs(rho_mean_full_box/(rho_crit*Omega_dm) - 1) > 1e-5)
+		{
+			 fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters!\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_dm));
+			 return (-1);
 		}
+		#endif
 	}
 	else
 	{
@@ -457,7 +486,7 @@ int main(int argc, char *argv[])
 			return (-1);
 		}
 		if(rank == 0)
-			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nNon-comoving, full Newtonian cosmological simulation. If you want physical solution, you should set Omega_lambda to zero.\na_max is used as maximal time in Gy in the parameter file.\n\n");
+			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nThis run will be in non-comoving coodinates. This means that, this will be a full Newtonian cosmological simulation. Make sure that you set the correct parameters at the IC making.\na_max is used as maximal time in Gy in the parameter file.\n\n");
 		Omega_m = Omega_b+Omega_dm;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3*H0*H0/(8*pi);
@@ -718,7 +747,7 @@ int main(int argc, char *argv[])
 	{
 		if(rank == 0)
 		{
-		printf("\n\n----------------------------------------------------------------------------------------------\n");
+		printf("\n\n------------------------------------------------------------------------------------------------\n");
 		if(COSMOLOGY == 1)
                 {
 			if(COMOVING_INTEGRATION == 1)
@@ -761,14 +790,7 @@ int main(int argc, char *argv[])
 							write_hdf5_snapshot(x, v, M);
 						#endif
 						t_next+=Delta_T_out;
-						if(COSMOLOGY == 1)
-						{
-							printf("t = %f Gy\n\th=%f Gy\n", T*UNIT_T, h*UNIT_T);
-						}
-						else
-						{
-							printf("t = %f\n\terr_max = %e\th=%f\n", T, errmax, h);
-						}
+						printf("...done.\n");
 					}
 				}
 				else
@@ -897,13 +919,13 @@ int main(int argc, char *argv[])
 	}
 	if(rank == 0)
 	{
-		printf("\n\n----------------------------------------------------------------------------------------------\n");
+		printf("\n\n------------------------------------------------------------------------------------------------\n");
 		printf("The simulation ended. The final state:\n");
 		if(COSMOLOGY == 1)
 		{
 			if(COMOVING_INTEGRATION == 1)
 			{
-				printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8f, z=%.8f\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+				printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
 
 				double a_end, b_end;
 				a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);

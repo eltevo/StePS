@@ -57,7 +57,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)
 void recalculate_softening();
 
 #ifndef PERIODIC
-__global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, REAL* M, REAL L, REAL rho_part, REAL mass_in_unit_sphere, int COSMOLOGY, int COMOVING_INTEGRATION, int ID_min, int ID_max)
+__global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, REAL* M, REAL L, REAL rho_part, REAL mass_in_unit_sphere, REAL DE, int COSMOLOGY, int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
 	REAL r, dx, dy, dz, wij, beta_priv, beta_privp2, betai;
@@ -109,6 +109,12 @@ __global__ void ForceKernel(int n, int N, const REAL *xx, const REAL *xy, const 
 				Fx_tmp += mass_in_unit_sphere * xx[i];
 				Fy_tmp += mass_in_unit_sphere * xy[i];
 				Fz_tmp += mass_in_unit_sphere * xz[i];
+			}
+			else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+			{
+				Fx_tmp += DE * xx[i];
+				Fy_tmp += DE * xy[i];
+				Fz_tmp += DE * xz[i];
 			}
 			F[3*(i-ID_min)] += Fx_tmp;
 			F[3*(i-ID_min)+1] += Fy_tmp;
@@ -259,6 +265,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	cudaError_t cudaStatus;
 	cudaStatus = cudaSuccess;
 	double omp_start_time, omp_end_time;
+	REAL DE = (REAL) H0*H0*Omega_lambda;
 	REAL *xx_tmp, *xy_tmp, *xz_tmp, *F_tmp;
 	REAL *dev_xx= 0;
 	REAL *dev_xy= 0;
@@ -382,7 +389,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU
-		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, L, rho_part, mass_in_unit_sphere, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, L, rho_part, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
 		if (cudaStatus != cudaSuccess) {

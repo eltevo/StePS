@@ -754,17 +754,17 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 	}
 	if(COSMOLOGY == 0)
 	{
-			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next, OUT_DIR, A);
+			printf("Saving the  \"%st%s.dat\" snapshot file... \nt = %.15f", OUT_DIR, A, T*UNIT_T);
 	}
 	else
 	{
 		if(OUTPUT_TIME_VARIABLE == 0)
 		{
-			printf("Saving: t= %f, file: \"%st%s.dat\" \n", t_next*UNIT_T, OUT_DIR, A);
+			printf("Saving the \"%st%s.dat\" snapshot file... \nt = %.15fGy\nz = %.15f\n", OUT_DIR, A, T*UNIT_T, 1.0/a-1.0);
 		}
 		else
 		{
-			printf("Saving: z= %f, file: \"%sz%s.dat\" \n", t_next, OUT_DIR, A);
+			printf("Saving the \"%sz%s.dat\" snapshot file... \nt = %.15fGy\nz = %.15f\n", OUT_DIR, A, T*UNIT_T, 1.0/a-1.0);
 		}
 	}
 	FILE *coordinate_file;
@@ -875,18 +875,11 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot);
 	if(COSMOLOGY == 0)
 	{
-		printf("Saving: t= %f, file: \"%s\" \n", t_next, filename);
+		printf("Saving the \"%s\" snapshot file...\nt=%.14f", filename, T);
 	}
 	else
 	{
-		if(OUTPUT_TIME_VARIABLE == 0)
-		{
-			printf("Saving: t= %f, file: \"%s\" \n", t_next*UNIT_T, filename);
-		}
-		else
-		{
-			printf("Saving: z= %f, file: \"%s\" \n", t_next, filename);
-		}
+		printf("Saving: the \"%s\" snapshot file...\nt = %.15fGy\na = %.15f\n", filename, T*UNIT_T, a);
 	}
 	//Output filename set. Creating the output file
 	hid_t snapshot = 0;
