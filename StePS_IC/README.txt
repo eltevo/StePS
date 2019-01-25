@@ -8,7 +8,7 @@
                                                |_|    |___/ 
 StePS_IC.py - an IC generator python script for STEreographically Projected cosmological Simulations
 
-v0.2.0.1
+v0.2.0.2
 Copyright (C) 2018 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA

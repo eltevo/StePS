@@ -40,7 +40,7 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, precision
     header_group.attrs['MassTable'] = np.array([0,M_min,0,0,0,0],dtype=np.float64)
     header_group.attrs['Time'] = np.double(1.0/(Redshift+1))
     header_group.attrs['Redshift'] = np.double(Redshift)
-    header_group.attrs['Lbox'] = np.double(Linearsize)
+    header_group.attrs['BoxSize'] = np.double(Linearsize)
     header_group.attrs['NumFilesPerSnapshot'] = np.int(1)
     header_group.attrs['Omega0'] = np.double(1.0)
     header_group.attrs['OmegaLambda'] = np.double(0.0)

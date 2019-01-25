@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
 
+#*******************************************************************************#
+#  ascii2hdf5_snapshot.py - An ASCII to hdf5 file converter for StePS           #
+#     (STEreographically Projected cosmological Simulations) snapshots.         #
+#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#                                                                               #
+#    This program is free software; you can redistribute it and/or modify       #
+#    it under the terms of the GNU General Public License as published by       #
+#    the Free Software Foundation; either version 2 of the License, or          #
+#    (at your option) any later version.                                        #
+#                                                                               #
+#    This program is distributed in the hope that it will be useful,            #
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
+#    GNU General Public License for more details.                               #
+#*******************************************************************************#
+
 import numpy as np
 import h5py
 import sys
 import time
+# %matplotlib inline
 
 #Beginning of the script
 if len(sys.argv) != 4:

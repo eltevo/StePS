@@ -77,7 +77,7 @@ print("+------------------------------------------------------------------------
 "| |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |\t\t\t\t\t|\n" \
 "|                                               | |     __/ |\t\t\t\t\t|\n" \
 "|                                               |_|    |___/ \t\t\t\t\t|\n" \
-"|StePS_IC.py v0.2.0.1\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2018 Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n")
+"|StePS_IC.py v0.2.0.2\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2018 Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n")
 print("+---------------------------------------------------------------+\n" \
 "| StePS_IC.py comes with ABSOLUTELY NO WARRANTY.                |\n" \
 "| This is free software, and you are welcome to redistribute it |\n" \
