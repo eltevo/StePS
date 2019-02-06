@@ -138,8 +138,9 @@ void kiiras(FILE *outfile, double** x, int N)
 
 int main(int argc, char *argv[])
 {
-	printf("-----------------------------------------------------------------------------------------------\nCompactify_Periodic_Snapshot v0.3.1.1\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
+	printf("-----------------------------------------------------------------------------------------------\nCompactify_Periodic_Snapshot v0.3.2.0\n Gabor Racz, 2017-2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n\n");
 	printf("Build date: %s\nCompiled with: %s\n-----------------------------------------------------------------------------------------------\n\n", BUILD_DATE, COMPILER_VERSION);
+	printf("Attention!\n\tThis program can be used to generate initial conditions (ICs)\n\tfor StePS simulations, but this is highly not recommended.\n\tPlease use the StePS_IC.py script for making ICs.\n\tThe main purpose of this program is to generate spherical snapshots\n\tform a periodic snapshot only for comparison.\n\n");
 	if( argc != 2)
         {
                 fprintf(stderr, "Missing parameter file!\n");

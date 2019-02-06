@@ -5,7 +5,7 @@ HEALPix_INC=-I${CURDIR}/../HEALPix/Healpix_3.31/src/C/autotools
 HEALPix_LIB=-R${CURDIR}/../HEALPix/Healpix_3.31/src/C/autotools
 #--------------------------------------------------------------kdtree library directories
 KDTREE_INC=-I${CURDIR}/../kdtree-0.5.6/build/include
-KDTREE_LIB=-L${CURDIR}/../kdtree-0.5.6/build/lib -Wl,-R/home/username/pathto/kdtree-0.5.6/build/lib
+KDTREE_LIB=-L${CURDIR}/../kdtree-0.5.6/build/lib -Wl,-R/home/ragraat/Egyetem/kdtree-0.5.6/build/lib
 
 
 

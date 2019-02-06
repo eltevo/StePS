@@ -234,8 +234,11 @@ void finish_stereographic_projection(double** x_out)
 		{
 			#pragma omp atomic
 			x_out[i][j] /= x_out[i][6];
-			#pragma omp atomic
-			x_out[i][j] *= UNIT_V;
+			if(j>2)
+			{
+				#pragma omp atomic
+				x_out[i][j] *= UNIT_V;
+			}
 		}
 	}
 	}
