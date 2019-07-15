@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.7.0
+v0.3.7.2
 Copyright (C) 2017-2018 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -57,7 +57,7 @@ Installation:
 
 	Some features of the StePS code are controlled with compile time options in the Makefile. With this technique a more optimized executable can be generated. The following options can be found in the Makefile:
 		-USE SINGLE PRECISION 
-			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 30 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory.
+			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup in Nvidia Tesla cards is ~2.
 		-GLASSMAKING
 			This option should be set for glass making. In this case the code will use reversed gravity.
 		-HAVE_HDF5
@@ -74,7 +74,7 @@ Installation:
 *********************************************************************************************
 
 Once you compiled the code, you can simply run it by typing:
-	export OMP_NUM_THREADS=<Number of shared memory OMP threads>
+	export OMP_NUM_THREADS=<Number of shared memory OMP threads per MPI tasks>
 	mpirun -n <number of MPI tasks> ./StePS <parameterfile>
 where the parameterfile specifies the parameters of the simulation.
 
@@ -104,9 +104,8 @@ The example parameterfile:
 Cosmological parameters:
 ------------------------
 COSMOLOGY       1			%1=cosmological simulation 0=traditional n-body sim.
-Particle_mass   1.0			%mass of the particles. used only in non-cosmological simulations.
 Omega_b         0.0			%\
-Omega_lambda    0.6911			%-cosmological Omega parameters
+Omega_lambda    0.6911			%-Cosmological Omega parameters
 Omega_dm        0.3089			%/
 Omega_r         0.0			%|
 H0              67.74			%Hubble-constant
@@ -117,24 +116,23 @@ Simulation parameters:
 -----------------------
 IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=ewald forces
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
-L_box           1860.0531					%linear size of the simulation volume
+L_box           1860.0531					%Linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file
-IC_FORMAT       0						%ic file format 0: ascii, 1:GADGET, 2:(Gadget-)HDF5
+IC_FORMAT       0						%Ic file format 0: ascii, 1:GADGET, 2:(Gadget-)HDF5
 OUT_DIR         ../examples/LCDM_SP_1260_343M_com_VOI_1000/		%output directory
 OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output list file
-OUTPUT_TIME_VARIABLE	1					%output time variable 0: physical time, 1: redshift
-OUTPUT_FORMAT   1						%output format 0: ASCII 2: (Gadget-)HDF5
+OUTPUT_TIME_VARIABLE	1					%Output time variable 0: physical time, 1: redshift
+OUTPUT_FORMAT   1						%Output format 0: ASCII 2: (Gadget-)HDF5
 REDSHIFT_CONE   1						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 a_max           1.0						%The final scalefactor
 ACC_PARAM	0.030						%Accuracy parameter
-h_min           0.00025						%minimal timestep length (in Gy)
-h_max           0.03125						%maximal timestep length (in Gy)
-ParticleRadi    0.134226516867827				%softening length of particle with minimal mass
-FIRST_T_OUT     0.50						%first output time
-H_OUT           0.50						%output frequency
-
+h_min           0.00025						%Minimal timestep length (in Gy)
+h_max           0.03125						%Maximal timestep length (in Gy)
+ParticleRadi    0.134226516867827				%Softening length of particle with minimal mass
+FIRST_T_OUT     0.50						%First output time
+H_OUT           0.50						%Output frequency
+SNAPSHOT_START_NUMBER	0					%Initial snapshot number. Useful for restarting simulations.
 
 *********************************************************************************************
 
-The source code provided here is mainly for reference purposes.

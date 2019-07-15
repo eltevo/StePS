@@ -1,0 +1,32 @@
+Cosmological parameters:
+------------------------
+COSMOLOGY	1
+Omega_b		0.0
+Omega_lambda	0.6911
+Omega_dm	0.3089
+Omega_r		0.0
+H0		67.74
+a_start		0.015625
+
+
+Simulation parameters:
+-----------------------
+IS_PERIODIC	0
+COMOVING_INTEGRATION	1
+L_box		1860.053144376
+IC_FILE 	../examples/ic/IC_LCDM_SP_1860Mpc_Nr224_Nhp32_ds105_z63_VOI100.hdf5
+IC_FORMAT	2
+OUT_DIR		../examples/LCDM_SP_1260_343M_com_VOI100/
+OUT_LST		../examples/outtimes.txt
+OUTPUT_TIME_VARIABLE	1
+OUTPUT_FORMAT	2
+REDSHIFT_CONE	0
+MIN_REDSHIFT	0.0003012504
+a_max		1.0
+ACC_PARAM	0.0025
+h_min		0.00002
+h_max           0.031250
+ParticleRadi    0.0939585618074789
+FIRST_T_OUT	0.25
+H_OUT		0.25
+SNAPSHOT_START_NUMBER	0

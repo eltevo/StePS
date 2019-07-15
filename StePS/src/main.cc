@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -48,6 +48,7 @@ REAL ACC_PARAM;
 double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
 double rho_crit; //Critical density
 REAL mass_in_unit_sphere; //Mass in unit sphere
+bool ForceError = false;
 
 int n_GPU; //number of cuda capable GPUs
 int numtasks, rank; //Variables for MPI
@@ -73,6 +74,7 @@ int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 int HAVE_OUT_LIST; // 0: output list not found. 1: output list found
+double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
 double *out_list; //Output redshits
 double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
@@ -83,6 +85,7 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 double epsilon=1;
 double sigma=1;
 REAL* M;//Particle mass
+REAL* SOFT_LENGTH; //particle softening lengths
 REAL M_tmp;
 double a, a_start,a_prev,a_tmp;//Scalefactor, scalefactor at the starting time, previous scalefactor
 double Omega_m_eff; //Effective Omega_m
@@ -132,7 +135,7 @@ int main(int argc, char *argv[])
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	if(rank == 0)
 	{
-		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2018 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
+		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2019 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
 		printf("Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
 		printf("Compiled with: %s", COMPILER_VERSION);
 		unsigned long int I;
@@ -411,9 +414,10 @@ int main(int argc, char *argv[])
 	{
 		//Allocating memory for the particle datas on the rank != 0 MPI threads
 		x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory fo the coordinates
-		v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
+		//v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
 		F = (REAL*)malloc(3*N_mpi_thread*sizeof(REAL));//There is no need to allocate for N forces. N/numtasks should be enough
 		M = (REAL*)malloc(N*sizeof(REAL));
+		SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL));
 
 	}
 	//Bcasting the ICs to the rank!=0 threads
@@ -510,12 +514,22 @@ int main(int argc, char *argv[])
 		}
 		rho_part = M_min/(4.0*pi*pow(ParticleRadi, 3.0) / 3.0);
 	}
+	//Calculating the softening length for each particle:
+	REAL const_beta = 3.0/rho_part/(4.0*pi);
+	printf("Calculating the softening lengths...\n");
+	for(i=0;i<N;i++)
+	{
+		SOFT_LENGTH[i] = cbrt(M[i]*const_beta); //setting up the softening length for each particle
+	}
+	printf("...done\n");
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&M_min,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&rho_part,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(SOFT_LENGTH,N,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(&M_min,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&rho_part,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(SOFT_LENGTH,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
 	beta = ParticleRadi;
 	a=a_start;//scalefactor
@@ -537,7 +551,7 @@ int main(int argc, char *argv[])
 		{
 			printf("a_start=%.9f\tz=%.9f\n", a, 1/a-1);
 		}
-		T = friedmann_solver_start(1,0,h_min*0.00031,Omega_lambda,Omega_r,Omega_m,H0,a_start);
+		T = friedmann_solver_start(1,0,h_min*0.05,Omega_lambda,Omega_r,Omega_m,H0,a_start);
 		if(HAVE_OUT_LIST == 0)
 		{
 			if(OUTPUT_TIME_VARIABLE==0)
@@ -873,7 +887,7 @@ int main(int argc, char *argv[])
 				}
 				else
 				{
-					if(T > t_next)
+					if(T >= t_next)
 					{
 						if(OUTPUT_FORMAT == 0)
 							write_ascii_snapshot(x, v);
@@ -903,10 +917,26 @@ int main(int argc, char *argv[])
 			{
 				h=h_max;
 			}
+			if((h+T > t_next) && OUTPUT_TIME_VARIABLE == 0)
+			{
+				h = t_next-T+(1E-9*h_min);
+			}
 		}
 		MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 		fflush(stdout);
 		MPI_Barrier(MPI_COMM_WORLD);
+		if(ForceError == true)
+		{
+			if(rank == 0)
+				printf("\nFatal error has been detected in the force calculation.\n Exiting...\n");
+			break;
+		}
+		if( TIME_LIMIT_IN_MINS != 0 && (omp_get_wtime()-SIM_omp_start_time)/60.0 >= TIME_LIMIT_IN_MINS)
+		{
+			if(rank == 0)
+				printf("\nSimulation wall-clock time limit reached (%.1fmin >= %.1fmin). Stopping...\n", (omp_get_wtime()-SIM_omp_start_time)/60.0, TIME_LIMIT_IN_MINS);
+			break;
+		}
 	}
 	if(OUTPUT_TIME_VARIABLE == 0 && rank == 0)
 	{

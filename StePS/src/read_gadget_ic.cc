@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -102,10 +102,11 @@ int gadget_format_conversion(void)
 	printf("Bulge: \t\t\t%f\n", header1.mass[3]);
 	printf("Stars: \t\t\t%f\n", header1.mass[4]);
 	printf("Bndry: \t\t\t%f\n\n", header1.mass[5]);
-  x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
+	x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
 	v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
 	F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-  M = (REAL*)malloc(N*sizeof(REAL));
+	M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
+	SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the softening lengths
 	i=0;
 	printf("Converting particle positions...\n");
 	for(k=1;k<NumPart+1;++k)

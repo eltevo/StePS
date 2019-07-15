@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -60,22 +60,20 @@ for(i=0; i<N_mpi_thread; i++)
                 F[3*i+k] = 0;
         }
 }
-        REAL r, betai, dx, dy, dz, wij;
-	REAL const_beta = 3.0/rho_part/(4.0*pi);
+        REAL r, dx, dy, dz, wij;
 	chunk = (ID_max-ID_min)/omp_get_max_threads();
 	if(chunk < 1)
 	{
 		chunk = 1;
 	}
-	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2, betai)
+	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
 	{
 	#pragma omp for schedule(dynamic,chunk)
 	for(i=ID_min; i<ID_max+1; i++)
 	{
-		betai = cbrt(M[i]*const_beta);
 		for(j=0; j<N; j++)
 		{
-			beta_priv = (betai+cbrt(M[j]*const_beta));
+			beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
 			beta_privp2 = beta_priv*0.5;
 			//calculating particle distances
                         dx=x[3*j]-x[3*i];
@@ -147,7 +145,6 @@ double omp_start_time = omp_get_wtime();
 //timing
 REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2;
 REAL SOFT_CONST[5];
-
 	int i, j, k, m, chunk;
 	for(i=0; i<N_mpi_thread; i++)
 	{
@@ -156,8 +153,7 @@ REAL SOFT_CONST[5];
 			F[3*i+k] = 0;
 		}
 	}
-	REAL r, betai, dx, dy, dz, wij;
-	REAL const_beta = 3.0/rho_part/(4.0*pi);
+	REAL r, dx, dy, dz, wij;
 	chunk = (ID_max-ID_min)/(omp_get_max_threads());
 	if(chunk < 1)
 	{
@@ -165,18 +161,17 @@ REAL SOFT_CONST[5];
 	}
 	if(IS_PERIODIC==2)
 	{
-	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2, betai)
+	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
 	{
 	#pragma omp for schedule(dynamic,chunk)
 	for(i=ID_min; i<ID_max+1; i++)
 	{
-		betai = cbrt(M[i]*const_beta);
 		for(j=0; j<N; j++)
 		{
 			Fx_tmp = 0;
 			Fy_tmp = 0;
 			Fz_tmp = 0;
-			beta_priv = (betai+cbrt(M[j]*const_beta));
+			beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
 			beta_privp2 = beta_priv*0.5; 
 			//calculating particle distances inside the simulation box
 			dx=x[3*j]-x[3*i];
@@ -226,15 +221,14 @@ REAL SOFT_CONST[5];
 	}
 	else
 	{
-		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2, betai)
+		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
         	{
         	#pragma omp for schedule(dynamic,chunk)
 	        	for(i=ID_min; i<ID_max+1; i++)
 			{
-				betai = cbrt(M[i]*const_beta);
 				for(j=0; j<N; j++)
 				{
-					beta_priv = (betai+cbrt(M[j]*const_beta));
+					beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
 					beta_privp2 = beta_priv*0.5;
 					//calculating particle distances
 					dx=x[3*j]-x[3*i];

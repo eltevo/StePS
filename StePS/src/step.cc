@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */

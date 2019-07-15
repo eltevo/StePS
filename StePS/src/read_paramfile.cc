@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -50,6 +50,7 @@ void BCAST_global_parameters()
 	MPI_Bcast(&a_start,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&COMOVING_INTEGRATION,1,MPI_INT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&OUTPUT_TIME_VARIABLE,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&TIME_LIMIT_IN_MINS,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&L,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_FLOAT,0,MPI_COMM_WORLD);
@@ -84,6 +85,7 @@ char str15[] = "COSMOLOGY";
 char str17[] = "a_start";
 char str18[] = "h_max";
 char str19[] = "COMOVING_INTEGRATION";
+char str20[] = "TIME_LIMIT_IN_MIN";
 char str21[] = "FIRST_T_OUT";
 char str22[] = "IC_FORMAT";
 char str23[] = "OUTPUT_TIME_VARIABLE";
@@ -168,6 +170,8 @@ while(!feof(param_file))
 		{
 			OUT_DIR[i-9] = c[i];
 		}
+		if(OUT_DIR[i-10]!='/')
+			OUT_DIR[i-9]='/';
 	}
 	if(strstr(c, str11) != NULL)
 	{
@@ -209,6 +213,10 @@ while(!feof(param_file))
 
 		if(COMOVING_INTEGRATION<0)
 			COMOVING_INTEGRATION = 0;
+	}
+	if(strstr(c, str20) != NULL)
+        {
+		sscanf(c, "%s\t%lf", str20, &TIME_LIMIT_IN_MINS);
 	}
 	if(strstr(c, str21) != NULL)
 	{
@@ -316,6 +324,8 @@ while(!feof(param_file))
                 {
                         OUT_DIR[i-9] = c[i];
                 }
+		if(OUT_DIR[i-10]!='/')
+                        OUT_DIR[i-9]='/';
         }
         if(strstr(c, str11) != NULL)
         {
@@ -358,6 +368,10 @@ while(!feof(param_file))
 		if(COMOVING_INTEGRATION<0)
 			COMOVING_INTEGRATION = 0;
 	}
+	if(strstr(c, str20) != NULL)
+        {
+                sscanf(c, "%s\t%lf", str20, &TIME_LIMIT_IN_MINS);
+        }
         if(strstr(c, str21) != NULL)
         {
                 sscanf(c, "%s\t%lf", str21, &FIRST_T_OUT);
@@ -413,6 +427,7 @@ else
 	printf("Non-cosmological simulation.\n");
 	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%fMpc\na_max\t\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
 }
+printf("Simulation wall-clock time limit:\t%fh\n", TIME_LIMIT_IN_MINS/60.0);
 if(N_snapshot != 0)
 {
 	printf("Initial snapshot ID number:\t%u\n", N_snapshot);

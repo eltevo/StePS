@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -62,7 +62,7 @@ x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
 v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
 F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
 M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
-
+SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the softening lengths
 
 printf("\nReading IC from the %s file...\n", IC_FILE);
 for(i=0; i<N; i++) //reading
@@ -837,6 +837,7 @@ void read_hdf5_ic(char *ic_file)
 	v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
 	F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
 	M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
+	SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the softening lengths
 	//reading the particle coordinates
 	dataset = H5Dopen2(IC, "/PartType1/Coordinates", H5P_DEFAULT);
         dataspace_in_file = H5Dget_space(dataset);
@@ -1054,7 +1055,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Time", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
-	if(COSMOLOGY == 0)
+	if(COSMOLOGY == 0 || (OUTPUT_TIME_VARIABLE==0 && COMOVING_INTEGRATION==0))
 		doublebuf = T*UNIT_T; //physical time
 	else
 		doublebuf = a; //scalefactor

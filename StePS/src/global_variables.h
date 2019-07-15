@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2018 Gabor Racz                                        */
+/*    Copyright (C) 2017-2019 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -42,10 +42,12 @@ extern int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 extern int HAVE_OUT_LIST;
+extern double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
 extern double *out_list; //Output redshits
 extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 extern int out_list_size; //Number of output redshits
 extern unsigned int N_snapshot; //number of written out snapshots
+extern bool ForceError; //true, if any errors encountered over the force calculation
 extern bool* IN_CONE;
 
 extern int n_GPU; //number of cuda capable GPUs
@@ -67,6 +69,7 @@ extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 extern double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
 
 extern REAL* M; //Particle masses
+extern REAL *SOFT_LENGTH; //particle softening lengths
 extern REAL M_tmp;
 extern int N; //Number of particles
 extern int t; //Number of the actual timestep
