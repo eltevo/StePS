@@ -8,7 +8,7 @@
 StePS - STEreographically Projected cosmological Simulations
 
 v0.3.7.2
-Copyright (C) 2017-2018 Gábor Rácz
+Copyright (C) 2017-2019 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
 ragraat@caesar.elte.hu
