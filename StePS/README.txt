@@ -57,7 +57,7 @@ Installation:
 
 	Some features of the StePS code are controlled with compile time options in the Makefile. With this technique a more optimized executable can be generated. The following options can be found in the Makefile:
 		-USE SINGLE PRECISION 
-			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup in Nvidia Tesla cards is ~2.
+			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup with Nvidia Tesla cards by using single pecision is ~2.
 		-GLASSMAKING
 			This option should be set for glass making. In this case the code will use reversed gravity.
 		-HAVE_HDF5
