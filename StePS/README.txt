@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.7.2
+v0.3.7.3
 Copyright (C) 2017-2019 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
@@ -33,7 +33,7 @@ Cosmological simulation code for compactified cosmological simulations.
 - can read HDF5, Gadget2 and ASCII IC formats
 - the output is in ASCII or HDF5 format
 - able to run standard periodic and spherical cosmological simulations
-- able to make periodic, quasiperiodic or spherical glass
+- able to make periodic, quasi-periodic or spherical glass
 - in this early version the code does not make a difference between baryonic and dark matter (dark matter only simulations)
 
 *********************************************************************************************
@@ -57,7 +57,7 @@ Installation:
 
 	Some features of the StePS code are controlled with compile time options in the Makefile. With this technique a more optimized executable can be generated. The following options can be found in the Makefile:
 		-USE SINGLE PRECISION 
-			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup with Nvidia Tesla cards by using single pecision is ~2.
+			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup with Nvidia Tesla cards by using single precision is ~2.
 		-GLASSMAKING
 			This option should be set for glass making. In this case the code will use reversed gravity.
 		-HAVE_HDF5
@@ -78,7 +78,7 @@ Once you compiled the code, you can simply run it by typing:
 	mpirun -n <number of MPI tasks> ./StePS <parameterfile>
 where the parameterfile specifies the parameters of the simulation.
 
-If you comiled the code for CUDA simulation,  you can simply run it by typing:
+If you compiled the code with CUDA, you can simply run it by typing:
 	export OMP_NUM_THREADS=<Number of GPUs per tasks>
         mpirun -n <number of MPI tasks> ./StePS_CUDA <parameterfile> <Number of GPUs per tasks>
 
@@ -114,7 +114,7 @@ a_start         0.05			%Initial scalefactor
 
 Simulation parameters:
 -----------------------
-IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=ewald forces
+IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=Ewald forces
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 L_box           1860.0531					%Linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file

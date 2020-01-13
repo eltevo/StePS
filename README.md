@@ -2,7 +2,9 @@
 
 An N-body code for non-periodic dark matter cosmological simulations
 
-We present a novel N-body simulation method that compactifies the infinite spatial extent of the Universe into a finite sphere with isotropic boundary conditions to follow the evolution of the large-scale structure. Our approach eliminates the need for periodic boundary conditions, a mere numerical convenience which is not supported by observation and which modifies the law of force on large scales in an unrealistic fashion. With this code, it is possible to simulate an infinite universe with unprecedented dynamic range for a given amount of memory, and in contrast of the traditional periodic simulations, its fundamental geometry and topology match observations. We present here the Multi-GPU realization of this algorithm with MPI-OpenMP-CUDA hybrid parallelisation.
+We present a novel N-body simulation method that compactifies the infinite spatial extent of the Universe into a finite sphere with isotropic boundary conditions to follow the evolution of the large-scale structure. Our approach eliminates the need for periodic boundary conditions, a mere numerical convenience which is not supported by observation and which modifies the law of force on large scales in an unrealistic fashion. With this code, it is possible to simulate an infinite universe with unprecedented dynamic range for a given amount of memory, and in contrast of the traditional periodic simulations, its fundamental geometry and topology match observations. 
+
+This version of the StePS code is optimized to run on GPU accelerated HPC systems.
 
 This code is under development.
 
@@ -17,7 +19,7 @@ G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulation
 [![StePS example simulation #1, slice](Images/Example1_R480_slice_youtube.png)](https://youtu.be/INuRIqUu0IA "StePS example simulation #1, slice")
 
 
-[![StePS example simulation #1, cerntral part](Images/Example1_evolution_center_youtube.png)](https://youtu.be/NzGt-pt4TiY "StePS example simulation #1, central high resolution volume")
+[![StePS example simulation #1, central part](Images/Example1_evolution_center_youtube.png)](https://youtu.be/NzGt-pt4TiY "StePS example simulation #1, central high resolution volume")
 
 ![alt text](Images/VOI100_InnerRegion.png "Particles in the center of a simulation volume.")
 ![alt text](Images/VOI100_Disp_InnerRegion.png "The displacement field in the same volume at z=0.")

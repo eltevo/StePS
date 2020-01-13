@@ -267,7 +267,7 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					}
 					for(j=0; j<3; j++)
 					{
-						fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]);
+						fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //output units in km/s
 					}
 					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
 					IN_CONE[i] = true;
@@ -472,9 +472,9 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					count[0] = 1;
 					count[1] = 3;
 					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-					bufvec[0] = v[3*i];
-					bufvec[1] = v[3*i+1];
-					bufvec[2] = v[3*i+2];
+					bufvec[0] = v[3*i]*(REAL)UNIT_V;
+					bufvec[1] = v[3*i+1]*(REAL)UNIT_V;
+					bufvec[2] = v[3*i+2]*(REAL)UNIT_V;
 					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
 					H5Dclose(dataset);
@@ -619,9 +619,9 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					count[0] = 1;
 					count[1] = 3;
 					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-					bufvec[0] = v[3*i];
-					bufvec[1] = v[3*i+1];
-					bufvec[2] = v[3*i+2];
+					bufvec[0] = v[3*i]*(REAL)UNIT_V;
+					bufvec[1] = v[3*i+1]*(REAL)UNIT_V;
+					bufvec[2] = v[3*i+2]*(REAL)UNIT_V;
 					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
 					H5Dclose(dataset);
@@ -1046,8 +1046,8 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	double mass[6];
 	for(i=0; i<6; i++)
-		mass[i] = 0;
-	mass[1] = (double) M_min;
+		mass[i] = 0.0;
+	//mass[1] = (double) M_min;
 	hdf5_attribute = H5Acreate(handle, "MassTable", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, mass);
 	H5Aclose(hdf5_attribute);

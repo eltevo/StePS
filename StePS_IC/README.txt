@@ -36,7 +36,7 @@ This is an IC generator script for StePS simulations.
 
 *********************************************************************************************
 
-Depencencies:
+Dependencies:
 	Python:
 	-glio
 	-h5py
