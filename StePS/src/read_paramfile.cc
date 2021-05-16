@@ -139,10 +139,10 @@ while(!feof(param_file))
 	if(strstr(c, str08) != NULL)
 	{
 		sscanf(c, "%s\t%i", str08, &IS_PERIODIC);
-		if(IS_PERIODIC > 2)
+		if(IS_PERIODIC > 3)
 		{
-			printf("Error: IS_PERIODIC > 2: No such boundary condition\n: IS_PERIODIC is set to 2");
-			IS_PERIODIC = 2;
+			printf("Error: IS_PERIODIC > 3: No such boundary condition\n: IS_PERIODIC is set to 3");
+			IS_PERIODIC = 3;
 		}
 	}
 
@@ -295,10 +295,10 @@ while(!feof(param_file))
         if(strstr(c, str08) != NULL)
         {
                 sscanf(c, "%s\t%i", str08, &IS_PERIODIC);
-                if(IS_PERIODIC > 2)
+                if(IS_PERIODIC > 3)
                 {
-                        printf("Error: IS_PERIODIC > 2: No such boundary condition\n: IS_PERIODIC is set to 2");
-                        IS_PERIODIC = 2;
+                        printf("Error: IS_PERIODIC > 3: No such boundary condition\n: IS_PERIODIC is set to 3");
+                        IS_PERIODIC = 3;
                 }
         }
 	if(strstr(c, str09) != NULL)

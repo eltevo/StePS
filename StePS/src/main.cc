@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2021 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -33,9 +33,8 @@ typedef float REAL;
 typedef double REAL;
 #endif
 
-int t,N,el,hl;
+int t,N,el;
 int e[2202][4];
-int H[2202][4];
 REAL SOFT_CONST[8];
 REAL w[3];
 double a_max;
@@ -135,7 +134,7 @@ int main(int argc, char *argv[])
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	if(rank == 0)
 	{
-		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2019 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
+		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2021 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
 		printf("Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
 		printf("Compiled with: %s", COMPILER_VERSION);
 		unsigned long int I;
@@ -221,7 +220,7 @@ int main(int argc, char *argv[])
 	}
 	BCAST_global_parameters();
 	#ifdef PERIODIC
-		if(IS_PERIODIC < 1 || IS_PERIODIC > 2)
+		if(IS_PERIODIC < 1 || IS_PERIODIC > 3)
 		{
 			if(rank == 0)
 				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to deal with periodic simulation only.\nExiting.\n");
@@ -230,14 +229,19 @@ int main(int argc, char *argv[])
 
 		if(IS_PERIODIC>1)
 		{
-			el = ewald_space(3.6,e);
- 			if(IS_PERIODIC>2)
+			if(IS_PERIODIC==2)
 			{
-				hl = ewald_space(8.0,H);
+				el = ewald_space(3.6,e);
+			}
+ 			else
+			{
+				printf("High precision Ewald force calculation is on.\n");
+				el = ewald_space(5.8,e);
 			}
 		}
 		else
 		{
+			printf("Quasi-periodic boundary conditions.\n");
 			el = 2202;
 			for(i=0;i<el;i++)
 			{

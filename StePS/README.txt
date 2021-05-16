@@ -7,8 +7,8 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.7.3
-Copyright (C) 2017-2019 Gábor Rácz
+v0.3.7.4
+Copyright (C) 2017-2021 Gábor Rácz
 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
 ragraat@caesar.elte.hu
@@ -59,7 +59,7 @@ Installation:
 		-USE SINGLE PRECISION 
 			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup with Nvidia Tesla cards by using single precision is ~2.
 		-GLASSMAKING
-			This option should be set for glass making. In this case the code will use reversed gravity.
+			This option should be set for glass making. In this case the code will use reversed gravity. For periodic glasses, using high precision Ewald forces is highly advised. (High precision Ewald forces can be set in the parameter file)
 		-HAVE_HDF5
 			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
 		-PERIODIC
@@ -114,7 +114,7 @@ a_start         0.05			%Initial scalefactor
 
 Simulation parameters:
 -----------------------
-IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=Ewald forces
+IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=Ewald forces, 3=high precision Ewald forces
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 L_box           1860.0531					%Linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file

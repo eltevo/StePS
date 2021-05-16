@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2021 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -22,10 +22,9 @@
 #include "global_variables.h"
 
 
-extern int H[2202][4];
 extern int e[2202][4];
 extern REAL w[3];
-extern int N, hl, el;
+extern int N, el;
 
 
 int ewald_space(REAL R, int ewald_index[2102][4]);
@@ -159,7 +158,7 @@ REAL SOFT_CONST[5];
 	{
 		chunk = 1;
 	}
-	if(IS_PERIODIC==2)
+	if(IS_PERIODIC>=2)
 	{
 	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
 	{

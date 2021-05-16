@@ -1,10 +1,10 @@
 
 #-----------------------------------------------------------------------------------------------#
 # StePS Makefile										#
-# Copyright (C) 2017-2019 Gabor Racz								#
+# Copyright (C) 2017-2021 Gabor Racz								#
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.7.3"'#										#
+VERSION='"v0.3.7.4"'#										#
 #    This program is free software; you can redistribute it and/or modify			#
 #    it under the terms of the GNU General Public License as published by			#
 #    the Free Software Foundation; either version 2 of the License, or				#
@@ -34,15 +34,15 @@ OPT += -DHAVE_HDF5
 CXX = g++
 
 #------------------------------- Location of the MPI libraries
-MPI_LIBS = -L/usr/lib
-MPI_INC = -I/usr/include/mpi
+MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc 
+MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
 CUDA_PATH       ?= /usr
 
 #------------------------------- Location of the HDF5 libraries
-HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
-HDF5_INC = -I/usr/include/hdf5/serial 
+HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5 
+HDF5_INC = -I/usr/include/hdf5/serial
 
 #---------------- Do not edit beyond this line! ----------------
 
@@ -60,7 +60,8 @@ OPT += -DUSE_CUDA
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi
+CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread
+CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC = main.cc inputoutput.cc forces_cuda.cu ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc

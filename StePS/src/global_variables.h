@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2021 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -60,7 +60,6 @@ extern REAL* F_buffer; //buffer for force copy
 extern int BUFFER_start_ID;
 
 extern int e[2202][4]; //ewald space
-extern int H[2202][4]; //ewald space
 
 extern REAL x4, err, errmax, ACC_PARAM; //variables used for error calculations
 extern double h, h_min, h_max,  t_next; //actual stepsize, minimal and maximal stepsize, next time for output

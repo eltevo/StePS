@@ -1,6 +1,6 @@
 /*******************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2021 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -26,10 +26,9 @@
 #define BLOCKSIZE 256
 
 
-extern int H[2202][4];
 extern int e[2202][4];
 extern REAL w[3];
-extern int N, hl, el;
+extern int N, el;
 
 #ifndef PERIODIC
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
@@ -184,7 +183,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 			Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
 		}
 	}
-	else if (IS_PERIODIC == 2)
+	else if (IS_PERIODIC >= 2)
 	{
 		for (i = (ID_min+id); i<=ID_max; i=i+n)
 		{
@@ -541,11 +540,13 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 				F_tmp[3*i + j] = 0.0f;
 		}
 		//Checking for the GPU
+		#pragma omp critical
 		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
 			printf("MPI task %i: GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
 		}
+		#pragma omp critical
 		cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
 		if (cudaStatus != cudaSuccess) {
 			fprintf(stderr, "MPI rank %i: GPU%i: cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n", rank, GPU_ID);
@@ -669,7 +670,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 			goto Error;
 		}
 		// Copy output vector from GPU buffer to host memory.
-		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * (ID_max-ID_min+1) * sizeof(REAL), cudaMemcpyDeviceToHost);
+		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N_GPU * sizeof(REAL), cudaMemcpyDeviceToHost);
 		if (cudaStatus != cudaSuccess) {
 			fprintf(stderr, "MPI rank %i: GPU%i: cudaMemcpy out failed!\n", rank, GPU_ID);
 			ForceError = true;

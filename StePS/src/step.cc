@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2021 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -119,9 +119,14 @@ void step(REAL* x, REAL* v, REAL* F)
 			for(k=0;k<3;k++)
 			{
 				if(x[3*i+k]<0)
+				{
 					x[3*i+k] = x[3*i+k] + L;
-				if(x[3*i+k]>=L)
+				}
+				else if(x[3*i+k]>=L)
+				{
 					x[3*i+k] = x[3*i+k] - L;
+
+				}
 			}
 		}
 		#endif
