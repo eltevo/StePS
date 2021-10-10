@@ -1,19 +1,20 @@
 
 #-----------------------------------------------------------------------------------------------#
-# StePS Makefile										#
-# Copyright (C) 2017-2021 Gabor Racz								#
-# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary	#
-# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA	#
-VERSION='"v0.3.7.4"'#										#
-#    This program is free software; you can redistribute it and/or modify			#
-#    it under the terms of the GNU General Public License as published by			#
-#    the Free Software Foundation; either version 2 of the License, or				#
-#    (at your option) any later version.							#
-#												#
-#    This program is distributed in the hope that it will be useful,				#
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of				#
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				#
-#    GNU General Public License for more details.						#
+# StePS Makefile
+# Copyright (C) 2017-2022 Gabor Racz
+#		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
+# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+VERSION='"v1.0.0.0"'
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
 #-----------------------------------------------------------------------------------------------#
 
 
@@ -34,17 +35,26 @@ OPT += -DHAVE_HDF5
 CXX = g++
 
 #------------------------------- Location of the MPI libraries
-MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc 
+MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc
 MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr
+CUDA_PATH       ?= /usr/local/cuda-11.4
 
 #------------------------------- Location of the HDF5 libraries
-HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5 
+HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
 HDF5_INC = -I/usr/include/hdf5/serial
 
 #---------------- Do not edit beyond this line! ----------------
+
+SRC_DIR = ./src
+BUILD_DIR = ./build
+
+MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
+
+SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc
+DEPS = $(SRC_DIR)/global_variables.h
+OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o
 
 COMPILERVERSION=$(shell $(CXX) --version | head -1)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
@@ -64,17 +74,19 @@ CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --com
 CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
 CUDA_INC = -I$(CUDA_PATH)/include
 
-SRC = main.cc inputoutput.cc forces_cuda.cu ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
-OBJ = main.o inputoutput.o forces_cuda.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
-DEPS = global_variables.h
-PROG = StePS_CUDA
+SRC += $(SRC_DIR)/forces_cuda.cu
+OBJ += $(BUILD_DIR)/forces_cuda.o
+PROG = $(BUILD_DIR)/StePS_CUDA
 
 $(PROG): $(OBJ)
+	$(MAKE_BUILD_DIR)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
-%.o: %.cc
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
-%.o: %.cu
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu
+	$(MAKE_BUILD_DIR)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(MPI_LIBS) $(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 clean:
 	rm -fv $(OBJ) $(PROG)
@@ -83,14 +95,15 @@ else
 
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS"'
 
-SRC = main.cc inputoutput.cc forces.cc ewald_space.cc step.cc read_paramfile.cc friedmann_solver.cc read_gadget_ic.cc
-OBJ = main.o inputoutput.o forces.o ewald_space.o step.o read_paramfile.o friedmann_solver.o read_gadget_ic.o
-DEPS = global_variables.h
-PROG = StePS
+SRC += $(SRC_DIR)/forces.cc
+OBJ += $(BUILD_DIR)/forces.o
+PROG = $(BUILD_DIR)/StePS
 $(PROG): $(OBJ)
+	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
 
-%.o: %.cc
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
 clean:

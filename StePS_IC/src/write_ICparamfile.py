@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#    Copyright (C) 2017-2022 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -16,7 +16,7 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
-def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM):
+def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
     "                           %% should have Nmesh >= Nsample.\n" \
@@ -91,12 +91,14 @@ def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUT
     "UnitMass_in_g             %e      %% defines mass unit of output (in g/h)\n" \
     "UnitVelocity_in_cm_per_s  %e           %% defines velocity unit of output (in cm/sec)\n\n\n" \
     % (NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8, SPHEREMODE,WHICHSPECTRUM, FILEWITHINPUTSPECTRUM,INPUTSPECTRUM_UNITLENGTH_IN_CM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S)
+    if bool(PHASE_SHIFT_ENABLED)==True:
+        outstring = outstring + "PhaseShift             %.14f        %% Phase shift in degrees\n\n\n" % PHASESHIFT
     paramfile = open(PARAMFILENAME, "w")
     paramfile.write(outstring)
     paramfile.close()
     return;
 
-def Write_NgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,RENORMALIZEINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM):
+def Write_NgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,RENORMALIZEINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
     "                           %% should have Nmesh >= Nsample.\n" \
@@ -176,12 +178,14 @@ def Write_NgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUT
     "UnitMass_in_g             %e      %% defines mass unit of output (in g/h)\n" \
     "UnitVelocity_in_cm_per_s  %e           %% defines velocity unit of output (in cm/sec)\n\n\n" \
     % (NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8 ,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,INPUTSPECTRUM_UNITLENGTH_IN_CM,RENORMALIZEINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S)
+    if bool(PHASE_SHIFT_ENABLED)==True:
+        outstring = outstring + "PhaseShift             %.14f        %% Phase shift in degrees\n\n\n" % PHASESHIFT
     paramfile = open(PARAMFILENAME, "w")
     paramfile.write(outstring)
     paramfile.close()
     return;
 
-def Write_LgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM):
+def Write_LgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
     "                           %% should have Nmesh >= Nsample.\n" \
@@ -260,6 +264,8 @@ def Write_LgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUT
     "UnitMass_in_g             %e      %% defines mass unit of output (in g/h)\n" \
     "UnitVelocity_in_cm_per_s  %e           %% defines velocity unit of output (in cm/sec)\n\n\n" \
     % (NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8 ,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,INPUTSPECTRUM_UNITLENGTH_IN_CM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S)
+    if bool(PHASE_SHIFT_ENABLED)==True:
+        outstring = outstring + "PhaseShift             %.14f        %% Phase shift in degrees\n\n\n" % PHASESHIFT
     paramfile = open(PARAMFILENAME, "w")
     paramfile.write(outstring)
     paramfile.close()

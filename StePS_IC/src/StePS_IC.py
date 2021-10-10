@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#    Copyright (C) 2017-2022 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -17,6 +17,7 @@
 #*******************************************************************************#
 
 import sys
+from os.path import exists
 import time
 import yaml
 import numpy as np
@@ -77,7 +78,7 @@ print("+------------------------------------------------------------------------
 "| |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |\t\t\t\t\t|\n" \
 "|                                               | |     __/ |\t\t\t\t\t|\n" \
 "|                                               |_|    |___/ \t\t\t\t\t|\n" \
-"|StePS_IC.py v0.2.0.2\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2018 Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n")
+"|StePS_IC.py v1.0.0.0\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2018-2022 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n")
 print("+---------------------------------------------------------------+\n" \
 "| StePS_IC.py comes with ABSOLUTELY NO WARRANTY.                |\n" \
 "| This is free software, and you are welcome to redistribute it |\n" \
@@ -94,10 +95,10 @@ UNIT_V=20.738652969925447 #Unit velocity in km/s
 UNIT_D=3.0856775814671917e24#=1Mpc Unit distance in cm
 print("Reading the %s paramfile...\n" % str(sys.argv[1]))
 document = open(str(sys.argv[1]))
-Params = yaml.load(document)
+Params = yaml.safe_load(document)
 print("Cosmological Parameters:\n------------------------\nOmega_m:\t%f\nOmega_lambda:\t%f\nOmega_k:\t%f\nOmega_b:\t%f\nH0:\t\t%f km/s/Mpc\nRedshift:\t%f\nSigma8:\t\t%f\n" % (Params['OMEGAM'], Params['OMEGAL'], 1.0-Params['OMEGAM']-Params['OMEGAL'], Params['OMEGAB'], Params['H0'], Params['REDSHIFT'], Params['SIGMA8']))
 Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'] = np.float64(Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-print("IC parameters:\n--------------\nLbox:\t\t\t%f Mpc\nRsim:\t\t\t%f Mpc\nVOI_x:\t\t\t%f Mpc\nVOI_y:\t\t\t%f Mpc\nVOI_z:\t\t\t%f Mpc\nSeed:\t\t\t%i\nSpheremode:\t\t%i\nWhichSpectrum:\t\t%i\nFileWithInputSpectrum:\t%s\nInputSpectrum_UnitLength_in_cm\t%e\nReNormalizeInputSpectrum:\t%i\nShapeGamma:\t\t%f\nPrimordialIndex:\t%f\nNgrid samples:\t\t%i\nGlassFile:\t\t%s\nOutDir:\t\t\t%s\nFileBase:\t\t%s\nComoving IC:\t\t%s\nNumber of MPI tasks:\t%i" % (Params['LBOX'], Params['RSIM'], Params['VOIX'], Params['VOIY'], Params['VOIZ'], Params['SEED'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['NGRIDSAMPLES'], Params['GLASSFILE'], Params['OUTDIR'], Params['FILEBASE'], Params['COMOVINGIC'], Params['MPITASKS']))
+print("IC parameters:\n--------------\nLbox:\t\t\t%f Mpc\nRsim:\t\t\t%f Mpc\nVOI_x:\t\t\t%f Mpc\nVOI_y:\t\t\t%f Mpc\nVOI_z:\t\t\t%f Mpc\nSeed:\t\t\t%i\nSpheremode:\t\t%i\nWhichSpectrum:\t\t%i\nFileWithInputSpectrum:\t%s\nInputSpectrum_UnitLength_in_cm\t%e\nReNormalizeInputSpectrum:\t%i\nShapeGamma:\t\t%f\nPrimordialIndex:\t%f\nNgrid samples:\t\t%i\nGlassFile:\t\t%s\nOutDir:\t\t\t%s\nFileBase:\t\t%s\nComoving IC:\t\t%s\nNumber of MPI tasks:\t%i\nH0 independent units:\t%i\n" % (Params['LBOX'], Params['RSIM'], Params['VOIX'], Params['VOIY'], Params['VOIZ'], Params['SEED'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['NGRIDSAMPLES'], Params['GLASSFILE'], Params['OUTDIR'], Params['FILEBASE'], Params['COMOVINGIC'], Params['MPITASKS'], Params['HINDEPENDENTUNITS']))
 Params['UNITLENGTH_IN_CM'] = np.float64(Params['UNITLENGTH_IN_CM'])
 Params['UNITMASS_IN_G'] = np.float64(Params['UNITMASS_IN_G'])
 Params['UNITVELOCITY_IN_CM_PER_S'] = np.float64(Params['UNITVELOCITY_IN_CM_PER_S'])
@@ -136,6 +137,12 @@ if Params['OUTPUTFORMAT'] == 2:
 if (Params['OUTPUTFORMAT'] != 0) and (Params['OUTPUTFORMAT'] != 2):
     print("Error: unkown output format\nExiting.")
     sys.exit()
+if Params['PHASE_SHIFT_ENABLED'] == 1:
+    print("Phase shift:\t%.2f degrees" % Params['PHASE_SHIFT'])
+if Params['LOCAL_EXECUTION'] == 1:
+    print("IC generator execution:\t local\n")
+if Params['LOCAL_EXECUTION'] == 0 or Params['LOCAL_EXECUTION'] == 2:
+    print("IC generator execution:\t remote\n")
 #Calculating the density from the cosmological Parameters
 rho_crit = 3*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V #in internal units
 rho_mean = Params['OMEGAM']*rho_crit
@@ -171,13 +178,15 @@ for i in range(0, Npart):
             input_glass[i,k] -= Params['LBOX']
 print("...done.\n")
 #Converting the input glass to gadget format:
-print("Converting the input glass to Gadget format...")
-output_glassfile = Params['OUTDIR'] + Params['FILEBASE'] + "_Glass_tmp.dat"
-np.savetxt(output_glassfile, input_glass, delimiter='\t')
-gadget_glassfile = Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS"
-ascii2gadget(output_glassfile, gadget_glassfile, Params['LBOX'], Params['H0'], Params['UNITLENGTH_IN_CM'])
+if Params['LOCAL_EXECUTION'] < 2:
+    print("Converting the input glass to Gadget format...")
+    output_glassfile = Params['OUTDIR'] + Params['FILEBASE'] + "_Glass_tmp.dat"
+    np.savetxt(output_glassfile, input_glass, delimiter='\t')
+    gadget_glassfile = Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS"
+    ascii2gadget(output_glassfile, gadget_glassfile, Params['LBOX'], Params['H0'], Params['UNITLENGTH_IN_CM'])
+    call(["rm", "-f", output_glassfile])
+    print("...done.\n")
 M_tot_box = rho_mean*Params['LBOX']**3
-print("...done.\n")
 if Params['NMESH'] == 0:
     #Calculating the Nsample-Mass function:
     Nsample_func = np.zeros((len(Mass_list),2))
@@ -196,21 +205,33 @@ if Params['NMESH'] == 0:
         print("%i\t%i\t%e" % (i, Nsample_tab[i], Mass_tab[i]))
     #generating paramfiles
     paramfile_name=len(Nsample_tab)*[None]
-    for i in range(0,len(Nsample_tab)):
-        paramfile_name[i] = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".param"
-        if Params['ICGENERATORTYPE'] == 0:
-            Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-        elif Params['ICGENERATORTYPE'] == 1:
-            Write_NgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-        elif Params['ICGENERATORTYPE'] == 2:
-            Write_LgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-        else:
-            print("Error: unkown IC generator!\nExiting.\n")
-            sys.exit(2)
+    if Params['LOCAL_EXECUTION'] < 2:
+        for i in range(0,len(Nsample_tab)):
+            paramfile_name[i] = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".param"
+            if Params['ICGENERATORTYPE'] == 0:
+                Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'] )
+            elif Params['ICGENERATORTYPE'] == 1:
+                Write_NgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+            elif Params['ICGENERATORTYPE'] == 2:
+                Write_LgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+            else:
+                print("Error: unkown IC generator!\nExiting.\n")
+                sys.exit(2)
+    if Params['LOCAL_EXECUTION'] == 2:
+        for i in range(0,len(Nsample_tab)):
+            paramfile_name[i] = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".param"
     #generating the ICs
-    for i in range(0,len(Nsample_tab)):
-        print("\n--------------------------------\nExecuting:\n " + "mpirun " + Params['EXECUTABLE'] + " " + paramfile_name[i] + "\nNsample=%i\n\n" % Nsample_tab[i])
-        call(["mpirun", "-n", str(Params['MPITASKS']), Params['EXECUTABLE'], paramfile_name[i]])
+    if Params['LOCAL_EXECUTION'] == 1:
+        for i in range(0,len(Nsample_tab)):
+            print("\n--------------------------------\nExecuting:\n " + "mpirun " + Params['EXECUTABLE'] + " " + paramfile_name[i] + "\nNsample=%i\n\n" % Nsample_tab[i])
+            print("\t(Estimated memory equirement:\t%.3fGb)\n" % ((16*Nsample_tab[i]**3+Npart*8*6)/1024**3))
+            call(["mpirun", "-n", str(Params['MPITASKS']), Params['EXECUTABLE'], paramfile_name[i]])
+    if Params['LOCAL_EXECUTION'] == 0:
+        for i in range(0,len(Nsample_tab)):
+            print("\nCall the IC generator by:\n\t$" + "mpirun " + "-np " + str(Params['MPITASKS']) + " " +str(Params['EXECUTABLE']) + " " + str(paramfile_name[i]))
+            print("\t(Estimated memory equirement:\t%.3fGb)\n" % ((16*Nsample_tab[i]**3+Npart*8*6)/1024**3))
+        print("Then restart this script with LOCAL_EXECUTION option set to 2.\nExiting...")
+        exit()
     #Calculating the displacement field for every NSAMPLE:
     print("Calculating the displacement and velocity field for every Nsample...")
     Disp_field = np.zeros( ( Params['NGRIDSAMPLES'], Npart, 3), dtype=np.float32)
@@ -233,15 +254,17 @@ if Params['NMESH'] == 0:
         else:
             #reading multiple gadget file
             for j in range(0,Params['MPITASKS']):
-                print("    Loading the " + Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j + " file...")
-                snapshot = glio.GadgetSnapshot(Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j)
-                snapshot.load()
-                N_in_this_file=snapshot.header.npart[1]
-                for k in range(0,N_in_this_file):
-                    #The IDs are shifted with 1
-                    index_of_this_particle=snapshot.ID[1][k]-1
-                    X_tmp[index_of_this_particle] = snapshot.pos[1][k] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
-                    V_tmp[index_of_this_particle] = snapshot.vel[1][k]
+                filename = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j
+                if exists(filename):
+                    print("    Loading the " + filename + " file...")
+                    snapshot = glio.GadgetSnapshot(filename)
+                    snapshot.load()
+                    N_in_this_file=snapshot.header.npart[1]
+                    for k in range(0,N_in_this_file):
+                        #The IDs are shifted with 1
+                        index_of_this_particle=snapshot.ID[1][k]-1
+                        X_tmp[index_of_this_particle] = snapshot.pos[1][k] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
+                        V_tmp[index_of_this_particle] = snapshot.vel[1][k]
 
         print("    ...done.\n    Calculating the displacement field...")
         Disp_field[i,:,:] = X_tmp-input_glass[:,0:3]
@@ -273,19 +296,32 @@ if Params['NMESH'] == 0:
     print("...done\n")
 else:
     #In this case, the script only generates one displacement field
-    paramfile_name = Params['OUTDIR'] + Params['FILEBASE'] + ".param"
-    Nsample = np.uint32(np.ceil(np.cbrt(M_tot_box/np.min(Mass_list))))
-    if Params['ICGENERATORTYPE'] == 0:
-        Write_2LPTic_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-    elif Params['ICGENERATORTYPE'] == 1:
-        Write_NgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-    elif Params['ICGENERATORTYPE'] == 2:
-        Write_LgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-    else:
-        print("Error: unkown IC generator!\nExiting.\n")
-        sys.exit(2)
-    print("\n--------------------------------\nExecuting:\n " + "mpirun " + Params['EXECUTABLE'] + " " + paramfile_name + "\nNsample=%i\n\n" % Nsample)
-    call(["mpirun", "-np", str(Params['MPITASKS']), Params['EXECUTABLE'], paramfile_name])
+    if Params['LOCAL_EXECUTION'] < 2:
+        paramfile_name = Params['OUTDIR'] + Params['FILEBASE'] + ".param"
+        Nsample = np.uint32(np.ceil(np.cbrt(M_tot_box/np.min(Mass_list))))
+        if Nsample > Params['NMESH']:
+            print("Warning: Nsample (=%i) > Nmesh (=%i). Setting Nsample to %i." % (Nsample, Params['NMESH'], Params['NMESH']))
+            Nsample = Params['NMESH']
+        if Params['ICGENERATORTYPE'] == 0:
+            Write_2LPTic_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], Params['PHASE_SHIFT_ENABLED'], Params['PHASE_SHIFT'])
+        elif Params['ICGENERATORTYPE'] == 1:
+            Write_NgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+        elif Params['ICGENERATORTYPE'] == 2:
+            Write_LgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+        else:
+            print("Error: unkown IC generator!\nExiting.\n")
+            sys.exit(2)
+    if Params['LOCAL_EXECUTION'] == 2:
+        paramfile_name = Params['OUTDIR'] + Params['FILEBASE'] + ".param"
+    if Params['LOCAL_EXECUTION'] == 1:
+        print("\n--------------------------------\nExecuting:\n " + "mpirun " + Params['EXECUTABLE'] + " " + paramfile_name + "\nNsample=%i\n\n" % Nsample)
+        print("(Estimated memory equirement:\t%.3fGb)" % ((16*Nsample**3+Npart*8*6)/1024**3))
+        call(["mpirun", "-np", str(Params['MPITASKS']), Params['EXECUTABLE'], paramfile_name])
+    if Params['LOCAL_EXECUTION'] == 0:
+        print("\nCall the IC generator by:\n\t$" + "mpirun " + "-np " + str(Params['MPITASKS']) + " " +str(Params['EXECUTABLE']) + " " + str(paramfile_name))
+        print("(Estimated memory equirement:\t%.3fGb)" % ((16*Nsample**3+Npart*8*6)/1024**3))
+        print("Then restart this script with LOCAL_EXECUTION option set to 2.\nExiting...")
+        exit()
     #Calculating the displacement field:
     print("Calculating the displacement and velocity field...")
     Disp_field = np.zeros( (Npart, 3), dtype=np.float32)
@@ -304,15 +340,17 @@ else:
     else:
         #reading multiple gadget file
         for j in range(0,Params['MPITASKS']):
-            print("    Loading the " + Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j + " file...")
-            snapshot = glio.GadgetSnapshot(Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j)
-            snapshot.load()
-            N_in_this_file=snapshot.header.npart[1]
-            for k in range(0,N_in_this_file):
-                #The IDs are shifted with 1
-                index_of_this_particle=snapshot.ID[1][k]-1
-                Disp_field[index_of_this_particle] = snapshot.pos[1][k] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
-                Vel_field[index_of_this_particle] = snapshot.vel[1][k]
+            filename = Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j
+            if exists(filename):
+                print("    Loading the " + filename + " file...")
+                snapshot = glio.GadgetSnapshot(filename)
+                snapshot.load()
+                N_in_this_file=snapshot.header.npart[1]
+                for k in range(0,N_in_this_file):
+                    #The IDs are shifted with 1
+                    index_of_this_particle=snapshot.ID[1][k]-1
+                    Disp_field[index_of_this_particle] = snapshot.pos[1][k] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
+                    Vel_field[index_of_this_particle] = snapshot.vel[1][k]
     print("    ...done.\n    Calculating the displacement field...")
     Disp_field[:,0:3] = Disp_field[:,0:3]-input_glass[:,0:3]
     for j in range(0,Npart):
@@ -342,6 +380,18 @@ if Params['COMOVINGIC'] == 0:
             IC[i,k+3] = IC[i,k+3] * np.sqrt(a_start)
             IC[i,k+3] = IC[i,k+3] + IC[i,k]*Hubble_start
     print("...done\n")
+
+if Params['HINDEPENDENTUNITS'] == 1:
+    print("Converting the IC to H0 independent units...")
+    #converting the IC to /h units
+    h = Params['H0'] / 100.0
+    #coordinates
+    IC[:,0:3] *= h
+    #masses
+    IC[:,6] *= h
+    print("...done\n")
+
+
 if Params['OUTPUTFORMAT'] == 0:
     outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".dat"
 if Params['OUTPUTFORMAT'] == 2:
@@ -361,14 +411,22 @@ if Params['BIN_MODE'] == 0:
 i = np.arange(Params['NRBINS'])
 if Params['BIN_MODE'] == 0:
     r_list = Calculate_r_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
+    if Params['HINDEPENDENTUNITS'] == 1:
+        r_list *= h
 if Params['BIN_MODE'] == 1:
     r_list = Calculate_r_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
+    if Params['HINDEPENDENTUNITS'] == 1:
+        r_list *= h
 del(i)
 i = np.arange(Params['NRBINS']+1)
 if Params['BIN_MODE'] == 0:
     shell_limits = Calculate_rlimits_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
+    if Params['HINDEPENDENTUNITS'] == 1:
+        shell_limits *= h
 if Params['BIN_MODE'] == 1:
     shell_limits = Calculate_rlimits_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
+    if Params['HINDEPENDENTUNITS'] == 1:
+        shell_limits *= h
 #calculating redshift-comoving distance function for the redshift cone
 cosmo = LambdaCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'])
 for i in range(0,len(z_list)):
@@ -385,36 +443,36 @@ if Params['OUTPUTFORMAT'] == 2:
 np.savetxt(outputfilename, shell_limits)
 print("...done\n")
 print("Deleting the temporary files...")
-if Params['NMESH'] == 0:
-    for i in range(0,len(Nsample_tab)):
-        call(["rm", "-f", paramfile_name[i]])
+
+if Params['LOCAL_EXECUTION'] > 0:
+    if Params['NMESH'] == 0:
+        for i in range(0,len(Nsample_tab)):
+            call(["rm", "-f", paramfile_name[i]])
+            if Params['MPITASKS'] == 1:
+                if Params['ICGENERATORTYPE'] == 2:
+                    call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0")])
+                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                else:
+                    call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i)])
+                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+            else:
+                for j in range(0,Params['MPITASKS']):
+                    call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j)])
+                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+    else:
+        call(["rm", "-f", paramfile_name])
         if Params['MPITASKS'] == 1:
             if Params['ICGENERATORTYPE'] == 2:
-                call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0")])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + ".0")])
+                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
             else:
-                call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i)])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'])])
+                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
         else:
             for j in range(0,Params['MPITASKS']):
-                call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j)])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
-else:
-    call(["rm", "-f", paramfile_name])
-    if Params['MPITASKS'] == 1:
-        if Params['ICGENERATORTYPE'] == 2:
-            call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + ".0")])
-            call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
-        else:
-            call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'])])
-            call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
-    else:
-        for j in range(0,Params['MPITASKS']):
-            call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j)])
-            call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j)])
+                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS")])
-call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS_Masses")])
-call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_Glass_tmp.dat")])
 print("...done.\n")
 end = time.time()
 print("The IC making took %fs.\n" % (end-start))

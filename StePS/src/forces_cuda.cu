@@ -1,6 +1,6 @@
 /*******************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2021 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -164,7 +164,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 					SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
 					SOFT_CONST[4] = -1.0/15.0;
 					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-				}				
+				}
 				else
 				{
 					SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
@@ -272,14 +272,29 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	cudaGetDeviceCount(&numDevices);
 	if(numDevices<n_GPU)
 	{
-		fprintf(stderr, "Error: MPI rank %i: Cannot allocate %i GPUs, because only %i are available\n", rank, n_GPU, numDevices);
+		if(numDevices == 1)
+			fprintf(stderr, "Error: MPI rank %i: Cannot allocate %i GPUs, because only one is available\n", rank, n_GPU);
+		else
+			fprintf(stderr, "Error: MPI rank %i: Cannot allocate %i GPUs, because only %i are available\n", rank, n_GPU, numDevices);
 		n_GPU = numDevices;
 		printf("Number of GPUs set to %i\n", n_GPU);
 	}
 
-	xx_tmp = (REAL*)malloc(N*sizeof(REAL));
-	xy_tmp = (REAL*)malloc(N*sizeof(REAL));
-	xz_tmp = (REAL*)malloc(N*sizeof(REAL));
+	if(!(xx_tmp = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for xx_tmp (for CUDA force canculation).\n", rank);
+		exit(-2);
+	}
+	if(!(xy_tmp = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for xy_tmp (for CUDA force canculation).\n", rank);
+		exit(-2);
+	}
+	if(!(xz_tmp = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for xz_tmp (for CUDA force canculation).\n", rank);
+		exit(-2);
+	}
 	for(i = 0; i < N; i++)
 	{
 		xx_tmp[i] = x[3*i];
@@ -308,7 +323,11 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 			N_GPU = (ID_max-ID_min+1)/n_GPU;
 			GPU_index_min = ID_min + (ID_max-ID_min+1)%n_GPU+N_GPU*GPU_ID;
 		}
-		F_tmp = (REAL*)malloc(3 * N_GPU * sizeof(REAL));
+		if(!(F_tmp = (REAL*)malloc(3 * N_GPU * sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for F_tmp (for CUDA force canculation).\n", rank);
+			exit(-2);
+		}
 		for(i=0; i < N_GPU; i++)
 		{
 			for(j=0; j<3; j++)
@@ -426,7 +445,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		// Copy output vector from GPU buffer to host memory.
 		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N_GPU * sizeof(REAL), cudaMemcpyDeviceToHost);
 		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "MPI %i: GPU%i: cudaMemcpy out failed!\n", rank, GPU_ID);
+			fprintf(stderr, "MPI %i: GPU%i: cudaMemcpy F out failed!\n", rank, GPU_ID);
 			ForceError = true;
 			goto Error;
 		}
@@ -458,7 +477,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
                 cudaFree(dev_M);
                 cudaFree(dev_F);
 		cudaFree(dev_SOFT_LENGTH);
-		cudaThreadExit();
+		cudaDeviceReset();
 
 }
 	free(xx_tmp);
@@ -496,15 +515,30 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 	cudaGetDeviceCount(&numDevices);
 	if(numDevices<n_GPU)
 	{
-		fprintf(stderr, "Error: MPI rank %i: Cannot allocate %i GPUs, because only %i are available\n", rank, n_GPU, numDevices);
+		if(numDevices == 1)
+			fprintf(stderr, "Error: MPI rank %i: Cannot allocate %i GPUs, because only one is available\n", rank, n_GPU);
+		else
+			fprintf(stderr, "Error: MPI rank %i: Cannot allocate %i GPUs, because only %i are available\n", rank, n_GPU, numDevices);
 		n_GPU = numDevices;
 		printf("Number of GPUs set to %i\n", n_GPU);
 	}
 
 	//Converting the Nx3 matrix to 3Nx1 vector.
-	xx_tmp = (REAL*)malloc(N*sizeof(REAL));
-	xy_tmp = (REAL*)malloc(N*sizeof(REAL));
-	xz_tmp = (REAL*)malloc(N*sizeof(REAL));
+	if(!(xx_tmp = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for xx_tmp (for CUDA force canculation).\n", rank);
+		exit(-2);
+	}
+	if(!(xy_tmp = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for xx_tmp (for CUDA force canculation).\n", rank);
+		exit(-2);
+	}
+	if(!(xz_tmp = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for xx_tmp (for CUDA force canculation).\n", rank);
+		exit(-2);
+	}
 	for(i = 0; i < N; i++)
 	{
 		xx_tmp[i] = x[3*i];
@@ -705,7 +739,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 		cudaFree(dev_F);
 		cudaFree(dev_SOFT_LENGTH);
 		cudaFree(dev_e);
-		cudaThreadExit();
+		cudaDeviceReset();
 }
 	free(xx_tmp);
 	free(xy_tmp);

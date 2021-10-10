@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#    Copyright (C) 2017-2021 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -29,7 +29,6 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, precision
         npdatatype = np.float64
         print("Saving in 64bit HDF5 format.")
     N = len(dataarray)
-    M_min = np.min(dataarray[:,6])
     HDF5_snapshot = h5py.File(outputfilename, "w")
     #Creating the header
     header_group = HDF5_snapshot.create_group("/Header")
@@ -37,7 +36,7 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, precision
     header_group.attrs['NumPart_ThisFile'] = np.array([0,N,0,0,0,0],dtype=np.uint32)
     header_group.attrs['NumPart_Total'] = np.array([0,N,0,0,0,0],dtype=np.uint32)
     header_group.attrs['NumPart_Total_HighWord'] = np.array([0,0,0,0,0,0],dtype=np.uint32)
-    header_group.attrs['MassTable'] = np.array([0,M_min,0,0,0,0],dtype=np.float64)
+    header_group.attrs['MassTable'] = np.array([0,0,0,0,0,0],dtype=npdatatype)
     header_group.attrs['Time'] = np.double(1.0/(Redshift+1))
     header_group.attrs['Redshift'] = np.double(Redshift)
     header_group.attrs['BoxSize'] = np.double(Linearsize)

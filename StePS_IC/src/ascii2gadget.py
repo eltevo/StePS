@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2018 Gabor Racz                                         #
+#    Copyright (C) 2017-2022 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -20,7 +20,7 @@
 
 import sys
 import time
-from past import autotranslate
+from past.translation import autotranslate
 autotranslate(['glio'])
 import glio
 import numpy as np
@@ -70,7 +70,6 @@ def ascii2gadget(infile, outfile, Lbox, H0, UNITLENGTH_IN_CM):
     Gadget_snapshot.pos[1] = np.array(X, dtype=np.float32)
     Gadget_snapshot.vel[1] = np.array(V, dtype=np.float32)
     Gadget_snapshot.save(outfile)
-    np.savetxt(outfile+'_Masses', M)
     del(X)
     del(V)
     del(M)
