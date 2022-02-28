@@ -1,0 +1,114 @@
+
+#-----------------------------------------------------------------------------------------------#
+# StePS Makefile
+# Copyright (C) 2017-2022 Gabor Racz
+#		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
+# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+VERSION='"v1.0.0.0"'
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#-----------------------------------------------------------------------------------------------#
+
+
+#------------------------------- GPU and precision options for the force calculation
+USING_CUDA = YES
+OPT += -DUSE_SINGLE_PRECISION
+
+#------------------------------- Option for periodic boundary condition
+#OPT += -DPERIODIC
+
+#------------------------------- Option of HDF5
+OPT += -DHAVE_HDF5
+
+#------------------------------- Glass making option
+#OPT += -DGLASS_MAKING
+
+#------------------------------- Compiler
+CXX = icpc
+
+#------------------------------- Location of the MPI libraries
+MPI_LIBS = -L/opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/lib -Xlinker --enable-new-dtags -Xlinker -rpath -Xlinker /opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/lib/release_mt -Xlinker -rpath -Xlinker /opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/lib -Xlinker -rpath -Xlinker /opt/intel/mpi-rt/2017.0.0/intel64/lib/release_mt -Xlinker -rpath -Xlinker /opt/intel/mpi-rt/2017.0.0/intel64/lib -lmpicxx -lmpifort -lmpi -lmpigi -ldl -lrt -lpthread
+MPI_INC = -I/opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/include
+
+#------------------------------- Location of the CUDA Toolkit
+CUDA_PATH       ?= /opt/apps/cuda/11.0
+
+#------------------------------- Location of the HDF5 libraries
+HDF5_LIBS = -L/opt/apps/intel18/hdf5/1.10.4/x86_64/lib -lhdf5
+HDF5_INC = -I/opt/apps/intel18/hdf5/1.10.4/x86_64/include
+
+#---------------- Do not edit beyond this line! ----------------
+
+SRC_DIR = ./src
+BUILD_DIR = ./build
+
+MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
+
+SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc
+DEPS = $(SRC_DIR)/global_variables.h
+OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o
+
+COMPILERVERSION=$(shell $(CXX) --version | head -1)
+DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
+BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"'
+CFLAGS = -Wno-long-long -Wall -ansi -pedantic -O3 -std=gnu++98 -fopenmp -lgomp -qopenmp
+
+IMPI_COMPILE_FLAGS = $(shell mpiicpc -compile-info)
+MPI_COMPILE_FLAGS = $(subst icpc, ,$(IMPI_COMPILE_FLAGS))
+IMPI_LINK_FLAGS = $(shell mpiicpc -link-info)
+MPI_LINK_FLAGS = $(subst icpc, ,$(IMPI_LINK_FLAGS))
+
+ifeq ($(USING_CUDA), YES)
+#------------------------------- Location of the CUDA Toolkit
+OPT += -DUSE_CUDA
+BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
+
+NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
+CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options -std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread
+CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options -std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
+CUDA_INC = -I$(CUDA_PATH)/include
+
+SRC += $(SRC_DIR)/forces_cuda.cu
+OBJ += $(BUILD_DIR)/forces_cuda.o
+PROG = $(BUILD_DIR)/StePS_CUDA
+
+$(PROG): $(OBJ)
+	$(MAKE_BUILD_DIR)
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+	$(MAKE_BUILD_DIR)
+	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu
+	$(MAKE_BUILD_DIR)
+	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(MPI_LIBS) $(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+clean:
+	rm -fv $(OBJ) $(PROG)
+
+else
+
+BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS"'
+
+SRC += $(SRC_DIR)/forces.cc
+OBJ += $(BUILD_DIR)/forces.o
+PROG = $(BUILD_DIR)/StePS
+$(PROG): $(OBJ)
+	$(MAKE_BUILD_DIR)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+	$(MAKE_BUILD_DIR)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+
+clean:
+	rm -fv $(OBJ) $(PROG)
+
+endif

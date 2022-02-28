@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -102,11 +102,36 @@ int gadget_format_conversion(void)
 	printf("Bulge: \t\t\t%f\n", header1.mass[3]);
 	printf("Stars: \t\t\t%f\n", header1.mass[4]);
 	printf("Bndry: \t\t\t%f\n\n", header1.mass[5]);
-	x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
-	v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
-	F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-	M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
-	SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the softening lengths
+  //Allocating memory for the coordinates
+	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+  {
+    fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+    exit(-2);
+  }
+  //Allocating memory for the velocities
+	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+  {
+    fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+    exit(-2);
+  }
+  //Allocating memory for the forces
+	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+  {
+    fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+    exit(-2);
+  }
+  //Allocating memory for the masses
+	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+  {
+    fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+    exit(-2);
+  }
+  //Allocating memory for the softening lengths
+	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+  {
+    fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+    exit(-2);
+  }
 	i=0;
 	printf("Converting particle positions...\n");
 	for(k=1;k<NumPart+1;++k)

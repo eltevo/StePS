@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <cstring>
 #include <math.h>
 #include <algorithm>
 #include <sys/types.h>
@@ -56,47 +57,77 @@ int measure_N_part_from_ascii_snapshot(char * filename)
 
 void read_ascii_ic(FILE *ic_file, int N)
 {
-int i,j;
+	int i,j;
 
-x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
-v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
-F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
-SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the softening lengths
-
-printf("\nReading IC from the %s file...\n", IC_FILE);
-for(i=0; i<N; i++) //reading
-{
-	//Reading particle coordinates
-	for(j=0; j<3; j++)
+	//Allocating memory for the coordinates
+	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
 	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the velocities
+	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the forces
+	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the masses
+	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the softening lengths
+	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+		exit(-2);
+	}
+
+	printf("\nReading IC from the %s file...\n", IC_FILE);
+	for(i=0; i<N; i++) //reading
+	{
+		//Reading particle coordinates
+		for(j=0; j<3; j++)
+		{
+			#ifdef USE_SINGLE_PRECISION
+			fscanf(ic_file, "%f", &x[3*i + j]);
+			#else
+			fscanf(ic_file, "%lf", &x[3*i + j]);
+			#endif
+			if(N<10)
+				printf("%f\t", x[3*i + j]);
+		}
+		//Reading the velocities
+		for(j=0; j<3; j++)
+		{
+			#ifdef USE_SINGLE_PRECISION
+			fscanf(ic_file, "%f", &v[3*i + j]);
+			#else
+			fscanf(ic_file, "%lf", &v[3*i + j]);
+			#endif
+			if(N<10)
+				printf("%f\t", v[3*i + j]);
+		}
+		//Reading particle masses
 		#ifdef USE_SINGLE_PRECISION
-		fscanf(ic_file, "%f", &x[3*i + j]);
+		fscanf(ic_file, "%f", & M[i]);
 		#else
-		fscanf(ic_file, "%lf", &x[3*i + j]);
+		fscanf(ic_file, "%lf", & M[i]);
 		#endif
+		if(N<10)
+			printf("%f\n", M[i]);
 
 	}
-	//Reading the velocities
-	for(j=0; j<3; j++)
-	{
-		#ifdef USE_SINGLE_PRECISION
-		fscanf(ic_file, "%f", &v[3*i + j]);
-		#else
-		fscanf(ic_file, "%lf", &v[3*i + j]);
-		#endif
-	}
-	//Reading particle masses
-	#ifdef USE_SINGLE_PRECISION
-	fscanf(ic_file, "%f", & M[i]);
-	#else
-	fscanf(ic_file, "%lf", & M[i]);
-	#endif
-
-}
-printf("...done.\n\n");
-fclose(ic_file);
-return;
+	printf("...done.\n\n");
+	fclose(ic_file);
+	return;
 }
 
 int read_OUT_LST()
@@ -241,11 +272,28 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 	int COUNT=0;
 	double COMOVING_DISTANCE, z_write;
 	z_write = out_list[z_index];
+	REAL H0_dimless;
+	if(H0_INDEPENDENT_UNITS != 0)
+	{
+		 H0_dimless = H0*UNIT_V/100.0;
+	}
+	else
+	{
+		H0_dimless = 1.0;
+	}
 	if(OUTPUT_FORMAT == 0)
-		snprintf(filename, sizeof(filename), "%sredshift_cone.dat", OUT_DIR);
+		if(snprintf(filename, sizeof(filename), "%sredshift_cone.dat", OUT_DIR) < 0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
 	#ifdef HAVE_HDF5
 	if(OUTPUT_FORMAT == 2)
-		snprintf(filename, sizeof(filename), "%sredshift_cone.hdf5", OUT_DIR);
+		if(snprintf(filename, sizeof(filename), "%sredshift_cone.hdf5", OUT_DIR) < 0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
 	#endif
 	if(ALL == 0)
 		printf("Saving: z=%f:\t%fMpc<Dc<%fMpc bin of the\n%s redshift cone.\ndelta_z_index = %i\n",out_list[z_index], limits[z_index+1], limits[z_index-delta_z_index+1], filename, delta_z_index);
@@ -263,13 +311,13 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 				{
 					for(j=0; j<3; j++)
 					{
-						fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
+						fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]*H0_dimless);
 					}
 					for(j=0; j<3; j++)
 					{
 						fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //output units in km/s
 					}
-					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, out_list[z_index], i);
+					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i]*H0_dimless, COMOVING_DISTANCE, out_list[z_index], i);
 					IN_CONE[i] = true;
 					COUNT++;
 				}
@@ -294,13 +342,13 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					}
 					for(j=0; j<3; j++)
 					{
-						fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]);
+						fprintf(redshiftcone_file, "%.16f\t",x[3*i+j]*H0_dimless);
 					}
 					for(j=0; j<3; j++)
 					{
 						fprintf(redshiftcone_file, "%.16f\t",v[3*i+j]*UNIT_V); //km/s output
 					}
-					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i], COMOVING_DISTANCE, z_write, i);
+					fprintf(redshiftcone_file, "%.16f\t%.16f\t%.16f\t%i\n", M[i]*H0_dimless, COMOVING_DISTANCE*H0_dimless, z_write, i);
 					IN_CONE[i] = true;
 					COUNT++;
 				}
@@ -312,7 +360,11 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 	char buf[500];
 	REAL bufvec[3];
 	unsigned long long int *ID;
-	ID = (unsigned long long int *)malloc(1*sizeof(unsigned long long int));
+	if(!(ID = (unsigned long long int *)malloc(1*sizeof(unsigned long long int))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for ID.\n", rank);
+		exit(-2);
+	}
 	REAL *bufscalar;
 	bufscalar = (REAL *)malloc(1*sizeof(REAL));
 	int hdf5_rank;
@@ -450,9 +502,9 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					count[0] = 1;
 					count[1] = 3;
 					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-					bufvec[0] = x[3*i];
-					bufvec[1] = x[3*i+1];
-					bufvec[2] = x[3*i+2];
+					bufvec[0] = x[3*i]*H0_dimless;
+					bufvec[1] = x[3*i+1]*H0_dimless;
+					bufvec[2] = x[3*i+2]*H0_dimless;
 					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufvec);
 					H5Dclose(dataset);
@@ -514,7 +566,7 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					count[0] = 1;
 					count[1] = 1;
 					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-					bufscalar[0] = M[i];
+					bufscalar[0] = M[i]*H0_dimless;
 					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
 					H5Dclose(dataset);
@@ -534,7 +586,7 @@ void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delt
 					count[0] = 1;
 					count[1] = 1;
 					dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-					bufscalar[0] = COMOVING_DISTANCE;
+					bufscalar[0] = COMOVING_DISTANCE*H0_dimless;
 					H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 					H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, bufscalar);
 					H5Dclose(dataset);
@@ -728,6 +780,15 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 {
 	int i,k;
 	char A[20];
+	REAL H0_dimless;
+	if(H0_INDEPENDENT_UNITS != 0)
+	{
+		 H0_dimless = H0*UNIT_V/100.0;
+	}
+	else
+	{
+		H0_dimless = 1.0;
+	}
 	if(COSMOLOGY == 1)
 	{
 		if(OUTPUT_TIME_VARIABLE == 0)
@@ -746,15 +807,23 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 	char filename[0x400];
 	if(OUTPUT_TIME_VARIABLE == 0)
 	{
-		snprintf(filename, sizeof(filename), "%st%s.dat", OUT_DIR, A);
+		if(snprintf(filename, sizeof(filename), "%st%s.dat", OUT_DIR, A) < 0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
 	}
 	else
 	{
-		snprintf(filename, sizeof(filename), "%sz%s.dat", OUT_DIR, A);
+		if(snprintf(filename, sizeof(filename), "%sz%s.dat", OUT_DIR, A) < 0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
 	}
 	if(COSMOLOGY == 0)
 	{
-			printf("Saving the  \"%st%s.dat\" snapshot file... \nt = %.15f", OUT_DIR, A, T*UNIT_T);
+			printf("Saving the  \"%st%s.dat\" snapshot file... \nt = %.15f", OUT_DIR, A, T);
 	}
 	else
 	{
@@ -781,7 +850,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 	{
 		for(k=0; k<3; k++)
 		{
-			fprintf(coordinate_file, "%.16f\t",x[3*i+k]);
+			fprintf(coordinate_file, "%.16f\t",x[3*i+k]*H0_dimless);
 		}
 		for(k=0; k<3; k++)
 		{
@@ -792,7 +861,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 			fprintf(coordinate_file, "%.16f\t",v[3*i+k]*sqrt(a)*UNIT_V); //km/s * sqrt(a) output
 			#endif
 		}
-		fprintf(coordinate_file, "%.16f\t",M[i]);
+		fprintf(coordinate_file, "%.16f\t",M[i]*H0_dimless);
 		fprintf(coordinate_file, "\n");
 	}
 
@@ -804,7 +873,11 @@ void Log_write() //Writing logfile
 	FILE *LOGFILE;
 	char A[] = "Logfile.dat";
 	char filename[0x100];
-	snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A);
+	if(snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A) < 0)
+	{
+		fprintf(stderr, "Error: The name of the logfile got truncated.\nAborting.\n");
+		abort();
+	}
 	LOGFILE = fopen(filename, "a");
 	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
 	fclose(LOGFILE);
@@ -829,40 +902,194 @@ void read_hdf5_ic(char *ic_file)
 	attr_id = H5Aopen(group, "NumPart_ThisFile", H5P_DEFAULT);
 	H5Aread(attr_id,  H5T_NATIVE_INT, Nbuf);
 	N = Nbuf[1];
-	printf("The number of particles:\t%i\n", N);
+	printf("\tThe number of particles:\t%i\n", N);
 	H5Aclose(attr_id);
 	H5Gclose(group);
 	//Allocating memory
-	x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the coordinates
-	v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
-	F = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the forces
-	M = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the masses
-	SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL)); //Allocating memory for the softening lengths
+	//Allocating memory for the coordinates
+	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the velocities
+	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the forces
+	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the masses
+	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+		exit(-2);
+	}
+	//Allocating memory for the softening lengths
+	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+		exit(-2);
+	}
 	//reading the particle coordinates
+	printf("\tReading /PartType1/Coordinates\n");
 	dataset = H5Dopen2(IC, "/PartType1/Coordinates", H5P_DEFAULT);
         dataspace_in_file = H5Dget_space(dataset);
 	datatype =  H5Dget_type(dataset);
-	H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, x);
+#ifdef USE_SINGLE_PRECISION
+	if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+	{
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, x);
+	}
+	else
+	{
+		printf("\t\tData stored in doubles.\n");
+		double* buffer;
+		if(!(buffer = (double*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x_buffer.\n", rank);
+			exit(-2);
+		}
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+		for (int i = 0; i < 3*N; i++)
+		{
+			x[i] = (REAL) buffer[i];
+		}
+		free(buffer);
+	}
+#else
+	if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+	{
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, x);
+	}
+	else
+	{
+		printf("\t\tData stored in floats.\n");
+		float* buffer;
+		if(!(buffer = (float*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x_buffer.\n", rank);
+			exit(-2);
+		}
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+		for (int i = 0; i < 3*N; i++)
+		{
+			x[i] = (REAL) buffer[i];
+		}
+		free(buffer);
+	}
+#endif
 	H5Tclose(datatype);
 	H5Sclose(dataspace_in_file);
 	H5Dclose(dataset);
 	//reading the particle velocities
+	printf("\tReading /PartType1/Velocities\n");
 	dataset = H5Dopen2(IC, "/PartType1/Velocities", H5P_DEFAULT);
 	dataspace_in_file = H5Dget_space(dataset);
 	datatype =  H5Dget_type(dataset);
-	H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, v);
-	H5Tclose(datatype);
-	H5Sclose(dataspace_in_file);
-	H5Dclose(dataset);	
-	//reading the particle masses
-	dataset = H5Dopen2(IC, "/PartType1/Masses", H5P_DEFAULT);
-	dataspace_in_file = H5Dget_space(dataset);
-	datatype =  H5Dget_type(dataset);
-	H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, M);
+#ifdef USE_SINGLE_PRECISION
+	if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+	{
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, v);
+	}
+	else
+	{
+		printf("\t\tData stored in doubles.\n");
+		double* buffer;
+		if(!(buffer = (double*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for v_buffer.\n", rank);
+			exit(-2);
+		}
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+		for (int i = 0; i < 3*N; i++)
+		{
+			v[i] = (REAL) buffer[i];
+		}
+		free(buffer);
+	}
+#else
+	if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+	{
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, v);
+	}
+	else
+	{
+		printf("\t\tData stored in floats.\n");
+		float* buffer;
+		if(!(buffer = (float*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for v_buffer.\n", rank);
+			exit(-2);
+		}
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+		for (int i = 0; i < 3*N; i++)
+		{
+			v[i] = (REAL) buffer[i];
+		}
+		free(buffer);
+		}
+#endif
 	H5Tclose(datatype);
 	H5Sclose(dataspace_in_file);
 	H5Dclose(dataset);
-	
+	//reading the particle masses
+	printf("\tReading /PartType1/Masses\n");
+	dataset = H5Dopen2(IC, "/PartType1/Masses", H5P_DEFAULT);
+	dataspace_in_file = H5Dget_space(dataset);
+	datatype =  H5Dget_type(dataset);
+#ifdef USE_SINGLE_PRECISION
+	if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+	{
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, M);
+	}
+	else
+	{
+		printf("\t\tData stored in doubles.\n");
+		double* buffer;
+		if(!(buffer = (double*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M_buffer.\n", rank);
+			exit(-2);
+		}
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+		for (int i = 0; i < N; i++)
+		{
+			M[i] = (REAL) buffer[i];
+		}
+		free(buffer);
+	}
+#else
+	if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+	{
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, M);
+	}
+	else
+	{
+		printf("\t\tData stored in floats.\n");
+		float* buffer;
+		if(!(buffer = (float*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M_buffer.\n", rank);
+			exit(-2);
+		}
+		H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+		for (int i = 0; i < N; i++)
+		{
+			M[i] = (REAL) buffer[i];
+		}
+		free(buffer);
+	}
+#endif
+	H5Tclose(datatype);
+	H5Sclose(dataspace_in_file);
+	H5Dclose(dataset);
+
 	H5Fclose(IC);
 	printf("...done\n\n");
 }
@@ -873,7 +1100,11 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	char buf[500];
 	//setting up the output filename
 	char filename[0x400];
-	snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot);
+	if(snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot)<0)
+	{
+		fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+		abort();
+	}
 	if(COSMOLOGY == 0)
 	{
 		printf("Saving the \"%s\" snapshot file...\nt=%.14f", filename, T);
@@ -900,6 +1131,7 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	hdf5_grp[type] = H5Gcreate(snapshot, buf, 0, H5P_DEFAULT,H5P_DEFAULT);
 	write_header_attributes_in_hdf5(headergrp);
 	//header written.
+
 	//Writing out the particle positions
 	dims[0] = N;
 	dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
@@ -918,7 +1150,19 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	count[1] = 3;
 	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 	dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, x);
+	if(H0_INDEPENDENT_UNITS != 0 && COSMOLOGY == 1)
+	{
+		REAL H0_dimless = H0*UNIT_V/100.0;
+		for(i=0;i<3*N;i++)
+			x[i] *= H0_dimless;
+		H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, x);
+		for(i=0;i<3*N;i++)
+			x[i] /= H0_dimless;
+	}
+	else
+	{
+		H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, x);
+	}
 	H5Sclose(dataspace_memory);
 	H5Dclose(dataset);
 	H5Sclose(dataspace_in_file);
@@ -943,7 +1187,11 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 	dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
 	REAL *Velocity_buf;
-	Velocity_buf = (REAL *)malloc(3*N*sizeof(REAL));
+	if(!(Velocity_buf = (REAL *)malloc(3*N*sizeof(REAL))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for Velocity_buff.\n", rank);
+		exit(-2);
+	}
 	for(i=0;i<3*N;i++)
 			Velocity_buf[i] = v[i]*(REAL)sqrt(a)*(REAL)UNIT_V; //km/s * sqrt(a) output
 	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, Velocity_buf);
@@ -967,7 +1215,11 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
 	dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
 	unsigned long long int *ID;
-	ID = (unsigned long long int *)malloc(N*sizeof(unsigned long long int));
+	if(!(ID = (unsigned long long int *)malloc(N*sizeof(unsigned long long int))))
+	{
+		fprintf(stderr, "MPI task %i: failed to allocate memory for ID.\n", rank);
+		exit(-2);
+	}
 	for(i=0;i<N;i++)
 		ID[i] = i;
 	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, ID);
@@ -985,20 +1237,32 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
 	#else
 		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Masses saved as double
 	#endif
-        strcpy(buf, "Masses");
-        dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
-        dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        start[0] = 0;
-        start[1] = 0;
-        count[0] = N;
-        count[1] = 1;
-        H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
-        dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
-        H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, M);
-        H5Sclose(dataspace_memory);
-        H5Dclose(dataset);
-        H5Sclose(dataspace_in_file);
-        H5Tclose(datatype);
+  strcpy(buf, "Masses");
+  dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+  dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  start[0] = 0;
+  start[1] = 0;
+  count[0] = N;
+  count[1] = 1;
+  H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+  dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+	if(H0_INDEPENDENT_UNITS != 0 && COSMOLOGY == 1)
+	{
+		REAL H0_dimless = H0*UNIT_V/100.0;
+		for(i=0;i<N;i++)
+			M[i] *= H0_dimless;
+		H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, M);
+		for(i=0;i<N;i++)
+			M[i] /= H0_dimless;
+	}
+	else
+	{
+  	H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, M);
+	}
+  H5Sclose(dataspace_memory);
+  H5Dclose(dataset);
+  H5Sclose(dataspace_in_file);
+  H5Tclose(datatype);
 
 	H5Gclose(hdf5_grp[1]);
 	H5Gclose(headergrp);

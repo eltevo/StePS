@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2021 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -74,6 +74,7 @@ double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0
 int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 int HAVE_OUT_LIST; // 0: output list not found. 1: output list found
 double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
+int H0_INDEPENDENT_UNITS; //0: i/o in Mpc, Msol, etc. 1: i/o in Mpc/h, Msol/h, etc.
 double *out_list; //Output redshits
 double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
@@ -132,9 +133,15 @@ int main(int argc, char *argv[])
 	MPI_Comm_size(MPI_COMM_WORLD,&numtasks);
 	// get my rank
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+	// get number of OMP threads
+	int omp_threads;
+	#pragma omp parallel
+	{
+			omp_threads = omp_get_num_threads();
+	}
 	if(rank == 0)
 	{
-		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2021 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
+		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2022 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
 		printf("Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
 		printf("Compiled with: %s", COMPILER_VERSION);
 		unsigned long int I;
@@ -175,9 +182,19 @@ int main(int argc, char *argv[])
 	{
 		printf("Number of MPI tasks: %i\n", numtasks);
 	}
+	#ifndef USE_CUDA
+	if(rank == 0 && argc == 3)
+	{
+		omp_threads = atoi( argv[2] );
+		omp_set_num_threads( atoi( argv[2] ) );
+		printf("Numer of OpenMP threads per MPI tasks set to %i.\n", atoi( argv[2] ));
+	}
+	#endif
 	int i,j;
 	int CONE_ALL=0;
-	N_snapshot = 0;
+	N_snapshot = 0; //The snapshot start number is 0 by default
+	TIME_LIMIT_IN_MINS = 0; //There is no wall-clock time limit by default
+	H0_INDEPENDENT_UNITS = 0; //StePS uses H0 dependent units by default
 	OUTPUT_TIME_VARIABLE = -1;
 	if( argc < 2 )
 	{
@@ -235,7 +252,8 @@ int main(int argc, char *argv[])
 			}
  			else
 			{
-				printf("High precision Ewald force calculation is on.\n");
+				if(rank == 0)
+					printf("High precision Ewald force calculation is on.\n");
 				el = ewald_space(5.8,e);
 			}
 		}
@@ -272,6 +290,12 @@ int main(int argc, char *argv[])
 	{
 		if(rank == 0)
 			fprintf(stderr, "Error: you can not use redshift output format in non-cosmological simulations. \nExiting.\n");
+		return (-2);
+	}
+	if(H0 == 0.0 && COSMOLOGY == 1)
+	{
+		if(rank == 0)
+			fprintf(stderr, "Error: Hubble constant is set to zero in a cosmological simulation. This must be a mistake.\nExiting.\n");
 		return (-2);
 	}
 	if(rank == 0)
@@ -372,6 +396,19 @@ int main(int argc, char *argv[])
 			N_redshiftcone = 0; //number of particles written out to the redshiftcone
 			#endif
 		}
+		//Converting units, if needed
+		if(H0_INDEPENDENT_UNITS != 0 && COSMOLOGY == 1)
+		{
+			REAL H0_dimless = H0*UNIT_V/100.0;
+			for(i=0;i<N;i++)
+			{
+				for(j=0;j<3;j++)
+				{
+					x[3*i + j] /= H0_dimless; //converting coordinates
+				}
+				M[i] /= H0_dimless; //converting masses
+			}
+		}
 		//Rescaling speeds. We are using the same convention that the Gadget uses: http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-list/0113.html
 		if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
 		{
@@ -393,7 +430,11 @@ int main(int argc, char *argv[])
 		}
 		if(numtasks > 1)
 		{
-			F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL));
+			if(!(F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL))))
+			{
+		    fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
+		    exit(-2);
+		  }
 		}
 	}
 	#ifdef USE_CUDA
@@ -401,7 +442,7 @@ int main(int argc, char *argv[])
 	{
 		n_GPU = atoi( argv[2] );
 		if(rank == 0)
-			printf("Using %i cuda capable GPU per MPI task.\n", n_GPU);
+			printf("Using %i cuda capable GPU per MPI task.\n\n", n_GPU);
 	}
 	else
 	{
@@ -417,12 +458,30 @@ int main(int argc, char *argv[])
 	if(rank != 0)
 	{
 		//Allocating memory for the particle datas on the rank != 0 MPI threads
-		x = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory fo the coordinates
-		//v = (REAL*)malloc(3*N*sizeof(REAL)); //Allocating memory for the velocities
-		F = (REAL*)malloc(3*N_mpi_thread*sizeof(REAL));//There is no need to allocate for N forces. N/numtasks should be enough
-		M = (REAL*)malloc(N*sizeof(REAL));
-		SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL));
-
+		//Allocating memory for the coordinates
+		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+	  {
+	    fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+	    exit(-2);
+	  }
+	  //Allocating memory for the forces. There is no need to allocate for N forces. N/numtasks should be enough
+		if(!(F = (REAL*)malloc(3*N_mpi_thread*sizeof(REAL))))
+	  {
+	    fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+	    exit(-2);
+	  }
+	  //Allocating memory for the masses
+		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+	  {
+	    fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+	    exit(-2);
+	  }
+	  //Allocating memory for the softening lengths
+		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+	  {
+	    fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+	    exit(-2);
+	  }
 	}
 	//Bcasting the ICs to the rank!=0 threads
 #ifdef USE_SINGLE_PRECISION
@@ -432,19 +491,21 @@ int main(int argc, char *argv[])
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
-	#ifdef GLASS_MAKING
+#ifdef GLASS_MAKING
 	//setting all velocities to zero
 	int k;
 	if(rank == 0)
-		printf("Glass making: setting all velocities to zero.\n");
-	for(i=0; i<N; i++)
 	{
-		for(k=0; k<3; k++)
+		printf("Glass making: setting all velocities to zero.\n\n");
+		for(i=0; i<N; i++)
 		{
-			v[3*i+k] = 0.0;
+			for(k=0; k<3; k++)
+			{
+				v[3*i+k] = 0.0;
+			}
 		}
 	}
-	#endif
+#endif
 	//Critical density and particle masses
 	if(COSMOLOGY == 1)
 	{
@@ -517,15 +578,18 @@ int main(int argc, char *argv[])
 			}
 		}
 		rho_part = M_min/(4.0*pi*pow(ParticleRadi, 3.0) / 3.0);
+		//Calculating the softening length for each particle:
+		REAL const_beta = 3.0/rho_part/(4.0*pi);
+		printf("Calculating the softening lengths...\n");
+		printf("\tMmin = %f * 10^11 Msol\tMinimal Particle Radius=%fMpc\tParticle density=%f * 10^11 Msol/Mpc^3\n", M_min, ParticleRadi, rho_part);
+		for(i=0;i<N;i++)
+		{
+			SOFT_LENGTH[i] = cbrt(M[i]*const_beta); //setting up the softening length for each particle
+			if(N<10)
+				printf("SOFT_LENGTH[%i] = %f\n", i, SOFT_LENGTH[i]);
+		}
+		printf("...done\n\n");
 	}
-	//Calculating the softening length for each particle:
-	REAL const_beta = 3.0/rho_part/(4.0*pi);
-	printf("Calculating the softening lengths...\n");
-	for(i=0;i<N;i++)
-	{
-		SOFT_LENGTH[i] = cbrt(M[i]*const_beta); //setting up the softening length for each particle
-	}
-	printf("...done\n");
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&M_min,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&rho_part,1,MPI_FLOAT,0,MPI_COMM_WORLD);
@@ -746,11 +810,19 @@ int main(int argc, char *argv[])
 	{
 		h = calculate_init_h();
 		if(h>h_max)
-                {
+    {
+			if(COSMOLOGY == 1)
+				printf("Initial timestep length %fMy is larger than h_max. Setting timestep length to %fMy.\n", h*UNIT_T*1000.0, h_max*UNIT_T*1000.0);
+			else
+			printf("Initial timestep length %f is larger than h_max. Setting timestep length to %f.\n", h, h_max);
 			h=h_max;
-                }
+    }
 		else if(h<h_min)
 		{
+			if(COSMOLOGY == 1)
+				printf("Initial timestep length %fMy is smaller than h_min. Setting timestep length to %fMy.\n", h*UNIT_T*1000.0, h_min*UNIT_T*1000.0);
+			else
+			printf("Initial timestep length %f is smaller than h_min. Setting timestep length to %f.\n", h, h_min);
 			h = h_min;
 		}
 	}
@@ -984,6 +1056,11 @@ int main(int argc, char *argv[])
 		double SIM_omp_end_time = omp_get_wtime();
 		//Timing
 		printf("Wall-clock time of the simulation = %fs\n", SIM_omp_end_time-SIM_omp_start_time);
+		#ifdef USE_CUDA
+		printf("Total GPU time = %fh\n", (SIM_omp_end_time-SIM_omp_start_time)*numtasks*omp_threads/3600.0);
+		#else
+		printf("Total CPU time = %fh\n", (SIM_omp_end_time-SIM_omp_start_time)*numtasks*omp_threads/3600.0);
+		#endif
 	}
 	// done with MPI
 	MPI_Finalize();

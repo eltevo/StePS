@@ -1,18 +1,19 @@
-   _____ _       _____   _____    _____ _____               				
-  / ____| |     |  __ \ / ____|  |_   _/ ____|              
- | (___ | |_ ___| |__) | (___      | || |       _ __  _   _ 
+   _____ _       _____   _____    _____ _____
+  / ____| |     |  __ \ / ____|  |_   _/ ____|
+ | (___ | |_ ___| |__) | (___      | || |       _ __  _   _
   \___ \| __/ _ \  ___/ \___ \     | || |      | '_ \| | | |
   ____) | ||  __/ |     ____) |____| || |____ _| |_) | |_| |
  |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |
                                                | |     __/ |
-                                               |_|    |___/ 
+                                               |_|    |___/
 StePS_IC.py - an IC generator python script for STEreographically Projected cosmological Simulations
 
-v0.2.0.2
-Copyright (C) 2018 Gábor Rácz
-	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
-	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-ragraat@caesar.elte.hu
+v1.0.0.0
+Copyright (C) 2018-2022 Gábor Rácz
+	Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
+	Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
+	Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218
+gabor.racz@jpl.nasa.gov
 
 +----------------------------------------------------------------------+
 | This program is free software; you can redistribute it and/or modify |
@@ -26,8 +27,6 @@ ragraat@caesar.elte.hu
 | GNU General Public License for more details.                         |
 +----------------------------------------------------------------------+
 
-This code is under development!
-
 This is an IC generator script for StePS simulations.
 -written in python3
 -uses an external code such as N-GenIC(http://ascl.net/1502.003) or 2LPTic(https://ascl.net/1201.005) to calculate the displacement field
@@ -38,7 +37,8 @@ This is an IC generator script for StePS simulations.
 
 Dependencies:
 	Python:
-	-glio
+	-future
+	-glio (https://github.com/spthm/glio)
 	-h5py
 	-yaml
 	-astropy
@@ -55,9 +55,9 @@ RSIM: 1860.05314437555		%Linear size of the simulation
 
 LBOX: 3720.2			%Linear size of the cube where the displacement field will be calculated
 
-OMEGAM: 0.3089			%\ 
-OMEGAL: 0.6911			%-Cosmological omega parameters
-OMEGAB: 0.0000			%/
+OMEGAM: 0.3089			%Non-relativistic matter density parameter
+OMEGAL: 0.6911			%Cosmological constant density parameter
+OMEGAB: 0.0000			%Barionic matter density parameter
 
 H0: 67.74			%Hubble constant
 
@@ -67,14 +67,14 @@ SIGMA8: 0.8159			%P(k) normalization
 
 SPHEREMODE: 0			%Sphere mode
 
-WHICHSPECTRUM: 0		% "0" = Efstathiou spectrum, 
+WHICHSPECTRUM: 0		% "0" = Efstathiou spectrum,
 				% "1" = Eisenstein & Hu spectrum,
 				% "2" = a tabulated power spectrum
 
 INPUTSPECTRUM_UNITLENGTH_IN_CM: 3.085678e24	%defines length unit of
 					 	%tabulated input spectrum in cm/h
 
-RENORMALIZEINPUTSPECTRUM: 0	
+RENORMALIZEINPUTSPECTRUM: 0
 
 SHAPEGAMMA: 0.21		% needed for Efstathiou power spectrum
 
@@ -82,14 +82,14 @@ PRIMORDIALINDEX: 1.0		% needed for Efstathiou power spectrum
 
 SEED: 123456			% random seed for the displacement field calculation
 
-VOIX: 500.0			%\
-VOIY: 500.0			%-x,y,z coordinates of the Volume Of Interest
-VOIZ: 500.0			%/
+VOIX: 500.0			% x coordinate of the center of Volume Of interest (VOI)
+VOIY: 500.0			% y coordinate of the center of VOI
+VOIZ: 500.0			% z coordinate of the center of VOI
 
 NGRIDSAMPLES: 7			% Number of the calculated displacement fields
 
 NMESH: 0			% Size of the grid used to compute the
-				% displacement field. if set zero, 
+				% displacement field. if set zero,
 				% automatically generated values will be used
 
 COMOVINGIC: 1			% "0": output will be in non-comoving coordinates
@@ -120,7 +120,7 @@ EXECUTABLE: ../2LPTic/2LPTic	% Location of the external executable
 
 FILEWITHINPUTSPECTRUM: ./input_spectrum.txt	% Input spectrum file
 
-UNITLENGTH_IN_CM: 3.085678e24	
+UNITLENGTH_IN_CM: 3.085678e24
 UNITMASS_IN_G: 1.989e43
 UNITVELOCITY_IN_CM_PER_S: 1e5
 MPITASKS: 2			% Number of MPI task that will be used in the IC making
@@ -130,3 +130,22 @@ OUTPUTFORMAT: 2			% Format of the output IC:
 
 OUTPUTPRECISION: 0		% "0": 32bit IC
 				% "1": 64bit IC
+
+HINDEPENDENTUNITS: 1		% "0": H0 dependent units e.g. Mpc, 1e11M_sol
+        			% "1": H0 independent units e.g. Mpc/h, 1e11M_sol/h
+
+LOCAL_EXECUTION: 1		% "1": The IC generator binary (e.g. N-GenIC) will be called in this machine by StePS_IC.py
+				% "0": The IC generator binary will be called manually by the user
+				% "2": Use this value if the IC generator has beed called by the user
+
+PHASE_SHIFT_ENABLED: 0		% "0": Phase shift disabled
+				% "1": Phase shift enabled
+
+PHASE_SHIFT: 180.0		% Phase shift applied in degrees in Fourier space during the initial condition generation, if PHASE_SHIFT_ENABLED set to 1.
+
+*********************************************************************************************
+
+Acknowledgement
+  The development of this code has been supported by Department of Physics of Complex Systems, ELTE.
+  GR would like to thank the Department of Physics & Astronomy, JHU for supporting this work.
+  GR acknowledges sponsorship of a NASA Postdoctoral Program Fellowship. GR was supported by JPL, which is run under contract by California Institute of Technology for NASA.

@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2019 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -32,49 +32,70 @@ double friedmann_solver_start(double a0, double t0, double h, double Omega_lambd
 {
 	//In this function we calculate the time of Big Bang, and the initial time for the simulation.
 	printf("Calculating time for the initial scale factor...\n");
-	printf("a_start=%f\na0=%f\n", a_start, a0);
-	double b, b_tmp, t_cosm_tmp;
-	double t_cosm = t0;
-	double t_start;
-	double t_start_err=1e-20;
+	int i=0;
+	double b, t_cosm_tmp;
+	double b_tmp[2];
+	double t1, t2;
+	double b2perb1pow1A, Hubble_b, Omega_m_b, Omega_r_b;
+	double t_cosm;
+	double t_start_err=1e-10;
+	int iteration_limit=20;
 	double h_var;
-	b = a_start;
-	printf("h=%eGy\n", h*UNIT_T);
+	h_var = h;
+	t_cosm = t0;
+	t_cosm_tmp = t0+1.0;
 	double Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 	//Solving the "da/dt = a*H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda)" differential equation
-	b_tmp = b;
-	while(0<b)
+	while(fabs(t_cosm-t_cosm_tmp)>t_start_err && i<iteration_limit)
 	{
-		b_tmp = b;
-		b = friedman_solver_step(b, -h, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
-		t_cosm -= h;
-	}
-	t_bigbang=t_cosm+h; //rough estimation for t_bibgang.
-	b = b_tmp;
-	printf("First guess: %.12f Gy\n\n", -t_bigbang*UNIT_T);
-	//Searching for t_start.
-	h_var = -0.5*h;
-	while(fabs(h_var)>t_start_err)
-	{
-		b_tmp = b;
-		b = friedman_solver_step(b, h_var, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
 		t_cosm_tmp = t_cosm;
-		t_cosm=t_cosm+h_var;
-		if(b<=0)
+		t_cosm = t0;
+		b=a_start;
+		b_tmp[0]=b;
+		b_tmp[1]=b;
+		while(0<b)
 		{
-			b = b_tmp;
-			t_cosm = t_cosm_tmp;
-			h_var=0.5*h_var;
+			b_tmp[1]=b_tmp[0];
+			b_tmp[0]=b;
+			b = friedman_solver_step(b, -h_var, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
+			t_cosm -= h_var;
 		}
+		//using extrapolation for calculating t_cosm(b=0)
+		//We are using the last two positive scale factor value for this extrapolation
+		//here we assume that b(t) = (H0 * (t-t_bigbang))^A, where
+		//A=1/2 for radiation dominated universe, and A=2/3 for matter dominated universe
+		//if b1 and b2 are the scale factor in t1 and t2 times respectively, than t_bigbang can be written as
+		//t_bigbang = [(b2/b1)^(1/A) * t1 - t2]/[(b2/b1)^(1/A) - 1]
+		Hubble_b = H0*sqrt(Omega_m*pow(b_tmp[0], -3)+Omega_r*pow(b_tmp[0], -4)+Omega_lambda+Omega_k*pow(b_tmp[0], -2));
+		Omega_m_b = Omega_m*pow(b_tmp[0], -3)*pow(H0/Hubble_b, 2);
+		Omega_r_b = Omega_r*pow(b_tmp[0], -4)*pow(H0/Hubble_b, 2);
+		if(Omega_m_b > Omega_r_b)
+		{
+			//Matter dominated universe at the last step of this integration.
+			//This means that Omega_r were set to zero, or h_var is too large.
+			b2perb1pow1A = pow(b_tmp[1]/b_tmp[0], 1.5);
+		}
+		else
+		{
+			//Radiation dominated age.
+			b2perb1pow1A = pow(b_tmp[1]/b_tmp[0], 2.0);
+		}
+		t2=t_cosm + 2*h_var;
+		t1=t_cosm + h_var;
+		//printf(" t_lastpos=%ey, b_lastpos=%e, 1-Omb=%e", t1*UNIT_T*1e9, b_tmp[0], 1-Omega_m_b);
+		t_cosm = (b2perb1pow1A*t1-t2)/(b2perb1pow1A-1);
+		//printf(" t_cosm=%fy, err=%fy\n", t_cosm*UNIT_T*1e9, fabs(t_cosm_tmp-t_cosm)*UNIT_T*1e9);
+		h_var *= 0.5;
+		i++;
 	}
-	t_bigbang = t_cosm;
+	printf("...done. After %i iteration, the calculated initial time is %fy. (h_var=%fy,  err=%fy)\n\n", i, -1.0*t_cosm*UNIT_T*1e9, h_var*2.0*UNIT_T*1e9, (fabs(t_cosm-t_cosm_tmp))*UNIT_T*1e9);
 	//Setting t=0 to Big Bang:
-	t_start =  -1.0 * t_bigbang;
-	return t_start;
+	return -1.0*t_cosm;
 }
 
 double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0)
 {
+	//4th order Runge-Kutta integrator 
 	int collapse;
 	double b,k1,k2,k3,k4,K;
 	double j,l,m,n;

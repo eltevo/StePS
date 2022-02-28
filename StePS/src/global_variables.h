@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2021 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -43,6 +43,7 @@ extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts consi
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 extern int HAVE_OUT_LIST;
 extern double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
+extern int H0_INDEPENDENT_UNITS; //0: i/o in Mpc, Msol, etc. 1: i/o in Mpc/h, Msol/h, etc.
 extern double *out_list; //Output redshits
 extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 extern int out_list_size; //Number of output redshits

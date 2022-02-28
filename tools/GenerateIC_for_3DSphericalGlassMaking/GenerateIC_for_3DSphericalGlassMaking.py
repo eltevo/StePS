@@ -96,7 +96,7 @@ def Generate_random_shell(Nshell):
 
 
 #Begininng of the script
-print("----------------------------------------------------------------------------------------------\nGenerateIC_for_3DSphericalGlassMaking v0.2.1.1\n (A 3D initial condition generator for glass making.)\n\n Gabor Racz, 2018\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n----------------------------------------------------------------------------------------------\n\n")
+print("----------------------------------------------------------------------------------------------\nGenerateIC_for_3DSphericalGlassMaking v0.2.1.2\n (A 3D initial condition generator for glass making.)\n\n Gabor Racz, 2018-2022\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n----------------------------------------------------------------------------------------------\n\n")
 
 #read the input parameters (from the first argument)
 if len(sys.argv) != 2:
@@ -105,7 +105,7 @@ if len(sys.argv) != 2:
 start = time.time()
 print("Reading the %s paramfile...\n" % str(sys.argv[1]))
 document = open(str(sys.argv[1]))
-Params = yaml.load(document)
+Params = yaml.safe_load(document)
 print("Glass parameters:\n----------------------\nOutput file:\t\t\t\t%s\nDiameter of the 4D hypersphere:\t\t%fMpc\nRadius of the simulation volume:\t%fMpc\nRandom seed:\t\t\t\t%i" % (Params['BASEOUT'], Params['D_S'], Params['RSIM'], Params['RANDSEED'] ))
 np.random.seed(Params['RANDSEED'])
 if Params['BIN_MODE'] == 0:
@@ -121,7 +121,7 @@ if (Params['BIN_MODE'] > 1) or (Params['BIN_MODE'] < 0):
 #importing the matplotlib, if MAKEPLOTS is on
 if Params['MAKEPLOTS'] == 1:
     import matplotlib
-    matplotlib.use('Qt5Agg')
+    #matplotlib.use('Qt5Agg')
     import matplotlib.pyplot as plt
 print("Number of particles per shell:\t\t%i\nNumber of radial bins:\t\t\t%i\n\n" % (Params['NSHELL'], Params['NRBINS']))
 print("Cosmological parameters:\n------------------------\nOmega_lambda\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\n" % (Params['OMEGA_L'], Params['OMEGA_M'], 1.0-Params['OMEGA_M']-Params['OMEGA_L'], Params['HUBBLE_CONSTANT']))
@@ -170,8 +170,11 @@ if Params['MAKEPLOTS'] == 1:
     axes = plt.gca()
     axes.set_xlim([0.0,Params['RSIM']])
     plt.grid()
-    plt.semilogy(r,Mass, label="StePS Resolution")
-    plt.semilogy(r,Mill_res, label="Millennium Resolution")
+    plt.semilogy(r,Mass, c='b', label="StePS Resolution")
+    if Params['BIN_MODE'] == 0:
+        Mass_R5 = Mass_res_inside*(r/Params['RCRIT'])**5
+        plt.semilogy(r[r>Params['RCRIT']],Mass_R5[r>Params['RCRIT']], '--', c='b', label=r'$M(R)=M_p(R_c)\cdot\left(\frac{R}{R_c}\right)^5$')
+    plt.semilogy(r,Mill_res, c='r', label="Millennium Resolution")
     plt.legend()
     plt.title("Resolution, as a function of radius")
     plt.show()
@@ -228,7 +231,8 @@ if Params['BIN_MODE'] == 0:
         print("Error: The input periodic glass do not contains enough particles!\nUse bigger input glass, or try to use newer version of this script if available!\nExiting...\n")
         sys.exit()
     #Cutting out the particles we only need
-    periodic_glass = np.delete(periodic_glass, np.array(range(N_part_inside,end_index+1)), axis=0)
+    print("\tN_part_inside: %i\tend_index: %i" % (N_part_inside, end_index))
+    periodic_glass = np.delete(periodic_glass, np.array(range(N_part_inside,end_index)), axis=0)
     #Rescaling the sphere
     periodic_glass = periodic_glass / periodic_glass[N_part_inside-1,3] * Calculate_rlimits_i(i_crit-0.25, Params['D_S'], Params['NRBINS'], last_cell_size)
     #copying the particles inside the constant resolution region

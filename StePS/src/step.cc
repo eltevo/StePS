@@ -64,10 +64,17 @@ double calculate_init_h()
 			errmax = err;
 		}
 	}
-	if (pow(2*ACC_PARAM/errmax, 0.5)*UNIT_T >= 1.0)
-		printf("Initial timestep length calculated. h_start=%fGy\n",  (double) pow(2*ACC_PARAM/errmax, 0.5)*UNIT_T);
+	if(COSMOLOGY == 1)
+	{
+		if (pow(2*ACC_PARAM/errmax, 0.5)*UNIT_T >= 1.0)
+			printf("Initial timestep length calculated. h_start=%fGy\n",  (double) pow(2*ACC_PARAM/errmax, 0.5)*UNIT_T);
+		else
+			printf("Initial timestep length calculated. h_start=%fMy\n",  (double) pow(2*ACC_PARAM/errmax, 0.5)*UNIT_T*1000.0);
+	}
 	else
-		printf("Initial timestep length calculated. h_start=%fMy\n",  (double) pow(2*ACC_PARAM/errmax, 0.5)*UNIT_T*1000.0);
+	{
+		printf("Initial timestep length calculated. h_start=%f\n",  (double) pow(2*ACC_PARAM/errmax, 0.5));
+	}
 	return (double) pow(2*ACC_PARAM/errmax, 0.5);
 
 }

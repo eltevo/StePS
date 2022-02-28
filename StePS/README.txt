@@ -1,17 +1,18 @@
-   _____ _       _____   _____ 
+   _____ _       _____   _____
   / ____| |     |  __ \ / ____|
- | (___ | |_ ___| |__) | (___ 
+ | (___ | |_ ___| |__) | (___
   \___ \| __/ _ \  ___/ \___ \
   ____) | ||  __/ |     ____) |
  |_____/ \__\___|_|    |_____/
 
 StePS - STEreographically Projected cosmological Simulations
 
-v0.3.7.4
-Copyright (C) 2017-2021 Gábor Rácz
-	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
-	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-ragraat@caesar.elte.hu
+v1.0.0.0
+Copyright (C) 2017-2022 Gábor Rácz
+  Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
+  Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
+  Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218
+gabor.racz@jpl.nasa.gov
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,40 +24,49 @@ ragraat@caesar.elte.hu
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
-This code is under development!
-
-Cosmological simulation code for compactified cosmological simulations.
+N-body code for compactified cosmological simulations.
+- to run dark matter only LambdaCDM simulations
+- for GNU/Linux and Darwin (macOS)
 - written in C++
 - parallelized with MPI, OpenMP and CUDA
 - able to use multiple GPUs in a large computing cluster
-- direct force calculation
+- with direct force calculation
 - can read HDF5, Gadget2 and ASCII IC formats
 - the output is in ASCII or HDF5 format
-- able to run standard periodic and spherical cosmological simulations
+- able to run standard periodic and non-periodic spherical cosmological simulations
 - able to make periodic, quasi-periodic or spherical glass
-- in this early version the code does not make a difference between baryonic and dark matter (dark matter only simulations)
+
 
 *********************************************************************************************
 
 Downloading the code:
-	Under Linux, the source files of the StePS code can be downloaded with the 
+	From command line, the source files of the StePS code can be downloaded with the
 
 	$ git clone https://github.com/eltevo/StePS
 
 	command.
 
-Installation:
+Required libraries:
 	For the successful compilation, the code needs the OpenMPI (https://www.open-mpi.org/) library. Other MPI implementations should work too.
 	Optional libraries:
-		-CUDA (https://developer.nvidia.com/cuda-downloads) Use only if you want to accelerate the simulations with Nvidia GPUs
-		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for reading and writing HDF5 files 
-	You should specify the library directories in the Makefile. For editing the Makefile, you should type:
+		-CUDA (https://developer.nvidia.com/cuda-downloads) Use only if you want to accelerate the simulations with Nvidia GPUs. Note that only GNU/Linux is supported for CUDA.
+		-HDF5 (https://support.hdfgroup.org/HDF5/) This is used for reading and writing HDF5 files
 
-	$ cd StePS/StePS/src
-	$ gedit Makefile
+Compiling:
+	1, Navigate to the StePS source directory by typing
+		$ cd StePS/StePS
+	   to the command line.
+	2, Copy the Template-Linux-Makefile or Template-Darwin-Makefile (depending on your OS) to ./Makefile by
+		$ cp Template-Linux-Makefile Makefile
+	   or by
+		$ cp Template-Darwin-Makefile Makefile
+	3, You should specify the library directories in the Makefile. For editing the Makefile, you should type:
+		$ gedit Makefile
+	    for GNU/Linux. For macOS type:
+		$ open -a TextEdit Makefile
 
-	Some features of the StePS code are controlled with compile time options in the Makefile. With this technique a more optimized executable can be generated. The following options can be found in the Makefile:
-		-USE SINGLE PRECISION 
+	4, Define compile time options: Some features of the StePS code are controlled with compile time options in the Makefile. With this technique a more optimized executable can be generated. The following options can be found in the Makefile:
+		-USE SINGLE PRECISION
 			If this is set, the code will use 32bit precision in the force calculation, otherwise 64bit calculation will be used. The 32bit force calculation is ∼ 32 times faster on Nvidia GTX GPUs compared to the 64bit force calculation, and it uses half as much memory. The speedup with Nvidia Tesla cards by using single precision is ~2.
 		-GLASSMAKING
 			This option should be set for glass making. In this case the code will use reversed gravity. For periodic glasses, using high precision Ewald forces is highly advised. (High precision Ewald forces can be set in the parameter file)
@@ -65,22 +75,24 @@ Installation:
 		-PERIODIC
 			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
 
-	After you saved the Makefile, the code can be compiled with the
+	5, After you saved the Makefile, compile the code with the
 
-	$ make
+		$ make
 
-	command.
+	command. After the successful compilation, you can find the compiled binary in the "build/" directory
 
 *********************************************************************************************
 
 Once you compiled the code, you can simply run it by typing:
-	export OMP_NUM_THREADS=<Number of shared memory OMP threads per MPI tasks>
-	mpirun -n <number of MPI tasks> ./StePS <parameterfile>
+	$ export OMP_NUM_THREADS=<Number of shared memory OMP threads per MPI tasks>
+	$ mpirun -n <number of MPI tasks> ./StePS <parameterfile>
+  or
+  $ mpirun -n <number of MPI tasks> ./StePS <parameterfile> <Number of shared memory OMP threads per MPI tasks>
 where the parameterfile specifies the parameters of the simulation.
 
 If you compiled the code with CUDA, you can simply run it by typing:
-	export OMP_NUM_THREADS=<Number of GPUs per tasks>
-        mpirun -n <number of MPI tasks> ./StePS_CUDA <parameterfile> <Number of GPUs per tasks>
+	$ export OMP_NUM_THREADS=<Number of GPUs per tasks>
+  $ mpirun -n <number of MPI tasks> ./StePS_CUDA <parameterfile> <Number of GPUs per tasks>
 
 
 *********************************************************************************************
@@ -103,36 +115,41 @@ Logfile.dat:
 The example parameterfile:
 Cosmological parameters:
 ------------------------
-COSMOLOGY       1			%1=cosmological simulation 0=traditional n-body sim.
-Omega_b         0.0			%\
-Omega_lambda    0.6911			%-Cosmological Omega parameters
-Omega_dm        0.3089			%/
-Omega_r         0.0			%|
-H0              67.74			%Hubble-constant
+Omega_b         0.0			%Barionic matter density parameter
+Omega_lambda    0.6911			%Cosmological constant density parameters
+Omega_dm        0.3089			%Dark matter density parameter
+Omega_r         0.0			%Radiation density parameter
+HubbleConstant  67.74			%Hubble-constant
 a_start         0.05			%Initial scalefactor
+a_max           1.0				%The final scalefactor
 
 
 Simulation parameters:
 -----------------------
+COSMOLOGY       1			%1=cosmological simulation 0=traditional n-body sim.
 IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=Ewald forces, 3=high precision Ewald forces
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
-L_box           1860.0531					%Linear size of the simulation volume
+L_BOX           1860.0531					%Linear size of the simulation volume
 IC_FILE         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat	%ic file
 IC_FORMAT       0						%Ic file format 0: ascii, 1:GADGET, 2:(Gadget-)HDF5
 OUT_DIR         ../examples/LCDM_SP_1260_343M_com_VOI_1000/		%output directory
 OUT_LST         ../examples/ic/IC_SP_LCDM_1260_343M_com_VOI_1000.dat_zbins	%output list file
 OUTPUT_TIME_VARIABLE	1					%Output time variable 0: physical time, 1: redshift
-OUTPUT_FORMAT   1						%Output format 0: ASCII 2: (Gadget-)HDF5
+OUTPUT_FORMAT   2						%Output format 0: ASCII 2: (Gadget-)HDF5
 REDSHIFT_CONE   1						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
-a_max           1.0						%The final scalefactor
 ACC_PARAM	0.030						%Accuracy parameter
-h_min           0.00025						%Minimal timestep length (in Gy)
-h_max           0.03125						%Maximal timestep length (in Gy)
-ParticleRadi    0.134226516867827				%Softening length of particle with minimal mass
+STEP_MIN           0.00025						%Minimal timestep length (in Gy)
+STEP_MAX           0.03125						%Maximal timestep length (in Gy)
+PARTICLE_RADII   0.134226516867827				%Softening length of particle with minimal mass
 FIRST_T_OUT     0.50						%First output time
 H_OUT           0.50						%Output frequency
 SNAPSHOT_START_NUMBER	0					%Initial snapshot number. Useful for restarting simulations.
+H_INDEPENDENT_UNITS  0         %Units of the I/O files. 0: i/o in Mpc, Msol, etc. (default); 1: i/o in Mpc/h, Msol/h, etc.
 
 *********************************************************************************************
 
+Acknowledgement
+  The development of this code has been supported by Department of Physics of Complex Systems, ELTE.
+  GR would like to thank the Department of Physics & Astronomy, JHU for supporting this work.
+  GR acknowledges sponsorship of a NASA Postdoctoral Program Fellowship. GR was supported by JPL, which is run under contract by California Institute of Technology for NASA.

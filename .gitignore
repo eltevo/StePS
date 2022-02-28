@@ -1,0 +1,11 @@
+# Ignore the build directory
+StePS/build/
+
+# Ignore the Makefile since it is platform-dependent
+StePS/Makefile
+
+# Ignore glio since it is a different repository
+StePS_IC/src/glio/
+
+# Ignore __pycache__ directories
+StePS_IC/src/__pycache__/

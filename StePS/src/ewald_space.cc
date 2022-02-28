@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations		*/
-/*    Copyright (C) 2017-2019 Gabor Racz					*/
+/*    Copyright (C) 2017-2022 Gabor Racz					*/
 /*										*/
 /*    This program is free software; you can redistribute it and/or modify	*/
 /*    it under the terms of the GNU General Public License as published by	*/
@@ -29,7 +29,7 @@ int ewald_space(REAL R, int ewald_index[2102][4])
 {
 	int i,j,k;
 	int l=-1;
-	printf("Making Ewald sphere...\n");
+	printf("MPI task %i: Making Ewald sphere...\n", rank);
 	for(i=0;i<R;i++)
 	{
 		for(j=0;j<R;j++)
@@ -50,7 +50,7 @@ int ewald_space(REAL R, int ewald_index[2102][4])
 						ewald_index[l][1]=j;
 						ewald_index[l][2]=k;
 						ewald_index[l][3] = i*i+j*j+k*k;
-						
+
 					}
 
 					if(j!=0)
@@ -106,12 +106,12 @@ int ewald_space(REAL R, int ewald_index[2102][4])
 						ewald_index[l][2]=-k;
 						ewald_index[l][3] = i*i+j*j+k*k;
 					}
-					
+
 
 				}
 			}
 		}
 	}
-printf("...Ewald sphere finished. The number of the simulation box copies:%i\n", l);
+printf("MPI task %i: ...Ewald sphere finished. The number of the simulation box copies:%i\n", rank, l);
 return l;
 }
