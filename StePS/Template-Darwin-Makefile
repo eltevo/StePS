@@ -5,7 +5,7 @@
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.0.0.0"'
+VERSION='"v1.0.1.0"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -29,6 +29,12 @@ OPT += -DHAVE_HDF5
 
 #------------------------------- Glass making option
 #OPT += -DGLASS_MAKING
+
+#------------------------------- Parametrization of the background cosmology
+OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
+			#1: wCDM dark energy parametrization
+			#2: w0waCDM (a.k.a. CPL) dark energy parametrization
+			#-1: the expansion history will be read from an external file
 
 #------------------------------- Compiler
 CXX = /usr/local/opt/llvm/bin/clang

@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v1.0.0.0
+v1.0.1.0
 Copyright (C) 2017-2022 Gábor Rácz
   Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
   Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
@@ -24,17 +24,18 @@ gabor.racz@jpl.nasa.gov
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
-N-body code for compactified cosmological simulations.
-- to run dark matter only LambdaCDM simulations
-- for GNU/Linux and Darwin (macOS)
-- written in C++
-- parallelized with MPI, OpenMP and CUDA
-- able to use multiple GPUs in a large computing cluster
-- with direct force calculation
-- can read HDF5, Gadget2 and ASCII IC formats
-- the output is in ASCII or HDF5 format
-- able to run standard periodic and non-periodic spherical cosmological simulations
-- able to make periodic, quasi-periodic or spherical glass
+A direct N-body code for compactified cosmological simulations.
+
+Main features:
+- Optimized to run dark matter only N-body simulations in LambdaCDM, wCDM or w0waCDM cosmology.
+- Running simulations with different models are possible by using external tabulated expansion histories.
+- Able to run standard periodic and non-periodic spherical cosmological simulations.
+- Can be used to make periodic, quasi-periodic or spherical glass.
+- Available for GNU/Linux and Darwin (macOS).
+- Written in C++ with MPI, OpenMP and CUDA parallelization.
+- Able to use multiple GPUs simultaneously in a large computing cluster.
+- Supported Initial Condition formats are HDF5, Gadget2, and ASCII.
+- Supported output formats are ASCII and HDF5.
 
 
 *********************************************************************************************
@@ -56,8 +57,10 @@ Compiling:
 	1, Navigate to the StePS source directory by typing
 		$ cd StePS/StePS
 	   to the command line.
-	2, Copy the Template-Linux-Makefile or Template-Darwin-Makefile (depending on your OS) to ./Makefile by
-		$ cp Template-Linux-Makefile Makefile
+	2, Copy the Template-LinuxGCC-Makefile, Template-LinuxICC-Makefile, or Template-Darwin-Makefile (depending on your OS and compiler) to ./Makefile by
+		$ cp Template-LinuxGCC-Makefile Makefile
+	   or by
+		$ cp Template-LinuxICC-Makefile Makefile
 	   or by
 		$ cp Template-Darwin-Makefile Makefile
 	3, You should specify the library directories in the Makefile. For editing the Makefile, you should type:
@@ -74,7 +77,13 @@ Compiling:
 			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
 		-PERIODIC
 			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
-
+		-COSMOPARAM
+			Parametrization of the background cosmology. Possible values:
+				0: standard Lambda-CDM parametrization (default)
+				1: wCDM dark energy parametrization
+				2: w0waCDM (a.k.a. CPL) dark energy parametrization
+				-1: the expansion history will be read from an external ASCII file
+								 (columns: t[Gy] a(t) H(t)[km/s/Mpc])
 	5, After you saved the Makefile, compile the code with the
 
 		$ make
@@ -146,6 +155,13 @@ FIRST_T_OUT     0.50						%First output time
 H_OUT           0.50						%Output frequency
 SNAPSHOT_START_NUMBER	0					%Initial snapshot number. Useful for restarting simulations.
 H_INDEPENDENT_UNITS  0         %Units of the I/O files. 0: i/o in Mpc, Msol, etc. (default); 1: i/o in Mpc/h, Msol/h, etc.
+
+Optional parameters:    %These parameters are only needed when alternative cosmology parametrizations are turned on in the makefile.
+--------------------
+w0    -0.9                        %Dark energy equation of state at z=0 in wCDM and w0waCDM parametrization. (LCDM: w0=-1.0)
+wa    0.1                         %Negative derivative of the dark energy equation of state in w0waCDM parametrization. (LCDM: wa=0.0)
+EXPANSION_FILE      ./wpwaCDM.dat %input file with tabulated expansion history. Columns in the file: age [Gy], scale factor [dimensionless], Hubble parameter [km/s/Mpc]
+INTERPOLATION_ORDER 3             %order of the interpolation while using tabulated expansion history (recommended value: 3) (possible values: 1,2,or 3)
 
 *********************************************************************************************
 

@@ -88,7 +88,19 @@ extern int HDF5_redshiftcone_firstshell;
 extern int N_redshiftcone; //number of particles written out to the redshiftcone file
 #endif
 //Cosmological parameters
-extern double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param, Hubble_tmp;
+extern double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param; //needed for all cosmological models
+#if COSMOPARAM==1
+extern double w0; //Dark energy equation of state at all redshifts. (LCDM: w0=-1.0)
+#elif COSMOPARAM==2
+extern double w0; //Dark energy equation of state at z=0. (LCDM: w0=-1.0)
+extern double wa; //Negative derivative of the dark energy equation of state. (LCDM: wa=0.0)
+#elif COSMOPARAM==-1
+extern char EXPANSION_FILE[1024]; //input file with expansion history
+extern int N_expansion_tab; //number of rows in the expansion history tab
+extern int expansion_index; //index of the current value in the expansion history
+extern double** expansion_tab; //expansion history tab (columns: t, a, H)
+extern int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
+#endif
 extern double rho_crit; //Critical density
 extern double a, a_start, a_prev, a_tmp; //Scalefactor, scalefactor at the starting time, previous scalefactor
 extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, effectve Omega_m
@@ -97,7 +109,8 @@ extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, e
 //Initial timestep length calculation
 double calculate_init_h();
 //Functions used for the Friedmann-equation
-double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0);
+double friedmann_solver_step(double a0, double h);
+double CALCULATE_Hubble_param(double a);
 void recalculate_softening();
 //This function calculates the deceleration parameter
 double CALCULATE_decel_param(double a);

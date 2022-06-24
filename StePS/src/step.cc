@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2021 Gabor Racz                                        */
+/*    Copyright (C) 2017-2022 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -182,16 +182,18 @@ void step(REAL* x, REAL* v, REAL* F)
 			}
 		}
 	}
+	if(rank == 0)
+	{
 	//Stepping in scale factor and Hubble-parameter
 	//if COSMOLOGY == 1, than we step in scalefactor, using the specified cosmological model
 	if(COSMOLOGY == 1)
 	{
 		if(COMOVING_INTEGRATION == 1)
 		{
-			a = friedman_solver_step(a, h, Omega_lambda, Omega_r, Omega_m, Omega_k, H0);
+			a = friedmann_solver_step(a, h);
 			recalculate_softening();
 			a_tmp = a;
-			Hubble_param = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
+			Hubble_param = CALCULATE_Hubble_param(a); //calculating the actual Hubble parameter
 			Decel_param = CALCULATE_decel_param(a); //Deceleration parameter
 			Omega_m_eff = Omega_m*pow(a, -3)*pow(H0/Hubble_param, 2);
 		}
@@ -234,8 +236,6 @@ void step(REAL* x, REAL* v, REAL* F)
 	//Timing
 	double step_omp_end_time = omp_get_wtime();
 	//Timing
-	if(rank == 0)
-	{
 		printf("Timestep wall-clock time = %fs\n", step_omp_end_time-step_omp_start_time);
 	}
 
