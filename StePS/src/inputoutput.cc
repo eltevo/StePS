@@ -51,9 +51,45 @@ int measure_N_part_from_ascii_snapshot(char * filename)
 	while(EOF != (fscanf(inputfile,"%*[^\n]"), fscanf(inputfile,"%*c")))
 		++lines;
 	fclose(inputfile);
-	printf("Number of particles\t\t%i\n\n", lines);
 	return lines;
 }
+
+#if COSMOPARAM==-1
+void read_expansion_history(char* filename)
+{
+	int i,j;
+	N_expansion_tab = measure_N_part_from_ascii_snapshot(filename);
+	//Allocating memory for the tabulated expansion history
+	expansion_tab =(double**) malloc(N_expansion_tab*sizeof(double*));
+	for (i = 0; i < N_expansion_tab; i++)
+		expansion_tab[i] = (double*)malloc(3*sizeof(double));
+	//reading the data from the ASCII file
+	FILE *exp_file = fopen(filename, "r");
+	printf("\nReading the expansion history from the %s file...\n", filename);
+	for(i=0; i<N_expansion_tab; i++)
+	{
+		//Reading particle coordinates
+		for(j=0; j<3; j++)
+		{
+			fscanf(exp_file, "%lf", &expansion_tab[i][j]);
+			if(N_expansion_tab<10)
+				printf("%f\t", expansion_tab[i][j]);
+			if(j==0)
+			{
+				expansion_tab[i][j] /= UNIT_T; //converting time from Gy to internal units.
+			}
+			else if(j==2)
+			{
+				expansion_tab[i][j] /= UNIT_V; //converting the Hubble parameter from km/s/Mpc to internal units.
+			}
+		}
+		if(N_expansion_tab<10)
+			printf("\n");
+	}
+	fclose(exp_file);
+	return;
+}
+#endif
 
 void read_ascii_ic(FILE *ic_file, int N)
 {

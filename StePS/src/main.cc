@@ -80,7 +80,19 @@ double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
 unsigned int N_snapshot; //number of written out snapshots
 
-double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param, Hubble_tmp; //Cosmologycal parameters
+double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param; //Cosmologycal parameters
+#if COSMOPARAM==1
+double w0; //Dark energy equation of state at all redshifts. (LCDM: w0=-1.0)
+#elif COSMOPARAM==2
+double w0; //Dark energy equation of state at z=0. (LCDM: w0=-1.0)
+double wa; //Negative derivative of the dark energy equation of state. (LCDM: wa=0.0)
+#elif COSMOPARAM==-1
+char EXPANSION_FILE[1024]; //input file with expansion history
+int N_expansion_tab; //number of rows in the expansion history tab
+int expansion_index; //index of the current value in the expansion history
+double** expansion_tab; //expansion history tab (columns: t, a, H)
+int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
+#endif
 
 double epsilon=1;
 double sigma=1;
@@ -101,9 +113,10 @@ void read_param(FILE *param_file);
 void step(REAL* x, REAL* v, REAL* F);
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
-double friedmann_solver_start(double a0, double t0, double h, double Omega_lambda, double Omega_r, double Omega_m, double H0, double a_start);
-double friedman_solver_step(double a0, double h, double Omega_lambda, double Omega_r, double Omega_m, double Omega_k, double H0);
+double friedmann_solver_start(double a0, double t0, double h, double a_start);
+double friedmann_solver_step(double a0, double h);
 int ewald_space(REAL R, int ewald_index[2102][4]);
+double CALCULATE_Hubble_param(double a);
 double CALCULATE_decel_param(double a);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
@@ -123,6 +136,9 @@ int N_redshiftcone, HDF5_redshiftcone_firstshell;
 void write_hdf5_snapshot(REAL *x, REAL *v, REAL *M);
 void write_header_attributes_in_hdf5(hid_t handle);
 void read_hdf5_ic(char *ic_file);
+#endif
+#if COSMOPARAM==-1
+void read_expansion_history(char* filename);
 #endif
 
 int main(int argc, char *argv[])
@@ -173,10 +189,23 @@ int main(int argc, char *argv[])
 	#endif
 	#ifdef PERIODIC
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions.\n\n");
+		printf("\tPeriodic boundary conditions.\n");
 	#else
 	if(rank == 0)
-		printf("\tNon-periodic boundary conditions.\n\n");
+		printf("\tNon-periodic boundary conditions.\n");
+	#endif
+	#if COSMOPARAM==0 || !defined(COSMOPARAM)
+	if(rank == 0)
+		printf("\tBackground cosmology: FLRW cosmology with Standard Lambda-Cold Dark Matter parametrization. (LCDM)\n\n");
+	#elif COSMOPARAM==1
+	if(rank == 0)
+		printf("\tBackground cosmology: FLRW cosmology with a constant dark energy equation of state. (wCDM)\n\n");
+	#elif COSMOPARAM==2
+	if(rank == 0)
+		printf("\tBackground cosmology: FLRW cosmology with a CPL dark energy equation of state (w0waCDM)\n\n");
+	#elif COSMOPARAM==-1
+	if(rank == 0)
+		printf("\tBackground cosmology: FLRW cosmology with a tabulated expansion history. \n\n");
 	#endif
 	if(numtasks != 1 && rank == 0)
 	{
@@ -294,9 +323,14 @@ int main(int argc, char *argv[])
 	}
 	if(H0 == 0.0 && COSMOLOGY == 1)
 	{
+    #if !defined(COSMOPARAM) || COSMOPARAM>=0
 		if(rank == 0)
 			fprintf(stderr, "Error: Hubble constant is set to zero in a cosmological simulation. This must be a mistake.\nExiting.\n");
 		return (-2);
+		#else
+		if(rank == 0)
+			printf("Warning: Hubble constant is set to zero in a cosmological simulation. \nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the Hubble constant was set correctly during the initial condition generation.\n\n");
+		#endif
 	}
 	if(rank == 0)
 	{
@@ -399,6 +433,11 @@ int main(int argc, char *argv[])
 		//Converting units, if needed
 		if(H0_INDEPENDENT_UNITS != 0 && COSMOLOGY == 1)
 		{
+			if(H0==0.0)
+			{
+				fprintf(stderr, "Error: Hubble constant is zero while using H0 independent units. This must be a mistake.\nExiting.\n");
+				return (-2);
+			}
 			REAL H0_dimless = H0*UNIT_V/100.0;
 			for(i=0;i<N;i++)
 			{
@@ -541,8 +580,12 @@ int main(int argc, char *argv[])
 		rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
 		if(fabs(rho_mean_full_box/(rho_crit*Omega_dm) - 1) > 1e-5)
 		{
+			 #if COSMOPARAM>=0 || !defined(COSMOPARAM)
 			 fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters!\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_dm));
 			 return (-1);
+			 #else
+			 printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_dm));
+			 #endif
 		}
 		#endif
 	}
@@ -555,7 +598,7 @@ int main(int argc, char *argv[])
 			return (-1);
 		}
 		if(rank == 0)
-			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nThis run will be in non-comoving coodinates. This means that, this will be a full Newtonian cosmological simulation. Make sure that you set the correct parameters at the IC making.\na_max is used as maximal time in Gy in the parameter file.\n\n");
+			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nThis run will be in non-comoving coodinates. As a consequence, this will be a full Newtonian cosmological simulation. Make sure that you set the correct parameters at the IC making.\na_max is used as maximal time in Gy in the parameter file.\n\n");
 		Omega_m = Omega_b+Omega_dm;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3*H0*H0/(8*pi);
@@ -613,13 +656,25 @@ int main(int argc, char *argv[])
 	{
 	if(COSMOLOGY == 1)
 	{
+		#if COSMOPARAM==-1
+		//Reading the tabulated expansion history
+		if(file_exist(EXPANSION_FILE)!=0)
+		{
+			read_expansion_history(EXPANSION_FILE);
+		}
+		else
+		{
+			fprintf(stderr, "Error: The %s expansion history file does not exist!\nExiting.\n", EXPANSION_FILE);
+			return (-1);
+		}
+		#endif
 		a = a_start;
 		a_tmp = a;
 		if(COMOVING_INTEGRATION == 1)
 		{
 			printf("a_start=%.9f\tz=%.9f\n", a, 1/a-1);
 		}
-		T = friedmann_solver_start(1,0,h_min*0.05,Omega_lambda,Omega_r,Omega_m,H0,a_start);
+		T = friedmann_solver_start(1,0,h_min*0.05,a_start);
 		if(HAVE_OUT_LIST == 0)
 		{
 			if(OUTPUT_TIME_VARIABLE==0)
@@ -795,12 +850,10 @@ int main(int argc, char *argv[])
 	}
 	//The simulation is starting...
 	//Calculating the initial Hubble parameter, using the Friedmann-equations
-	if(COSMOLOGY == 1)
+	if(COSMOLOGY == 1 && rank == 0)
 	{
-		Hubble_tmp = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
-		Hubble_param = H0*sqrt(Omega_m*pow(a, -3)+Omega_r*pow(a, -4)+Omega_lambda+Omega_k*pow(a, -2));
-		if(rank == 0)
-			printf("Initial Hubble-parameter from the cosmological parameters:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*UNIT_V);
+		Hubble_param = CALCULATE_Hubble_param(a);
+		printf("Initial Hubble-parameter:\nH(z=%f) = %fkm/s/Mpc\n\n", 1.0/a-1.0, Hubble_param*UNIT_V);
 	}
 	if(COSMOLOGY == 0 || COMOVING_INTEGRATION == 0)
 	{

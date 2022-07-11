@@ -42,6 +42,12 @@ void BCAST_global_parameters()
 	MPI_Bcast(&Omega_dm,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&Omega_r,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&H0,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#if COSMOPARAM==1
+	MPI_Bcast(&w0,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#elif COSMOPARAM==2
+	MPI_Bcast(&w0,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&wa,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#endif
 	MPI_Bcast(&COSMOLOGY,1,MPI_INT,0,MPI_COMM_WORLD);
 	//Simulation parameters
 	//the rank != 0 tasks do not need all of the simulation parameters
@@ -95,6 +101,15 @@ char str26[] = "PARTICLE_RADII";
 char str31[] = "MIN_REDSHIFT";
 char str32[] = "REDSHIFT_CONE";
 char str33[] = "H_INDEPENDENT_UNITS";
+#if COSMOPARAM==1
+char str34[] = "w0";
+#elif COSMOPARAM==2
+char str34[] = "w0";
+char str35[] = "wa";
+#elif COSMOPARAM==-1
+char str34[] = "EXPANSION_FILE";
+char str35[] = "INTERPOLATION_ORDER";
+#endif
 
 printf("Reading parameter file...\n");
 while(!feof(param_file))
@@ -250,6 +265,30 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%i", &H0_INDEPENDENT_UNITS);
 	}
+	#if COSMOPARAM==1
+	if(strstr(c, str34) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &w0);
+	}
+	#elif COSMOPARAM==2
+	if(strstr(c, str34) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &w0);
+	}
+	if(strstr(c, str35) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &wa);
+	}
+	#elif COSMOPARAM==-1
+	if(strstr(c, str34) != NULL)
+	{
+		sscanf(c, "%*s\t%s", EXPANSION_FILE);
+	}
+	if(strstr(c, str35) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &INTERPOLATION_ORDER);
+	}
+	#endif
 #else
 	fgets(c, BUFF_SIZE, param_file);
   if(strstr(c, str01) != NULL)
@@ -397,6 +436,30 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%i", &H0_INDEPENDENT_UNITS);
 	}
+	#if COSMOPARAM==1
+	if(strstr(c, str34) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &w0);
+	}
+	#elif COSMOPARAM==2
+	if(strstr(c, str34) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &w0);
+	}
+	if(strstr(c, str35) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &wa);
+	}
+	#elif COSMOPARAM==-1
+	if(strstr(c, str34) != NULL)
+	{
+		sscanf(c, "%*s\t%s", EXPANSION_FILE);
+	}
+	if(strstr(c, str35) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &INTERPOLATION_ORDER);
+	}
+	#endif
 #endif
 }
 
@@ -404,7 +467,22 @@ printf("...done.\n\n");
 fclose(param_file);
 if(COSMOLOGY == 1)
 {
-	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%.14f\t(z_start = %f)\n\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*UNIT_V, a_start, (1.0/a_start - 1.0));
+	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%.14f\t(z_start = %f)\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*UNIT_V, a_start, (1.0/a_start - 1.0));
+	#if !defined(COSMOPARAM) || COSMOPARAM==0
+	printf("\n");
+	#elif COSMOPARAM==1
+	printf("w0\t\t%f\n\n",w0);
+	#elif COSMOPARAM==2
+	printf("w0\t\t%f\nwa\t\t%f\n\n",w0,wa);
+	#elif COSMOPARAM==-1
+	printf("Expansion history file\t%s\n\n",EXPANSION_FILE);
+	if (INTERPOLATION_ORDER<1 || INTERPOLATION_ORDER>3)
+	{
+		printf("Warning: Interpolation order is set to a non-defined value. Setting linear interpolation.\n");
+		INTERPOLATION_ORDER = 1;
+	}
+	printf("Order of interpolation\t%i\n\n",INTERPOLATION_ORDER);
+	#endif
 	//Converting the Gy inputs into internal units
 	h_min /= UNIT_T;
 	h_max /= UNIT_T;
