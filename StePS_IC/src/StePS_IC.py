@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2022 Gabor Racz                                         #
+#    Copyright (C) 2017-2024 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -22,12 +22,15 @@ import time
 import yaml
 import numpy as np
 import astropy.units as u
-from astropy.cosmology import LambdaCDM, z_at_value
-from ascii2gadget import *
+from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from write_ICparamfile import *
-from write_HDF5_snapshot import *
+from inputoutput import *
+from powerspec import *
 from subprocess import call
 from pynverse import inversefunc
+
+_VERSION="v1.0.1.0"
+_YEAR="2018-2024"
 
 #some basic function for the stereographic projection
 #Functions for the constant omega binning method
@@ -78,7 +81,7 @@ print("+------------------------------------------------------------------------
 "| |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |\t\t\t\t\t|\n" \
 "|                                               | |     __/ |\t\t\t\t\t|\n" \
 "|                                               |_|    |___/ \t\t\t\t\t|\n" \
-"|StePS_IC.py v1.0.0.0\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2018-2022 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n")
+"|StePS_IC.py %s\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
 print("+---------------------------------------------------------------+\n" \
 "| StePS_IC.py comes with ABSOLUTELY NO WARRANTY.                |\n" \
 "| This is free software, and you are welcome to redistribute it |\n" \
@@ -96,9 +99,22 @@ UNIT_D=3.0856775814671917e24#=1Mpc Unit distance in cm
 print("Reading the %s paramfile...\n" % str(sys.argv[1]))
 document = open(str(sys.argv[1]))
 Params = yaml.safe_load(document)
-print("Cosmological Parameters:\n------------------------\nOmega_m:\t%f\nOmega_lambda:\t%f\nOmega_k:\t%f\nOmega_b:\t%f\nH0:\t\t%f km/s/Mpc\nRedshift:\t%f\nSigma8:\t\t%f\n" % (Params['OMEGAM'], Params['OMEGAL'], 1.0-Params['OMEGAM']-Params['OMEGAL'], Params['OMEGAB'], Params['H0'], Params['REDSHIFT'], Params['SIGMA8']))
+print("Cosmological Parameters:\n------------------------\nOmega_m:\t%f\t(Ommh2=%f; Omch2=%f)\nOmega_lambda:\t%f\nOmega_k:\t%f\nOmega_b:\t%f\t(Ombh2=%f)\nH0:\t\t%f km/s/Mpc\nRedshift:\t%f\t(a=%f)\nSigma8:\t\t%f\nDark energy model:\t%s" % (Params['OMEGAM'], Params['OMEGAM'] * (Params['H0']/100.0)**2, (Params['OMEGAM'] - Params['OMEGAB']) * (Params['H0']/100.0)**2, Params['OMEGAL'], 1.0-Params['OMEGAM']-Params['OMEGAL'], Params['OMEGAB'], (Params['OMEGAB']) * (Params['H0']/100.0)**2, Params['H0'], Params['REDSHIFT'], 1.0/(Params['REDSHIFT']+1.0), Params['SIGMA8'], Params['DARKENERGYMODEL']))
+if Params['DARKENERGYMODEL'] == 'Lambda':
+    print("\n")
+elif Params['USECAMBINPUTSPECTRUM'] == False:
+    print("Error: For non-standard dark energy parametrization USECAMBINPUTSPECTRUM has to be set True!\nExiting.\n")
+    sys.exit(2)
+elif Params['DARKENERGYMODEL'] == 'w0':
+    print("w = %f\n" % Params['DARKENERGYPARAMS'][0])
+elif Params['DARKENERGYMODEL'] == 'CPL':
+    print("w0 = %f\nwa = %f\n" % (Params['DARKENERGYPARAMS'][0], Params['DARKENERGYPARAMS'][1]))
+else:
+    print("Error: unkown dark energy parametrization!\nExiting.\n")
+    sys.exit(2)
 Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'] = np.float64(Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-print("IC parameters:\n--------------\nLbox:\t\t\t%f Mpc\nRsim:\t\t\t%f Mpc\nVOI_x:\t\t\t%f Mpc\nVOI_y:\t\t\t%f Mpc\nVOI_z:\t\t\t%f Mpc\nSeed:\t\t\t%i\nSpheremode:\t\t%i\nWhichSpectrum:\t\t%i\nFileWithInputSpectrum:\t%s\nInputSpectrum_UnitLength_in_cm\t%e\nReNormalizeInputSpectrum:\t%i\nShapeGamma:\t\t%f\nPrimordialIndex:\t%f\nNgrid samples:\t\t%i\nGlassFile:\t\t%s\nOutDir:\t\t\t%s\nFileBase:\t\t%s\nComoving IC:\t\t%s\nNumber of MPI tasks:\t%i\nH0 independent units:\t%i\n" % (Params['LBOX'], Params['RSIM'], Params['VOIX'], Params['VOIY'], Params['VOIZ'], Params['SEED'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['NGRIDSAMPLES'], Params['GLASSFILE'], Params['OUTDIR'], Params['FILEBASE'], Params['COMOVINGIC'], Params['MPITASKS'], Params['HINDEPENDENTUNITS']))
+renormalizeinputspectrum = Params['RENORMALIZEINPUTSPECTRUM']
+print("IC parameters:\n--------------\nLbox:\t\t\t%f Mpc\nRsim:\t\t\t%f Mpc\nVOI_x:\t\t\t%f Mpc\nVOI_y:\t\t\t%f Mpc\nVOI_z:\t\t\t%f Mpc\nSeed:\t\t\t%i\nSpheremode:\t\t%i\nWhichSpectrum:\t\t%i\nFileWithInputSpectrum:\t%s\nInputSpectrum_UnitLength_in_cm\t%e\nReNormalizeInputSpectrum:\t%i\nShapeGamma:\t\t%f\nPrimordialIndex:\t%f\nNgrid samples:\t\t%i\nGlassFile:\t\t%s\nOutDir:\t\t\t%s\nFileBase:\t\t%s\nComoving IC:\t\t%s\nNumber of MPI tasks:\t%i\nH0 independent units:\t%i\n" % (Params['LBOX'], Params['RSIM'], Params['VOIX'], Params['VOIY'], Params['VOIZ'], Params['SEED'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], renormalizeinputspectrum, Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['NGRIDSAMPLES'], Params['GLASSFILE'], Params['OUTDIR'], Params['FILEBASE'], Params['COMOVINGIC'], Params['MPITASKS'], Params['HINDEPENDENTUNITS']))
 Params['UNITLENGTH_IN_CM'] = np.float64(Params['UNITLENGTH_IN_CM'])
 Params['UNITMASS_IN_G'] = np.float64(Params['UNITMASS_IN_G'])
 Params['UNITVELOCITY_IN_CM_PER_S'] = np.float64(Params['UNITVELOCITY_IN_CM_PER_S'])
@@ -116,6 +132,9 @@ else:
     print("Error: unkown IC generator!\nExiting.\n")
     sys.exit(2)
 print("Executable:\t%s\n" % Params['EXECUTABLE'])
+if not exists(Params['EXECUTABLE']):
+    print("Error: the " + Params['EXECUTABLE'] + "executable does not exist. Exiting...")
+    exit(2)
 if (Params['BIN_MODE'] > 1) or (Params['BIN_MODE'] < 0):
     print("Error: unkown binning mode %i!\nExiting.\n" % Params['BIN_MODE'])
     sys.exit(2)
@@ -146,11 +165,28 @@ if Params['LOCAL_EXECUTION'] == 0 or Params['LOCAL_EXECUTION'] == 2:
 #Calculating the density from the cosmological Parameters
 rho_crit = 3*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V #in internal units
 rho_mean = Params['OMEGAM']*rho_crit
+if Params['USECAMBINPUTSPECTRUM']:
+    #setting the initial power spectrum with CAMB
+    print("Calculating input spectrum with CAMB...")
+    ombh2  = Params['OMEGAB'] * (Params['H0']/100.0)**2
+    omch2  = (Params['OMEGAM'] - Params['OMEGAB']) * (Params['H0']/100.0)**2
+    omk    = 1.0 - Params['OMEGAL'] - Params['OMEGAM']
+    kmin   = 1.0*np.pi/Params['LBOX']
+    kmax   = 100.0
+    npoints= 2048
+    kh, pk = get_CAMB_Linear_SPECTRUM(H0=Params['H0'], ombh2=ombh2, omch2=omch2, omk=omk,ns=Params['PRIMORDIALINDEX'],redshift=Params['REDSHIFT'],kmin=kmin,kmax=kmax,npoints=npoints,sigma8=Params['SIGMA8'],DE=Params['DARKENERGYMODEL'],DE_params=Params['DARKENERGYPARAMS'])
+    initialspectrumfilename = Params['FILEWITHINPUTSPECTRUM']
+    outarray = np.vstack((np.log10(kh),np.log10(pk*kh**3/(2*np.pi**2)))).T
+    np.savetxt(initialspectrumfilename,outarray)
+    renormalizeinputspectrum = 0
+    print("...done")
 #Loading the input glass:
 print("Loading the %s input glass file..." % Params['GLASSFILE'])
-input_glass = np.fromfile(Params['GLASSFILE'], count=-1, sep='\t', dtype=np.float32)
-input_glass = input_glass.reshape(int(len(input_glass)/7),7)
+glasscoords,glassmasses = Load_snapshot(Params['GLASSFILE'])
+input_glass = np.vstack((np.hstack((glasscoords,np.zeros(glasscoords.shape,dtype=np.double))).T,glassmasses)).T
 Npart = len(input_glass)
+del(glasscoords)
+del(glassmasses)
 print("...done.")
 #Calculating the total mass, and the average density
 M_tot = np.sum(input_glass[:,6])
@@ -209,11 +245,11 @@ if Params['NMESH'] == 0:
         for i in range(0,len(Nsample_tab)):
             paramfile_name[i] = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".param"
             if Params['ICGENERATORTYPE'] == 0:
-                Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'] )
+                Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'], Params['FIXED_AMPLITUDES_ENABLED'], Params['FIXED_AMPLITUDES'], renormalizeinputspectrum)
             elif Params['ICGENERATORTYPE'] == 1:
-                Write_NgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+                Write_NgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], renormalizeinputspectrum, Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'], Params['FIXED_AMPLITUDES_ENABLED'], Params['FIXED_AMPLITUDES'])
             elif Params['ICGENERATORTYPE'] == 2:
-                Write_LgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+                Write_LgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'] + "_%i" % i, Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'], Params['FIXED_AMPLITUDES_ENABLED'], Params['FIXED_AMPLITUDES'])
             else:
                 print("Error: unkown IC generator!\nExiting.\n")
                 sys.exit(2)
@@ -243,14 +279,18 @@ if Params['NMESH'] == 0:
         if Params['MPITASKS'] == 1:
             #reading only 1 gadget file
             if Params['ICGENERATORTYPE'] == 2:
-                print("    Loading the " + Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0" + " file...")
-                snapshot = glio.GadgetSnapshot(Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0")
+                filename = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0"
             else:
-                print("    Loading the " + Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + " file...")
-                snapshot = glio.GadgetSnapshot(Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i)
+                filename = Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i
+            if exists(filename):
+                print("    Loading the " + filename + " file...")
+                snapshot = glio.GadgetSnapshot(filename)
                 snapshot.load()
                 X_tmp = snapshot.pos[1] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
                 V_tmp = snapshot.vel[1]
+            else:
+                print("Error: the " + filename + " file does not exist. Exiting...")
+                exit(-3)
         else:
             #reading multiple gadget file
             for j in range(0,Params['MPITASKS']):
@@ -265,6 +305,9 @@ if Params['NMESH'] == 0:
                         index_of_this_particle=snapshot.ID[1][k]-1
                         X_tmp[index_of_this_particle] = snapshot.pos[1][k] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
                         V_tmp[index_of_this_particle] = snapshot.vel[1][k]
+                else:
+                    print("Error: the " + filename + " file does not exist. Exiting...")
+                    exit(-3)
 
         print("    ...done.\n    Calculating the displacement field...")
         Disp_field[i,:,:] = X_tmp-input_glass[:,0:3]
@@ -303,11 +346,11 @@ else:
             print("Warning: Nsample (=%i) > Nmesh (=%i). Setting Nsample to %i." % (Nsample, Params['NMESH'], Params['NMESH']))
             Nsample = Params['NMESH']
         if Params['ICGENERATORTYPE'] == 0:
-            Write_2LPTic_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], Params['PHASE_SHIFT_ENABLED'], Params['PHASE_SHIFT'])
+            Write_2LPTic_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], Params['PHASE_SHIFT_ENABLED'], Params['PHASE_SHIFT'], Params['FIXED_AMPLITUDES_ENABLED'], Params['FIXED_AMPLITUDES'], renormalizeinputspectrum)
         elif Params['ICGENERATORTYPE'] == 1:
-            Write_NgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['RENORMALIZEINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+            Write_NgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], renormalizeinputspectrum, Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'], Params['FIXED_AMPLITUDES_ENABLED'], Params['FIXED_AMPLITUDES'])
         elif Params['ICGENERATORTYPE'] == 2:
-            Write_LgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'])
+            Write_LgenIC_paramfile(paramfile_name, Params['NMESH'], Nsample, Params['LBOX']*UNIT_D/Params['UNITLENGTH_IN_CM']*(Params['H0']/100.0), Params['FILEBASE'], Params['OUTDIR'], gadget_glassfile, Params['OMEGAM'], Params['OMEGAL'], Params['OMEGAB'], Params['H0']/100.0, Params['REDSHIFT'], Params['SIGMA8'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['SEED'],Params['UNITLENGTH_IN_CM'],Params['UNITMASS_IN_G'],Params['UNITVELOCITY_IN_CM_PER_S'],Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],Params['PHASE_SHIFT_ENABLED'],Params['PHASE_SHIFT'], Params['FIXED_AMPLITUDES_ENABLED'], Params['FIXED_AMPLITUDES'])
         else:
             print("Error: unkown IC generator!\nExiting.\n")
             sys.exit(2)
@@ -374,6 +417,7 @@ if Params['COMOVINGIC'] == 0:
     print("Rescaling the IC and adding the Hubble flow for non-comoving simulation...")
     a_start = 1.0/(Params['REDSHIFT']+1.0)
     Hubble_start = Params['H0']*np.sqrt(np.power(a_start, -3.0)*Params['OMEGAM'] + Params['OMEGAL'] + np.power(a_start, -2.0)*(1-Params['OMEGAM']-Params['OMEGAL']))
+    print("Initial Hubble parameter: %f km/s/Mpc" % Hubble_start)
     for i in range(0,Npart):
         for k in range(0,3):
             IC[i,k] = IC[i,k] * a_start
@@ -400,7 +444,7 @@ print("Saving %s IC file..." % outputfilename)
 if Params['OUTPUTFORMAT'] == 0:
     np.savetxt(outputfilename, IC, delimiter='\t')
 if Params['OUTPUTFORMAT'] == 2:
-    writeHDF5snapshot(IC, outputfilename, np.double(2.0*Params['RSIM']), Params['REDSHIFT'], Params['OUTPUTPRECISION'])
+    writeHDF5snapshot(IC, outputfilename, np.double(2.0*Params['RSIM']), Params['REDSHIFT'], Params['OMEGAM'], Params['OMEGAL'], Params['H0']/100.0, Params['OUTPUTPRECISION'])
 print("...done\n")
 print("Calculating redshifts for the spherical shells...")
 #calculating the comoving distances of the particles
@@ -428,7 +472,15 @@ if Params['BIN_MODE'] == 1:
     if Params['HINDEPENDENTUNITS'] == 1:
         shell_limits *= h
 #calculating redshift-comoving distance function for the redshift cone
-cosmo = LambdaCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'])
+if Params['DARKENERGYMODEL'] == 'Lambda':
+    #LCDM model
+    cosmo = LambdaCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'])
+elif Params['DARKENERGYMODEL'] == 'w0':
+    #wCDM model
+    cosmo = wCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'],w0=Params['DARKENERGYPARAMS'][0])
+elif Params['DARKENERGYMODEL'] == 'CPL':
+    #w0waCDM model
+    cosmo = w0waCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'],w0=Params['DARKENERGYPARAMS'][0],wa=Params['DARKENERGYPARAMS'][1])
 for i in range(0,len(z_list)):
     z_list[i] = z_at_value(cosmo.comoving_distance, r_list[i]*u.Mpc)
 if Params['OUTPUTFORMAT'] == 0:

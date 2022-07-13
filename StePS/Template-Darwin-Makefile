@@ -1,11 +1,11 @@
 
 #-----------------------------------------------------------------------------------------------#
 # StePS Makefile
-# Copyright (C) 2017-2022 Gabor Racz
+# Copyright (C) 2017-2024 Gabor Racz
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.0.1.0"'
+VERSION='"v1.0.2.0"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -40,13 +40,13 @@ OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
 CXX = /usr/local/opt/llvm/bin/clang
 
 #------------------------------- Location of the OpenMP libraries
-OMP_LIBS = -L/usr/local/Cellar/libomp/13.0.0/lib
-OMP_INC = -I/usr/local/Cellar/libomp/13.0.0/include
+OMP_LIBS = -L/usr/local/Cellar/libomp/17.0.5/lib
+OMP_INC = -I/usr/local/Cellar/libomp/17.0.5/include
 
 
 #------------------------------- Location of the HDF5 libraries
-HDF5_LIBS = -L/usr/local/Cellar/hdf5/1.12.1/lib
-HDF5_INC = -I/usr/local/Cellar/hdf5/1.12.1/include
+HDF5_LIBS = -L/usr/local/Cellar/hdf5/1.14.2/lib
+HDF5_INC = -I/usr/local/Cellar/hdf5/1.14.2/include
 
 #---------------- Do not edit beyond this line! ----------------
 

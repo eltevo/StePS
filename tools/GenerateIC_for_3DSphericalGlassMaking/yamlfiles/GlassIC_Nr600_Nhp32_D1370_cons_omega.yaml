@@ -1,7 +1,7 @@
 BIN_MODE: 0
 NSHELL: 12288
-GLASSFILE: "/home/ragraat/Egyetem/GlassFiles/glass_32M.dat"
-BASEOUT: "./GlassICs/GlassIC_Nr600_Nhp32_D1370_const_omega.dat"
+GLASSFILE: "periodicglass_32M"
+BASEOUT: "./GlassIC_Nr600_Nhp32_D1370_const_omega.hdf5"
 NRBINS: 600
 D_S: 60.0
 OMEGA_M: 0.25
@@ -10,4 +10,4 @@ HUBBLE_CONSTANT: 73.00
 RSIM: 684.931506849315
 RCRIT:  45.00
 RANDSEED: 1236
-MAKEPLOTS: 1
+MAKEPLOTS: True

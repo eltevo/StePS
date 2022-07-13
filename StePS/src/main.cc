@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
 	}
 	if(rank == 0)
 	{
-		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2022 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
+		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2024 Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
 		printf("Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
 		printf("Compiled with: %s", COMPILER_VERSION);
 		unsigned long int I;
@@ -550,11 +550,11 @@ int main(int argc, char *argv[])
 	{
 	if(COMOVING_INTEGRATION == 1)
 	{
-		Omega_m = Omega_b+Omega_dm;
+		Omega_dm = Omega_m-Omega_b;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3.0*H0*H0/(8.0*pi);
 		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
-		M_tmp = Omega_dm*rho_crit*pow(L, 3.0)/((REAL) N);
+		M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
 		#ifdef PERIODIC
 		if(IC_FORMAT == 1)
 		{
@@ -578,13 +578,13 @@ int main(int argc, char *argv[])
 			rho_mean_full_box = Kahan_t;
 		}
 		rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
-		if(fabs(rho_mean_full_box/(rho_crit*Omega_dm) - 1) > 1e-5)
+		if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-5)
 		{
 			 #if COSMOPARAM>=0 || !defined(COSMOPARAM)
-			 fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters!\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_dm));
+			 fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters!\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_m));
 			 return (-1);
 			 #else
-			 printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_dm));
+			 printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_m));
 			 #endif
 		}
 		#endif
@@ -598,8 +598,25 @@ int main(int argc, char *argv[])
 			return (-1);
 		}
 		if(rank == 0)
-			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nThis run will be in non-comoving coodinates. As a consequence, this will be a full Newtonian cosmological simulation. Make sure that you set the correct parameters at the IC making.\na_max is used as maximal time in Gy in the parameter file.\n\n");
-		Omega_m = Omega_b+Omega_dm;
+		{
+			#if COSMOPARAM==0 || !defined(COSMOPARAM)
+			printf("COSMOLOGY = 1 and COMOVING_INTEGRATION = 0:\nThis run will be in non-comoving coodinates. As a consequence, this will be a fully Newtonian cosmological simulation.\nMake sure that you set the correct parameters at the IC making.\na_max is used as maximal time in Gy in the parameter file.\n\n");
+			#else
+			printf("ERROR: COSMOLOGY = 1 and COMOVING_INTEGRATION = 0 and using ");
+				#if COSMOPARAM==-1
+					printf("tabulated expansion history.\n");
+				#elif COSMOPARAM==1
+					printf("wCDM cosmology parametrization.\n");
+				#elif COSMOPARAM==2
+					printf("CPL dark energy equation of state.\n");
+				#else
+					printf("unkown cosmology parametrization.\n");
+				#endif
+			printf("This is not supported in version %s. Exiting...\n", PROGRAM_VERSION);
+			return (-1);
+			#endif
+		}
+		Omega_dm = Omega_m - Omega_b;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3*H0*H0/(8*pi);
 	}
@@ -712,17 +729,18 @@ int main(int argc, char *argv[])
 				}
 				else
 				{
-					i=0;
-					while(out_list[i] > 1.0/a-1.0)
+					out_z_index=0;
+					while(out_list[out_z_index] >= 1.0/a-1.0)
 					{
-						t_next = out_list[i];
-						i++;
-						if(i == out_list_size && out_list[i] > 1.0/a-1.0)
+						out_z_index++;
+						t_next = out_list[out_z_index];
+						if(out_z_index >= out_list_size || out_list[out_z_index] < 1.0/a_max-1.0)
 						{
 							fprintf(stderr, "Error: No valid output redshift!\nExiting.\n");
 							return (-2);
 						}
 					}
+					printf("Next output redshift = %f (out_list[out_z_index=%i]=%f)\n",t_next,out_z_index,out_list[out_z_index]);
 				}
 			}
 			else
@@ -734,16 +752,17 @@ int main(int argc, char *argv[])
 				else
 				{
 					i=0;
-					while(out_list[i] < T)
+					while(out_list[i] <= T)
 					{
 						t_next = out_list[i];
 						i++;
-						if(i == out_list_size && out_list[i] < T)
+						if(i == out_list_size)
 						{
 							fprintf(stderr, "Error: No valid output time found in the OUT_LST file!\nExiting.\n");
 							return (-2);
 						}
 					}
+					printf("Next output time = %fGy (out_list[%i]=%fGy)\n",t_next,i,out_list[out_z_index]);
 				}
 			}
 		}
@@ -890,28 +909,35 @@ int main(int argc, char *argv[])
 	{
 		if(rank == 0)
 		{
-		printf("\n\n------------------------------------------------------------------------------------------------\n");
-		if(COSMOLOGY == 1)
-                {
-			if(COMOVING_INTEGRATION == 1)
-			{
-				if(h*UNIT_T >= 1.0)
-                        		printf("Timestep %i, t=%.8fGy, h=%fGy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
-				else
-					printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
-			}
-			else
-			{
-				if(h*UNIT_T >= 1.0)
-					printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*UNIT_T, h*UNIT_T);
-				else
-					printf("Timestep %i, t=%.8fGy, h=%fMy\n", t, T*UNIT_T, h*UNIT_T*1000.0);
-			}
-                }
-                else
-                {
-                        printf("Timestep %i, t=%f, h=%f:\n", t, T, h);
-                }
+			printf("\n\n------------------------------------------------------------------------------------------------\n");
+			if(COSMOLOGY == 1)
+    	{
+								if(COMOVING_INTEGRATION == 1)
+								{
+									if(h*UNIT_T >= 1.0)
+						         printf("Timestep %i, t=%.8fGy, h=%fGy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+									else
+										printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+									if(OUTPUT_TIME_VARIABLE == 0)
+										printf("Next output time = %f Gy\n",t_next*UNIT_T );
+									else if (OUTPUT_TIME_VARIABLE == 1)
+										printf("Next output redshift = %f\n",t_next);
+								}
+								else
+								{
+									if(h*UNIT_T >= 1.0)
+										printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*UNIT_T, h*UNIT_T);
+									else
+										printf("Timestep %i, t=%.8fGy, h=%fMy\n", t, T*UNIT_T, h*UNIT_T*1000.0);
+									if(OUTPUT_TIME_VARIABLE == 0)
+										printf("Next output time = %f Gy\n",t_next*UNIT_T );
+								}
+      }
+      else
+      {
+              printf("Timestep %i, t=%f, h=%f:\n", t, T, h);
+							printf("Next output time = %f\n",t_next);
+    	}
 		}
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
@@ -1108,9 +1134,9 @@ int main(int argc, char *argv[])
 		//Timing
 		double SIM_omp_end_time = omp_get_wtime();
 		//Timing
-		printf("Wall-clock time of the simulation = %fs\n", SIM_omp_end_time-SIM_omp_start_time);
+		printf("Wall-clock time of the simulation = %fs (=%fh)\n", SIM_omp_end_time-SIM_omp_start_time, (SIM_omp_end_time-SIM_omp_start_time)/3600.0);
 		#ifdef USE_CUDA
-		printf("Total GPU time = %fh\n", (SIM_omp_end_time-SIM_omp_start_time)*numtasks*omp_threads/3600.0);
+		printf("Total GPU time = %fh\n", (SIM_omp_end_time-SIM_omp_start_time)*numtasks*n_GPU/3600.0);
 		#else
 		printf("Total CPU time = %fh\n", (SIM_omp_end_time-SIM_omp_start_time)*numtasks*omp_threads/3600.0);
 		#endif

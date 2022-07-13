@@ -1,0 +1,18 @@
+INFILE_BASENAME: "../../StePS/examples/LCDM_SP_1860_noncom_VOI100/snapshot"
+ICFILE: "../../StePS/examples/ic/IC_LCDM_SP_1860Mpc_Nr224_Nhp32_ds105_z63_VOI100_notcomoving.hdf5"
+COMOVING: False
+OUTFILE_BASENAME: "./animation_noncom/frame"
+CENTER:
+ - 0.0
+ - 0.0
+ - 0.0
+R_PLOT: 160.0
+R_CAMERA: 85.0
+RESOLUTION:
+ - 800
+ - 600
+NSNAPSHOTS: 14
+NINTERPOLATION: 10
+ROT_IN_DEGREES: 0.0
+INIT_THETA_IN_DEGREES: 90.0
+CMAP: "inferno"

@@ -1,6 +1,22 @@
 # Change Log
 All notable changes to the StePS simulation code will be documented in this file.
 
+## [v1.0.2.0] - 2024-01-23
+
+
+### Added
+- Added error message for non-comoving non-standard simulations
+- Added non-comoving example simulation
+
+### Changed
+- Omega_dm parameter is changed to Omega_m in the paramfile.
+- Updated example simulations (better filenames, Planck 2018 parameters, updated readme)
+- Simulation wall-clock time is written out in hours too at the end of the simulation.
+- Next output time/redshift is written to stdout in every timestep.
+
+### Fixed
+- Fixed redshift output bug
+
 ## [v1.0.1.0] - 2022-07-11
 
 
