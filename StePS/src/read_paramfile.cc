@@ -39,7 +39,7 @@ void BCAST_global_parameters()
 	//Cosmological parameters
 	MPI_Bcast(&Omega_b,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&Omega_lambda,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
-	MPI_Bcast(&Omega_dm,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Omega_m,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&Omega_r,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&H0,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #if COSMOPARAM==1
@@ -75,7 +75,7 @@ int i;
 char c[BUFF_SIZE];
 char str01[] = "Omega_b";
 char str02[] = "Omega_lambda";
-char str03[] = "Omega_dm";
+char str03[] = "Omega_m";
 char str04[] = "Omega_r";
 char str05[] = "HubbleConstant";
 char str06[] = "IC_FILE";
@@ -127,7 +127,7 @@ while(!feof(param_file))
 	}
 	if(strstr(c, str03) != NULL)
 	{
-		sscanf(c, "%*s\t%lf", &Omega_dm);
+		sscanf(c, "%*s\t%lf", &Omega_m);
 	}
 	if(strstr(c, str04) != NULL)
 	{
@@ -301,7 +301,7 @@ while(!feof(param_file))
   }
   if(strstr(c, str03) != NULL)
   {
-    sscanf(c, "%*s\t%lf", &Omega_dm);
+    sscanf(c, "%*s\t%lf", &Omega_m);
   }
   if(strstr(c, str04) != NULL)
   {
@@ -467,7 +467,7 @@ printf("...done.\n\n");
 fclose(param_file);
 if(COSMOLOGY == 1)
 {
-	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_dm\t%f\nOmega_r\t\t%f\nOmega_m\t\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%.14f\t(z_start = %f)\n",Omega_b, Omega_lambda, Omega_dm, Omega_r, Omega_b+Omega_dm, 1-Omega_b-Omega_lambda-Omega_dm-Omega_r, H0*UNIT_V, a_start, (1.0/a_start - 1.0));
+	printf("Cosmological parameters:\n------------------------\nOmega_b\t\t%f\nOmega_lambda\t%f\nOmega_m\t\t%f\nOmega_r\t\t%f\nOmega_dm\t%f\nOmega_k\t\t%f\nH0\t\t%f(km/s)/Mpc\na_start\t\t%.14f\t(z_start = %f)\n",Omega_b, Omega_lambda, Omega_m, Omega_r, Omega_m-Omega_b, 1-Omega_m-Omega_lambda-Omega_r, H0*UNIT_V, a_start, (1.0/a_start - 1.0));
 	#if !defined(COSMOPARAM) || COSMOPARAM==0
 	printf("\n");
 	#elif COSMOPARAM==1

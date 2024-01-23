@@ -19,7 +19,10 @@ G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulation
 
 [![StePS example simulation #1, central part](Images/Example1_evolution_center_youtube.png)](https://youtu.be/NzGt-pt4TiY "StePS example simulation #1, central high resolution volume")
 
+![alt text](Images/StePS_Vel_Dens_part_dark.png "Combined image of the density, velocity field, and dark matter particles in a StePS simulation.")
+
 ![alt text](Images/VOI100_InnerRegion.png "Particles in the center of a simulation volume.")
+
 ![alt text](Images/VOI100_Disp_InnerRegion.png "The displacement field in the same volume at z=0.")
 
 ## Acknowledgement

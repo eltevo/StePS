@@ -8,8 +8,8 @@
                                                |_|    |___/
 StePS_IC.py - an IC generator python script for STEreographically Projected cosmological Simulations
 
-v1.0.0.0
-Copyright (C) 2018-2022 Gábor Rácz
+v1.0.1.0
+Copyright (C) 2018-2024 Gábor Rácz
 	Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
 	Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218
@@ -39,9 +39,13 @@ Dependencies:
 	Python:
 	-future
 	-glio (https://github.com/spthm/glio)
+  -pygadgetreader (https://github.com/jveitchmichaelis/pygadgetreader)
+  -pynverse
 	-h5py
 	-yaml
 	-astropy
+  -camb
+  -colossus (https://bdiemer.bitbucket.io/colossus/)
 	External:
 	-NgenIC or 2LPTic
 
@@ -60,6 +64,10 @@ OMEGAL: 0.6911			%Cosmological constant density parameter
 OMEGAB: 0.0000			%Barionic matter density parameter
 
 H0: 67.74			%Hubble constant
+
+DARKENERGYMODEL: 'Lambda' %Dark energy model. Supported models: 'Lambda', 'w0', 'CPL'
+DARKENERGYPARAMS:
+  - -1.0                  %list of the parameters of the dark energy models (w0: w0; CPL: w0,wa)
 
 REDSHIFT: 31.0			%initial redshift
 
@@ -119,6 +127,7 @@ ICGENERATORTYPE: 0		% "0": 2LPTic
 EXECUTABLE: ../2LPTic/2LPTic	% Location of the external executable
 
 FILEWITHINPUTSPECTRUM: ./input_spectrum.txt	% Input spectrum file
+USECAMBINPUTSPECTRUM: False   % If true, the initial spectrum will be calculated by CAMB.
 
 UNITLENGTH_IN_CM: 3.085678e24
 UNITMASS_IN_G: 1.989e43
@@ -149,3 +158,4 @@ Acknowledgement
   The development of this code has been supported by Department of Physics of Complex Systems, ELTE.
   GR would like to thank the Department of Physics & Astronomy, JHU for supporting this work.
   GR acknowledges sponsorship of a NASA Postdoctoral Program Fellowship. GR was supported by JPL, which is run under contract by California Institute of Technology for NASA.
+  The developer acknowledges support from the National Science Foundation (NSF) award 1616974.

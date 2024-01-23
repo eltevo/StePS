@@ -16,7 +16,7 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
-def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT):
+def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT, FIXED_AMPLITUDES_ENABLED, FIXEDAMPLITUDES, RENORMALIZEINPUTSPECTRUM):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
     "                           %% should have Nmesh >= Nsample.\n" \
@@ -93,12 +93,15 @@ def Write_2LPTic_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUT
     % (NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8, SPHEREMODE,WHICHSPECTRUM, FILEWITHINPUTSPECTRUM,INPUTSPECTRUM_UNITLENGTH_IN_CM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S)
     if bool(PHASE_SHIFT_ENABLED)==True:
         outstring = outstring + "PhaseShift             %.14f        %% Phase shift in degrees\n\n\n" % PHASESHIFT
+    if bool(FIXED_AMPLITUDES_ENABLED)==True:
+        outstring = outstring + "FixedAmplitudes             %i        %% If set zero, the delta amplitudes will be generated from Raleigh distribution. If set to one, all generated amplitude will have fixed (average) value\n\n\n" % FIXEDAMPLITUDES
+        outstring = outstring + "ReNormalizeInputSpectrum    %i        %% Renormalization of the input tabulated spectrum\n\n\n" % RENORMALIZEINPUTSPECTRUM
     paramfile = open(PARAMFILENAME, "w")
     paramfile.write(outstring)
     paramfile.close()
     return;
 
-def Write_NgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,RENORMALIZEINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT):
+def Write_NgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,RENORMALIZEINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT, FIXED_AMPLITUDES_ENABLED, FIXEDAMPLITUDES):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
     "                           %% should have Nmesh >= Nsample.\n" \
@@ -180,12 +183,14 @@ def Write_NgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUT
     % (NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8 ,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,INPUTSPECTRUM_UNITLENGTH_IN_CM,RENORMALIZEINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S)
     if bool(PHASE_SHIFT_ENABLED)==True:
         outstring = outstring + "PhaseShift             %.14f        %% Phase shift in degrees\n\n\n" % PHASESHIFT
+    if bool(FIXED_AMPLITUDES_ENABLED)==True:
+        outstring = outstring + "FixedAmplitudes             %i        %% If set zero, the delta amplitudes will be generated from Raleigh distribution. If set to one, all generated amplitude will have fixed (average) value\n\n\n" % FIXEDAMPLITUDES
     paramfile = open(PARAMFILENAME, "w")
     paramfile.write(outstring)
     paramfile.close()
     return;
 
-def Write_LgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT):
+def Write_LgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S,INPUTSPECTRUM_UNITLENGTH_IN_CM, PHASE_SHIFT_ENABLED, PHASESHIFT, FIXED_AMPLITUDES_ENABLED, FIXEDAMPLITUDES):
     outstring = "Nmesh            %i       %% This is the size of the FFT grid used to\n" \
     "                           %% compute the displacement field. One\n" \
     "                           %% should have Nmesh >= Nsample.\n" \
@@ -266,6 +271,8 @@ def Write_LgenIC_paramfile(PARAMFILENAME, NMESH, NSAMPLE, LBOX, OUTFILENAME, OUT
     % (NMESH, NSAMPLE, LBOX, OUTFILENAME, OUTFILEDIR, INPUTFILE, Om, Ol, Ob, h, Z, SIGMA8 ,SPHEREMODE,WHICHSPECTRUM,FILEWITHINPUTSPECTRUM,INPUTSPECTRUM_UNITLENGTH_IN_CM,SHAPEGAMMA,PRIMORDIALINEX,SEED,UNITLENGTH_IN_CM,UNITMASS_IN_G,UNITVELOCITY_IN_CM_PER_S)
     if bool(PHASE_SHIFT_ENABLED)==True:
         outstring = outstring + "PhaseShift             %.14f        %% Phase shift in degrees\n\n\n" % PHASESHIFT
+    if bool(FIXED_AMPLITUDES_ENABLED)==True:
+        outstring = outstring + "FixedAmplitudes             %i        %% If set zero, the delta amplitudes will be generated from Raleigh distribution. If set to one, all generated amplitude will have fixed (average) value\n\n\n" % FIXEDAMPLITUDES
     paramfile = open(PARAMFILENAME, "w")
     paramfile.write(outstring)
     paramfile.close()

@@ -1,11 +1,34 @@
 #!/usr/bin/env python3
 
+#*******************************************************************************#
+#  GenerateIC_for_3DSphericalGlassMaking.py - IC generator for StePS glasses    #
+#     STEreographically Projected cosmological Simulations                      #
+#    Copyright (C) 2018-2022 Gabor Racz                                         #
+#                                                                               #
+#    This program is free software; you can redistribute it and/or modify       #
+#    it under the terms of the GNU General Public License as published by       #
+#    the Free Software Foundation; either version 2 of the License, or          #
+#    (at your option) any later version.                                        #
+#                                                                               #
+#    This program is distributed in the hope that it will be useful,            #
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
+#    GNU General Public License for more details.                               #
+#*******************************************************************************#
+
+from os.path import exists
 import numpy as np
 import healpy as hp
 from pynverse import inversefunc
 import yaml
 import sys
+# adding ../../StePS_IC/src/ to the system path
+sys.path.insert(0, '../../StePS_IC/src/')
+from inputoutput import *
 import time
+
+_VERSION = "v0.3.0.0dev"
+_YEAR    = "2018-2022"
 
 #Defining functions for the constant omega binning
 def Calculate_rlimits_i(i, d_s, N_r_bin, last_cell_size):
@@ -96,7 +119,7 @@ def Generate_random_shell(Nshell):
 
 
 #Begininng of the script
-print("----------------------------------------------------------------------------------------------\nGenerateIC_for_3DSphericalGlassMaking v0.2.1.2\n (A 3D initial condition generator for glass making.)\n\n Gabor Racz, 2018-2022\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n----------------------------------------------------------------------------------------------\n\n")
+print("----------------------------------------------------------------------------------------------\nGenerateIC_for_3DSphericalGlassMaking %s\n (An initial condition generator for 3D spherical glass making.)\n\n Gabor Racz, %s\n\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\n\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n----------------------------------------------------------------------------------------------\n\n" % (_VERSION,_YEAR))
 
 #read the input parameters (from the first argument)
 if len(sys.argv) != 2:
@@ -119,7 +142,7 @@ if (Params['BIN_MODE'] > 1) or (Params['BIN_MODE'] < 0):
     print("Error: Binning mode = %i\n Unknown binning mode!\n Exiting." % Params['BIN_MODE'])
     sys.exit(2)
 #importing the matplotlib, if MAKEPLOTS is on
-if Params['MAKEPLOTS'] == 1:
+if Params['MAKEPLOTS'] == True:
     import matplotlib
     #matplotlib.use('Qt5Agg')
     import matplotlib.pyplot as plt
@@ -162,7 +185,7 @@ if Params['BIN_MODE'] == 1:
     print(np.array(( Calculate_rlimits_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM']),r, Calculate_rlimits_i_cvol(i+1, Params['D_S'], Params['NRBINS'], Params['RSIM']),Mass)).T)
 
 particle_data = np.zeros((N_part,7)) #x, y, z, vx, vy, vz, Mass
-if Params['MAKEPLOTS'] == 1:
+if Params['MAKEPLOTS'] == True:
     Mill_res = 0.86/(73.0/100.0)/100 + 0*i
     plt.figure(figsize=(10, 8))
     plt.xlabel(r'$r[Mpc]$')
@@ -204,41 +227,61 @@ if Params['BIN_MODE'] == 1:
             particle_data[(j*Params['NSHELL']+i),0:3] = (r_j_limit_shell+displacement)*spherical_glass[i,0:3]
             particle_data[(j*Params['NSHELL']+i),6] = Mass[j]
 if Params['BIN_MODE'] == 0:
-    #Generating the r<RCRIT range from the input periodic glass
-    print("Reading the %s input periodic glass..." % Params['GLASSFILE'])
-    periodic_glass = np.fromfile(Params['GLASSFILE'], count=-1, sep='\t', dtype=np.float64)
-    periodic_glass = periodic_glass.reshape(int(len(periodic_glass)/6),6)
-    L = np.max(periodic_glass)
-    #deleting the velocities
-    periodic_glass = np.delete(periodic_glass, [4,5], axis=1)
-    print("...done\n")
-    if len(periodic_glass)<N_part_inside:
-        print("Error: The input periodic glass do not contains enough particles!\nUse bigger input glass, or try to use newer version of this script if available!\nExiting...\n")
-        sys.exit()
-    #Shifting the glass to the center
-    periodic_glass = periodic_glass-L/2
-    #Calculating r for every particle
-    periodic_glass[:,3] = np.sqrt(periodic_glass[:,0]**2 + periodic_glass[:,1]**2 + periodic_glass[:,2]**2 )
-    #sorting the periodic glass
-    print("Sorting the data...")
-    ind = np.argsort(periodic_glass[:,3])
-    periodic_glass = np.array([periodic_glass[j,:] for j in ind])
-    print("...done\n")
-    #Cutting off the corners of the periodic box
-    end_index = np.searchsorted(periodic_glass[:,3], L/2, 'right')
-    periodic_glass = np.delete(periodic_glass, np.array(range(end_index,len(periodic_glass))), axis=0)
-    if end_index<N_part_inside:
-        print("Error: The input periodic glass do not contains enough particles!\nUse bigger input glass, or try to use newer version of this script if available!\nExiting...\n")
-        sys.exit()
-    #Cutting out the particles we only need
-    print("\tN_part_inside: %i\tend_index: %i" % (N_part_inside, end_index))
-    periodic_glass = np.delete(periodic_glass, np.array(range(N_part_inside,end_index)), axis=0)
-    #Rescaling the sphere
-    periodic_glass = periodic_glass / periodic_glass[N_part_inside-1,3] * Calculate_rlimits_i(i_crit-0.25, Params['D_S'], Params['NRBINS'], last_cell_size)
-    #copying the particles inside the constant resolution region
-    particle_data[0:N_part_inside,0:3] = periodic_glass[:,0:3]
-    particle_data[0:N_part_inside,6] = Mass_res_inside
-if Params['MAKEPLOTS'] == 1:
+    if exists(Params['GLASSFILE']):
+        #Generating the r<RCRIT range from the input periodic glass
+        print("Reading the %s input periodic glass..." % Params['GLASSFILE'])
+        #periodic_glass = np.fromfile(Params['GLASSFILE'], count=-1, sep='\t', dtype=np.float64)
+        #periodic_glass = periodic_glass.reshape(int(len(periodic_glass)/6),6)
+        periodic_glass,masses = Load_snapshot(Params['GLASSFILE'],CONSTANT_RES=True,SILENT=False)
+        del(masses)
+        periodic_glass = np.append(periodic_glass,np.zeros([len(periodic_glass),1]),1)
+        #periodic_glass = np.hstack((coords,masses))
+        L = np.max(periodic_glass)
+        #deleting the velocities
+        #periodic_glass = np.delete(periodic_glass, [4,5], axis=1)
+        print("...done\n")
+        if len(periodic_glass)<N_part_inside:
+            print("Error: The input periodic glass do not contains enough particles!\nUse bigger input glass, or try to use newer version of this script if available!\nExiting...\n")
+            sys.exit()
+        #Shifting the glass to the center
+        periodic_glass = periodic_glass-L/2
+        #Calculating r for every particle
+        periodic_glass[:,3] = np.sqrt(periodic_glass[:,0]**2 + periodic_glass[:,1]**2 + periodic_glass[:,2]**2 )
+        #sorting the periodic glass
+        print("Sorting the data...")
+        ind = np.argsort(periodic_glass[:,3])
+        periodic_glass = np.array([periodic_glass[j,:] for j in ind])
+        print("...done\n")
+        #Cutting off the corners of the periodic box
+        end_index = np.searchsorted(periodic_glass[:,3], L/2, 'right')
+        periodic_glass = np.delete(periodic_glass, np.array(range(end_index,len(periodic_glass))), axis=0)
+        if end_index<N_part_inside:
+            print("Error: The input periodic glass do not contains enough particles!\nUse bigger input glass, or try to use newer version of this script if available!\nExiting...\n")
+            sys.exit()
+        #Cutting out the particles we only need
+        print("\tN_part_inside: %i\tend_index: %i" % (N_part_inside, end_index))
+        periodic_glass = np.delete(periodic_glass, np.array(range(N_part_inside,end_index)), axis=0)
+        #Rescaling the sphere
+        periodic_glass = periodic_glass / periodic_glass[N_part_inside-1,3] * Calculate_rlimits_i(i_crit-0.25, Params['D_S'], Params['NRBINS'], last_cell_size)
+        #copying the particles inside the constant resolution region
+        particle_data[0:N_part_inside,0:3] = periodic_glass[:,0:3]
+        particle_data[0:N_part_inside,6] = Mass_res_inside
+    else:
+        #If no peridoic glass is available, the script fills the internal volume with randomly placed particles
+        print("The glass file defined in the yaml file does not exists! Using randomly placed particles in the central region...")
+        generated_sphere = np.zeros((N_part_inside,3))
+        for i in range(0,N_part_inside):
+            generated_r = 2*Params['RCRIT']
+            while generated_r > Params['RCRIT']:
+                generated_sphere[i,:] = (np.random.rand(3)*2.0-1.0)*Params['RCRIT']
+                generated_r = np.sqrt(generated_sphere[i,0]**2+generated_sphere[i,1]**2+generated_sphere[i,2]**2)
+            if generated_r >= Params['RCRIT']:
+                print("Error: a generated particle is outside of the constant resolution volume: r= %f \nExiting.\n" % generated_r)
+                exit(-2)
+        particle_data[0:N_part_inside,0:3] = generated_sphere
+        particle_data[0:N_part_inside,6] = Mass_res_inside
+        print("...done.")
+if Params['MAKEPLOTS'] == True:
     print("Making plot...")
     alpha = 2.5/180.0*np.pi #2.5*2 degree viewing angle in RAD
     N_slice = 0
@@ -277,9 +320,9 @@ Tot_V = 4*np.pi/3*Params['RSIM']**3
 Avg_dens = (Tot_mass/Tot_V)/rho_mean
 print("The total Mass = %e 10e11M_sol\nThe volume = %eMpc^3\nThe mean density = %f" % (Tot_mass, Tot_V, Avg_dens))
 print("Saving...")
-np.savetxt(str(Params['BASEOUT']), particle_data, delimiter='\t')
+writeHDF5snapshot(particle_data,str(Params['BASEOUT']),Params['RSIM']*2, 0.0, Params['OMEGA_M'], Params['OMEGA_L'], Params['HUBBLE_CONSTANT'], 0)
 end = time.time()
-if Params['MAKEPLOTS'] == 0:
+if Params['MAKEPLOTS'] == False:
     print("...done.\n The generation of the IC for glass making took %fs" % (end-start))
 else:
     print("...done.")

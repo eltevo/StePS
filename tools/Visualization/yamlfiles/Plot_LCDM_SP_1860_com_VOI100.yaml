@@ -1,0 +1,17 @@
+INFILENAME: "../../StePS/examples/LCDM_SP_1860_noncom_VOI100/snapshot_0013.hdf5"
+OUTFILENAME: "./generated_image.png"
+R_PLOT: 620.0
+R_CUTOFF: "Auto"
+PLOTMODE: "Wedge"
+QUANTITY: "Coordinates"
+LOG_VELOCITY_COLORS: True
+ARROW_SCALE: -50
+SLICE_THICKNESS: 10
+WEDGE_ANGLE: 2
+RESOLUTION: 1024
+FIGSIZE: 6
+SLICE_AXIS: "Z"
+TITLE: "StePS Simulation"
+CMAP: "inferno"
+COLOR: "black"
+MARKER: "o"
