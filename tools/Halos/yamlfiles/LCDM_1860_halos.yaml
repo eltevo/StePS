@@ -1,0 +1,14 @@
+INFILE: "../../../Simulations/StePS/example_simulations/LCDM_SP_1860_com_VOI100/snapshot_0013.hdf5"
+RSIM: 930.026572187775
+LBOX: 1860.05314437555
+OMEGAM: 0.3111
+OMEGAL: 0.6889
+OMEGAB: 0.0
+H0: 67.66
+DARKENERGYMODEL: 'Lambda'
+DARKENERGYPARAMS:
+  - -1.0
+MASSDEF:
+  - "200b"
+  - "200c"
+  - "500c"
