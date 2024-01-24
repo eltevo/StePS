@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v1.0.2.0
+v1.0.2.2
 Copyright (C) 2017-2024 Gábor Rácz
   Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
   Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
@@ -170,8 +170,8 @@ Omega_lambda    0.6889			%Cosmological constant density parameters
 Omega_dm        0.3111			%Dark matter density parameter
 Omega_r         0.0			%Radiation density parameter
 HubbleConstant  67.66			%Hubble-constant
-a_start         0.015625			%Initial scalefactor
-a_max           1.0				%The final scalefactor
+a_start         0.015625			%Initial scalefactor ( in both COMOVING_INTEGRATION=1 and COMOVING_INTEGRATION=0 cases)
+a_max           1.0				%The final scalefactor (if COMOVING_INTEGRATION=1) or the final physical time (if COMOVING_INTEGRATION=0)
 
 
 Simulation parameters:
@@ -184,18 +184,19 @@ IC_FILE 	./examples/ic/IC_LCDM_SP_1860Mpc_Nr224_Nhp32_ds105_z63_VOI100_notcomovi
 IC_FORMAT       2						%Ic file format 0: ascii, 1:GADGET, 2:(Gadget-)HDF5
 OUT_DIR         ./examples/LCDM_SP_1860_noncom_VOI100/		%output directory
 OUT_LST         ./examples/outtimes2.txt	%output list file (if it is not availabe, then FIRST_T_OUT and H_OUT parameters will be used)
-OUTPUT_TIME_VARIABLE	1					%Output time variable 0: physical time, 1: redshift
+OUTPUT_TIME_VARIABLE	1					%Output time variable used in OUT_LST or in FIRST_T_OUT and H_OUT. 0: physical time in Gy, 1: redshift
 OUTPUT_FORMAT   2						%Output format 0: ASCII 2: (Gadget-)HDF5
 REDSHIFT_CONE   0						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 ACC_PARAM	0.005						%Accuracy parameter (using 0.012 results ~1% accuracy in the power spectrum)
 STEP_MIN           0.00025						%Minimal timestep length (in Gy)
 STEP_MAX           0.03125						%Maximal timestep length (in Gy)
-PARTICLE_RADII   0.134226516867827				%Softening length of particle with minimal mass
-FIRST_T_OUT     0.50						%First output time in Gy
-H_OUT           0.50						%Output frequency in Gy
+PARTICLE_RADII   0.134226516867827				%Softening length of particle with minimal mass (in comoving units, if COMOVING_INTEGRATION=1, otherwise in physical units)
+FIRST_T_OUT     0.50						%First output time in Gy, if OUTPUT_TIME_VARIABLE=0; First output redshift, if OUTPUT_TIME_VARIABLE=1;
+H_OUT           0.50						%Output frequency in Gy, if OUTPUT_TIME_VARIABLE=0; Output frequency in redshift, if OUTPUT_TIME_VARIABLE=1;
 SNAPSHOT_START_NUMBER	0					%Initial snapshot number. Useful for restarting simulations.
-H_INDEPENDENT_UNITS  0         %Units of the I/O files. 0: i/o in Mpc, Msol, etc. (default); 1: i/o in Mpc/h, Msol/h, etc.
+H_INDEPENDENT_UNITS   0         %Units of the I/O files. 0: i/o in Mpc, Msol, etc. (default); 1: i/o in Mpc/h, Msol/h, etc.
+TIME_LIMIT_IN_MIN     3600      %Simulation wall-clock time limit in minutes. If 0, or not defined, then no time limit will be considered.
 
 Optional parameters:    %These parameters are only needed when alternative cosmology parametrizations are turned on in the makefile.
 --------------------

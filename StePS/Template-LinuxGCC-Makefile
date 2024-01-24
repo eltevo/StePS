@@ -5,7 +5,7 @@
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.0.2.0"'
+VERSION='"v1.0.2.2"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -38,14 +38,14 @@ OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
 			#-1: the expansion history will be read from an external file
 
 #------------------------------- Compiler
-CXX = g++
+CXX = g++-10
 
 #------------------------------- Location of the MPI libraries
 MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc
 MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr/local/cuda-11.4
+CUDA_PATH       ?= /usr/local/cuda-12.6
 
 #------------------------------- Location of the HDF5 libraries
 HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
@@ -58,6 +58,8 @@ BUILD_DIR = ./build
 
 MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
 
+CPPSTD = gnu++98
+
 SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc
 DEPS = $(SRC_DIR)/global_variables.h
 OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o
@@ -65,7 +67,7 @@ OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o 
 COMPILERVERSION=$(shell $(CXX) --version | head -1)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
 BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"'
-CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=gnu++98 -fopenmp -lgomp
+CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp
 
 MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
 MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
@@ -76,8 +78,8 @@ OPT += -DUSE_CUDA
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread
-CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=gnu++98 --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
+CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread
+CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC += $(SRC_DIR)/forces_cuda.cu

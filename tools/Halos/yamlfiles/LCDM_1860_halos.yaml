@@ -1,0 +1,40 @@
+# Input snapshot parameters
+INFILE: "../../../../Simulations/StePS/example_simulations/LCDM_SP_1860_com_VOI100/snapshot_0012.hdf5"
+REDSHIFT: 0.0 #if the input file is in HDF5 format, this parameter will not be used.
+RSIM: 930.026572187775
+LBOX: 1860.05314437555
+PERIODIC: False
+PARTICLE_RADII: 0.0939585618074789 #for the minimal mass particles. For all other particles, this will be calculated based on this.
+UNIT_D_IN_MPC: 1.0 #Distance units in the snapshot in Mpc(/h)
+UNIT_V_IN_KMPS: 1.0 #Velocity units in the snapshot in km/s
+UNIT_M_IN_MSOL: 1.0e11 #Mass units in the snapshot in Msol(/h)
+H_INDEPENDENT_UNITS: False # h units of the input files. False: input in Mpc, Msol, etc. (this is StePS default); True: input in Mpc/h, Msol/h, etc. (This is GADGET/GIZMO default)
+# Cosmological parameters
+OMEGAM: 0.3111
+OMEGAL: 0.6889
+OMEGAR: 0.0
+OMEGAB: 0.0
+H0: 67.66
+DARKENERGYMODEL: 'Lambda'
+DARKENERGYPARAMS:
+  - -1.0
+# Output parameters
+OUTFILE: "./Halos_snapshot_0012_10th_CoMC" # basename of the generated halo catalog. If the output format is "ASCII", then the file extension will be ".dat". For "HDF5" catalogs, the output extension will be ".hdf5"
+OUTFORMAT: "BOTH" # output format of the generated catalog. Possible values: "ASCII", "HDF5", or "BOTH"
+SAVEPARTICLES: False # if True, then particle data will be stored for each halo (only for HDF5 format)
+# Halo Finder parameters
+INITIAL_DENSITY_MODE: "10th neighbor" # initial density estimation method. Possible values: "Voronoi" "10th neighbor"
+SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be investigated,  where dp is the typical particle separation
+KDWORKERS: 4 # number of worker threads in the KDTree search
+NPARTMIN: 10 # minimal particle number (should be at least 10)
+BOUNDONLYMODE: False #If True, particles with Etot>=0 will removed from the halo
+CENTERMODE: "CENTEROFMASSNPARTMIN" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
+MASSDEF:
+  - "200b"
+  - "200c"
+  - "500c"
+  - "1000c"
+  - "2500c"
+# Parallelization parameters
+DELTA_R: 5.25 # in Mpc(/h) units. Only used if more than one thread is used
+DELTA_THETA: 5.5 # in degrees. Only used if more than two thread is used

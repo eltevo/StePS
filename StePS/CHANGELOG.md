@@ -1,6 +1,19 @@
 # Change Log
 All notable changes to the StePS simulation code will be documented in this file.
 
+## [v1.0.2.2] - 2024-10-25
+
+### Added
+- Added error messages for non-comoving cosmological simulations
+- Added better descriptions to the README file
+
+### Changed
+- Updated linux-gcc makefile template
+
+### Fixed
+- Fixed malloc bug in the read_OUT_LST function
+- Fixed memory allocation typos in the HDF5 reader function
+
 ## [v1.0.2.0] - 2024-01-23
 
 
