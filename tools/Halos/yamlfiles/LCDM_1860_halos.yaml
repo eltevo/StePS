@@ -18,6 +18,8 @@ DARKENERGYPARAMS:
 INITIAL_DENSITY_MODE: "10th neighbor" # initial density estimation method. Possible values: "Voronoi" "10th neighbor"
 SEARCH_RADIUS_ALPHA: 4.5 # around each halo r<alpha*dp spherical volume will be investigated,  where dp is the typical particle separation
 KDWORKERS: 1 # number of worker threads in the KDTree search
+NPARTMIN: 10 # minimal particle number
+CENTERMODE: "CENTRALPARTICLE" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
 MASSDEF:
   - "200b"
   - "200c"
