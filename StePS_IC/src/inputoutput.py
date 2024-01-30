@@ -144,6 +144,18 @@ def Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=False,RETURN_IDs
         else:
             return Coordinates, Velocities, Masses
 
+def Load_params_from_HDF5_snap(FILENAME):
+    if FILENAME[-4:] != 'hdf5' and FILENAME[-4:] != 'HDF5':
+        raise Exception("Error: input file %s is not in hdf5 format.\n" % FILENAME)
+    HDF5_snapshot = h5py.File(FILENAME, "r")
+    Ntot = int(HDF5_snapshot['/Header'].attrs['NumPart_Total'][1])
+    z = np.double(HDF5_snapshot['/Header'].attrs['Redshift'])
+    Om = np.double(HDF5_snapshot['/Header'].attrs['Omega0'])
+    Ol = np.double(HDF5_snapshot['/Header'].attrs['OmegaLambda'])
+    H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])
+    HDF5_snapshot.close()
+    return z, Om, Ol, H0, Ntot
+
 def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, OmegaL, HubbleParam, precision):
     '''
     Function for writing out IC in hdf5 format.

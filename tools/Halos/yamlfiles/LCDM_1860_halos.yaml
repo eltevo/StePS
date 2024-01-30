@@ -1,14 +1,17 @@
 # Input snapshot parameters
 INFILE: "../../../Simulations/StePS/example_simulations/LCDM_SP_1860_com_VOI100/snapshot_0013.hdf5"
+REDSHIFT: 0.0 #if the input file is in HDF5 format, this parameter will not be used.
 RSIM: 930.026572187775
 LBOX: 1860.05314437555
 PERIODIC: False
+PARTICLE_RADII: 0.0939585618074789 #for the minimal mass particles. For all other particles, this will be calculated based on this.
 UNIT_D_IN_MPC: 1.0 #Distance units in the snapshot in Mpc(/h)
 UNIT_V_IN_KMPS: 1.0 #Velocity units in the snapshot in km/s
 UNIT_M_IN_MSOL: 1.0e11 #Mass units in the snapshot in Msol(/h)
 # Cosmological parameters
 OMEGAM: 0.3111
 OMEGAL: 0.6889
+OMEGAR: 0.0
 OMEGAB: 0.0
 H0: 67.66
 DARKENERGYMODEL: 'Lambda'
