@@ -152,7 +152,7 @@ def Load_params_from_HDF5_snap(FILENAME):
     z = np.double(HDF5_snapshot['/Header'].attrs['Redshift'])
     Om = np.double(HDF5_snapshot['/Header'].attrs['Omega0'])
     Ol = np.double(HDF5_snapshot['/Header'].attrs['OmegaLambda'])
-    H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])
+    H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])*100.0
     HDF5_snapshot.close()
     return z, Om, Ol, H0, Ntot
 
