@@ -39,6 +39,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..','StePS_IC','src'))
 from os.path import exists
 import time
+from datetime import datetime
 import yaml
 import numpy as np
 from scipy.spatial import Voronoi, ConvexHull, KDTree
@@ -47,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.1.0"
+_VERSION="v0.0.1.2"
 _YEAR="2024"
 
 #defining functions
@@ -209,7 +210,11 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                     NprofileBins = 2*npartmin
                 rbin_centers, rho_r = get_1D_radial_profile(distances[sorted_idx][:max_radi_idx],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx],NprofileBins,background_density=rho_b) # equal volume radial bins
                 # fitting NFW profile
-                par,cov = curve_fit(NFW_profile, rbin_centers, rho_r, p0=[rho_r[0]/2,R[0]],maxfev = 38400)
+                try:
+                    par,cov = curve_fit(NFW_profile, rbin_centers, rho_r, p0=[rho_r[0]/2,R[0]],maxfev = 38400)
+                except:
+                    print("Warning: NFW profile fitting failed for halo #%i. The Rs scale-length of this halo will be undefined." % HaloID)
+                    par = [0.0,0.0]
                 rho0_NFW = par[0]
                 Rs_NFW = par[1] #NFW scale radius
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
@@ -218,10 +223,10 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     #generating output dictionary containing all calculated quantities
     returndict = {
     "ID": HaloID,
-    "Coordinates": Center,
     "Npart": Npart,
-    "Rs": Rs_NFW * 1.0e3,
     "Mvir": M[0] * 1.0e11,
+    "Coordinates": Center,
+    "Rs": Rs_NFW * 1.0e3,
     "Rvir": R[0] * 1.0e3,
     "Vvir": V[0],
     "VRMSvir": Vrms[0],
@@ -229,8 +234,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     }
     #saving all other quantities
     for i in range(0,len(massdefnames)):
-        returndict["M"+massdefnames[i]] = M[i+1] * 1.0e11 # the output is in Msol/h
-        returndict["R"+massdefnames[i]] = R[i+1] * 1.0e3 # the output in in kpc/h
+        returndict["M"+massdefnames[i]] = M[i+1] * 1.0e11 # the output is in Msol
+        returndict["R"+massdefnames[i]] = R[i+1] * 1.0e3 # the output in in kpc
         returndict["V"+massdefnames[i]] = V[i+1]
         returndict["VRMS"+massdefnames[i]] = Vrms[i+1]
         returndict["VMAX"+massdefnames[i]] = Vmax[i+1]
@@ -243,28 +248,35 @@ class StePS_Particle_Catalog:
     Stored information: ID, coordinate components, velocity components, mass, Parent halo ID, density
     '''
 
-    def __init__(self, FILENAME, D_UNITS, V_UNITS, M_UNITS, REDSHIFT=0.0, FORCE_RES=0.0):
+    def __init__(self, FILENAME, D_UNITS, V_UNITS, M_UNITS, H_INDEPENDENT_UNITS, HUBBLE, REDSHIFT=0.0, FORCE_RES=0.0):
         print("Creating a new particle catalog by loading %s\n" % FILENAME)
         if FILENAME[-4:] == 'hdf5':
             self.Redshift, self.Om, self.Ol, self.H0, self.Npart = Load_params_from_HDF5_snap(FILENAME)
         else:
+            self.H0 = HUBBLE
             self.Redshift = REDSHIFT
+        self.h = self.H0 / 100.0
         self.a = 1.0/(self.Redshift+1.0) # scale factor
         self.sourcefile = FILENAME
         self.Coordinates, self.Velocities, self.Masses, self.IDs = Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=True,RETURN_IDs=True,SILENT=True)
         self.HaloParentIDs = -1*np.ones(len(self.Masses),dtype=np.int64)
         self.Density= np.zeros(len(self.Masses),dtype=np.double)
         # converting the input data to StePS units (Mpc, km/s, 1e11Msol)
-        self.Coordinates *= D_UNITS
+        if H_INDEPENDENT_UNITS:
+            self.Coordinates *= D_UNITS/self.h
+            self.Masses *= (M_UNITS / 1e11)/self.h
+        else:
+            self.Coordinates *= D_UNITS
+            self.Masses *= (M_UNITS / 1e11)
         self.Velocities *= V_UNITS
         self.Velocities *= np.sqrt(self.a) #physical velocities, assuming Gadget convention
-        self.Masses *= (M_UNITS / 1e11)
         if FILENAME[-4:] != 'hdf5':
             self.Npart = len(self.Masses)
         # setting softening lengths
         Minmass = np.min(self.Masses)
         self.SoftLength = np.cbrt(self.Masses/Minmass)*FORCE_RES
         return
+
     def set_HaloParentIDs(self, PartIDs, ParentID,SILENT=True):
         idx = np.in1d(p.IDs,PartIDs)
         self.HaloParentIDs[idx] = ParentID
@@ -272,7 +284,7 @@ class StePS_Particle_Catalog:
             print("Halo parent IDs got updated for ", PartIDs, " to ", ParentID)
 
     def printlines(self,lines):
-        print("ID\t(X      Y      Z) [Mpc/h]\t\t(Vx      Vy      Vz) [km/s]\t\tM[1e11Msol/h]\tDensity[rho/rho_crit]\tParentID\n----------------------------------------------------------------------------------------------------------------------------------------")
+        print("ID\t(X      Y      Z) [Mpc]\t\t(Vx      Vy      Vz) [km/s]\t\tM[1e11Msol]\tDensity[rho/rho_crit]\tParentID\n----------------------------------------------------------------------------------------------------------------------------------------")
         for line in lines:
             print("%-1i\t(%+-10.2f %+-10.2f %+-7.2f)\t\t(%+-10.2f %+-10.2f %+-7.2f)\t\t%-8.3g\t%-8.3g\t\t%i" % (self.IDs[line], self.Coordinates[line,0], self.Coordinates[line,1], self.Coordinates[line,2], self.Velocities[line,0], self.Velocities[line,1], self.Velocities[line,2], self.Masses[line], self.Density[line], self.HaloParentIDs[line]))
         print("\n")
@@ -282,7 +294,7 @@ class StePS_Halo_Catalog:
     '''
     A class for storing halo catalogs
     '''
-    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList):
+    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode):
         #During initialization we fill the header
         Mdef = [PrimaryMDef]
         Mdef.append(SecondaryMdefList)
@@ -296,23 +308,92 @@ class StePS_Halo_Catalog:
             "Nhalos": 0,
             "MassDefinitions": Mdef,
             "rho_c": rho_c,
-            "rho_b": rho_b
+            "rho_b": rho_b,
+            "CenterMode": Centermode
         }
         self.Nhalos = 0
         self.DataTable = [] # empty list
+
     def add_halo(self,haloparamdict):
         self.DataTable.append(haloparamdict)
         self.Nhalos += 1
         self.Header["Nhalos"] = self.Nhalos
         #print(haloparamdict)
         return
+
     def print_halos(self,haloIDlist,Mdef="vir"):
-        print("\nID\tNpart\t(X      Y      Z) [Mpc/h]\t\t(Vx      Vy      Vz) [km/s]\t\tM"+Mdef+"[Msol/h]\t\tR"+Mdef+"[kpc/h]")
+        print("\nID\tNpart\t(X      Y      Z) [Mpc]\t\t(Vx      Vy      Vz) [km/s]\t\tM"+Mdef+"[Msol]\t\tR"+Mdef+"[kpc]")
         print("------------------------------------------------------------------------------------------------------------------------------------")
         for line in haloIDlist:
             print("%-1i\t%-1i\t(%+-10.2f %+-10.2f %+-7.2f)\t\t(%+-10.2f %+-10.2f %+-7.2f)\t\t%-8.4e\t\t%-8.2f" % (self.DataTable[line]["ID"],self.DataTable[line]["Npart"], self.DataTable[line]["Coordinates"][0], self.DataTable[line]["Coordinates"][1], self.DataTable[line]["Coordinates"][2], self.DataTable[line]["V"+Mdef][0], self.DataTable[line]["V"+Mdef][1], self.DataTable[line]["V"+Mdef][2],self.DataTable[line]["M"+Mdef],self.DataTable[line]["R"+Mdef]))
         print("\n")
         return
+
+    def save_ascii_catalog(self, filename):
+        if self.Nhalos >= 1:
+            #generating the header
+            columnlist = ""
+            fields = 0 #number of columns in the file
+            for key in self.DataTable[0].keys():
+                datatype = type(self.DataTable[0][key])
+                if datatype == np.ndarray:
+                    #this is a vector
+                    if key == "Coordinates":
+                        column = "X Y Z "
+                    else:
+                        column = key + "_X "+ key + "_Y " + key + "_Z "
+                    fields += 3
+                else:
+                    column = key + " "
+                    fields += 1
+                columnlist += column
+            now = datetime.now()
+            dt_string = now.strftime("%d/%m/%Y %H:%M")
+            header = columnlist + "\n  /--------------------------------------------------------------------------\\\n | Halo catalog generated by StePS_HF.py version %s at %s |\n  \\--------------------------------------------------------------------------/\n  +---------------------------\n  | Parameters of the catalog:\n  +---------------------------\n" % (_VERSION, dt_string)
+            for key in self.Header.keys():
+                if type(self.Header[key]) == list:
+                    header += "  | " + key +": \n"
+                    for i in range(0,len(self.Header[key])):
+                        if type(self.Header[key][i]) == list:
+                            for j in range(0,len(self.Header[key][i])):
+                                header += "  |\t\t* %s" % self.Header[key][i][j] + "\n"
+                        else:
+                            header += "  |\t\t* %s" % self.Header[key][i] + "\n"
+                else:
+                    header += "  | " + key +": %s\n" % self.Header[key]
+            header += "  | Ncolumns: %i\n" % fields
+            header += "  +---------------------------\n"
+            header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Angular Momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
+            #generating the output array
+            outarray = np.zeros((self.Header["Nhalos"],fields), dtype=np.double)
+            #figuring out the DataTable -> outarray mapping by using the first row:
+            mapdict = { }
+            i=0
+            fmtstring = ""
+            for key in self.DataTable[0].keys():
+                if type(self.DataTable[0][key]) == np.ndarray:
+                    # this is a 3D vector
+                    mapdict[key] = [i,i+1,i+2]
+                    i += 3
+                    fmtstring += "%.7g %.7g %.7g "
+                else:
+                    # this is a scalar
+                    mapdict[key] = i
+                    i += 1
+                    if type(self.DataTable[0][key]) == int or type(self.DataTable[0][key]) == np.int64 or type(self.DataTable[0][key]) == np.int32 or type(self.DataTable[0][key]) == np.uint64 or type(self.DataTable[0][key]) == np.uint32:
+                        fmtstring += "%i "
+                    else:
+                        fmtstring += "%.7g "
+            # storing the data into a numpy array
+            for i in range(0,self.Nhalos):
+                for key in self.DataTable[0].keys():
+                    j = mapdict[key]
+                    if type(mapdict[key]) == np.array:
+                        outarray[i][j[0]:j[2]] = self.DataTable[i][key]
+                    else:
+                        outarray[i][j] = self.DataTable[i][key]
+            np.savetxt(filename,outarray,fmt=fmtstring,header=header)
+            return
 
 
 
@@ -352,12 +433,15 @@ UNIT_D=3.0856775814671917e24 #=1Mpc Unit distance in cm
 # Calculating relevant cosmological quantities
 rho_c = 3.0*Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])**2/(8*np.pi)/UNIT_V/UNIT_V/(redshift+1)**3 #comoving critical density in internal units (G=1)
 rho_b = 3.0*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
-print("\u03C1_c (comoving):\t\t%.4e h^2Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e h^2Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
+print("\u03C1_c (comoving):\t\t%.4e Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
 Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
 
-print("Snapshot Parameters:\n------------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6gMpc/h\nSoftening Length:\t%.4gMpc/h\nDistance units:\t\t%.2gMpc/h\nVelocity units:\t\t%.2gkm/s\nMass units:\t\t%.2gMsol/h\n" % (redshift,np.double(Params['RSIM']),np.double(Params['PARTICLE_RADII']),np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+if Params["H_INDEPENDENT_UNITS"]:
+    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening Length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),np.double(Params['PARTICLE_RADII']),np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+else:
+    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening Length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),np.double(Params['PARTICLE_RADII']),np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
 
-print("Halo Finder Parameters:\n---------------------------\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s\nMass definitions:" %(Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
+print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s\nMass definitions:" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
 Nmassdef = len(Params["MASSDEF"])+1 #total number of mass definitions.
 print("\t\t- %s" % "Vir [\u0394c = %.2f] (Default primary definition, cannot be changed)" % Delta_c)
 for i in range(0,Nmassdef-1):
@@ -385,7 +469,7 @@ kdworkers = int(Params["KDWORKERS"])
 
 
 # Loading the input particle snapshot
-p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']),REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=np.double(Params['PARTICLE_RADII']))
+p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=np.double(Params['PARTICLE_RADII']))
 
 # Building KDTree for a quick nearest-neighbor lookup
 tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
@@ -405,11 +489,10 @@ elif DensMode == "10th neighbor":
     kd_end = time.time()
     print("...done in %.2f s.\n" % (kd_end-kd_start))
 
-p.printlines([0,1000,119784,458323,473220,1000000,1700000])
-#p.printlines(np.arange(0,p.Npart))
-
 # Identifying halos using Spherical Overdensity (SO) method
-halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"])
+print("Identifying halos and calculating halo parameters...")
+id_start = time.time()
+halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"])
 halo_ID = 0
 while True:
     #selecting the largest density particle with parentID=-1
@@ -431,11 +514,15 @@ while True:
         #else:
         #    print("This candidate didn't had enough partilces.")
     if maxdens <= Delta_c:
-        print("Central estimated density for the last halo candidate #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
+        #print("Central estimated density for the last halo candidate #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
         #This means that in the center, we did not reach Delta_c*rho_c.
         #After this, we will not find new halos.
+        print("Total number of identified halos: ", halos.Nhalos)
         break;
+id_end = time.time()
+print("...done in %.2f s.\n" % (id_end-id_start))
+if halos.Nhalos > 0:
+    print("Saving the generated catalog to %s" % Params["OUTFILE"])
+    halos.save_ascii_catalog(Params["OUTFILE"])
 end = time.time()
-halos.print_halos(np.arange(0,halos.Nhalos),Mdef="vir")
-p.printlines([0,1000,119784,458323,473220,1000000,1700000])
 print("SO halo finding finished under %fs.\n" % (end-start))
