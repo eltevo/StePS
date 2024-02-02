@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.1.2"
+_VERSION="v0.0.1.3"
 _YEAR="2024"
 
 #defining functions
@@ -184,6 +184,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         if i == 0:
             Npart = max_radi_idx+1
             if Npart < npartmin:
+                p.set_HaloParentIDs(p.IDs[idx],-2) # since this group has too less patricles, the "central" particle ID had to be set to -2
                 if max_radi_idx == 0:
                     p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][0],-2)
                 else:
@@ -294,7 +295,7 @@ class StePS_Halo_Catalog:
     '''
     A class for storing halo catalogs
     '''
-    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode):
+    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode):
         #During initialization we fill the header
         Mdef = [PrimaryMDef]
         Mdef.append(SecondaryMdefList)
@@ -309,7 +310,8 @@ class StePS_Halo_Catalog:
             "MassDefinitions": Mdef,
             "rho_c": rho_c,
             "rho_b": rho_b,
-            "CenterMode": Centermode
+            "CenterMode": Centermode,
+            "DensityMode": DensityMode
         }
         self.Nhalos = 0
         self.DataTable = [] # empty list
@@ -457,6 +459,7 @@ for i in range(1,Nmassdef):
         massdefdenstable[i] *= rho_b
     else:
         raise Exception(f"Error: Unrecognized mass definition %s." % Params["MASSDEF"][i])
+print("\n")
 npartmin = int(Params["NPARTMIN"])
 if Params["INITIAL_DENSITY_MODE"] != "Voronoi" and Params["INITIAL_DENSITY_MODE"] != "10th neighbor":
     raise Exception(f"Error: Unknown initial density estimation method %s." % Params["INITIAL_DENSITY_MODE"])
@@ -492,7 +495,7 @@ elif DensMode == "10th neighbor":
 # Identifying halos using Spherical Overdensity (SO) method
 print("Identifying halos and calculating halo parameters...")
 id_start = time.time()
-halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"])
+halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"])
 halo_ID = 0
 while True:
     #selecting the largest density particle with parentID=-1

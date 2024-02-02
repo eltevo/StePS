@@ -8,7 +8,7 @@ PARTICLE_RADII: 0.0939585618074789 #for the minimal mass particles. For all othe
 UNIT_D_IN_MPC: 1.0 #Distance units in the snapshot in Mpc(/h)
 UNIT_V_IN_KMPS: 1.0 #Velocity units in the snapshot in km/s
 UNIT_M_IN_MSOL: 1.0e11 #Mass units in the snapshot in Msol(/h)
-H_INDEPENDENT_UNITS: False # h units of the input files. False: input in Mpc, Msol, etc. ; True: input in Mpc/h, Msol/h, etc.
+H_INDEPENDENT_UNITS: False # h units of the input files. False: input in Mpc, Msol, etc. (this is StePS default); True: input in Mpc/h, Msol/h, etc. (This is GADGET/GIZMO default)
 # Cosmological parameters
 OMEGAM: 0.3111
 OMEGAL: 0.6889
@@ -23,7 +23,7 @@ OUTFILE: "./Halos_LCDM_SP_1860_com_VOI100_10th.dat"
 INITIAL_DENSITY_MODE: "10th neighbor" # initial density estimation method. Possible values: "Voronoi" "10th neighbor"
 SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be investigated,  where dp is the typical particle separation
 KDWORKERS: 4 # number of worker threads in the KDTree search
-NPARTMIN: 10 # minimal particle number (should be at least 10 )
+NPARTMIN: 10 # minimal particle number (should be at least 10)
 CENTERMODE: "CENTRALPARTICLE" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
 MASSDEF:
   - "200b"
