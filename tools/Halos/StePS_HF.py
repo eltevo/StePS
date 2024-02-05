@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.1.3"
+_VERSION="v0.0.1.4"
 _YEAR="2024"
 
 #defining functions
@@ -77,6 +77,18 @@ def voronoi_volumes(points, SILENT=False):
 
 def get_center_of_mass(r, m):
     return np.sum((r.T*m).T,axis=0)/np.sum(m)
+
+def get_angular_momentum(r,v,m):
+    """
+    Function for calculating the angular momentum of a particle system.
+    Assumed input:
+        - r: CoM (physical) coordinates
+        - v: (physical) velocities.
+        - m: particle masses
+    """
+    p = m.reshape((len(m),1))*v #Individual linear momenta: mass x position
+    J = np.cross(r,p)# Individual orbital angular momenta" (position vector) x (linear momentum)
+    return np.sum(J,axis=0) #returning the total angular momentum vector
 
 def NFW_profile(r,rho0,Rs):
     rpRs = r/Rs
@@ -195,10 +207,10 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
             #  because the halo doesn't have high enough density even at the center.
             R[i] = distances[sorted_idx][:max_radi_idx][-1] #Radii
             M[i] = M_enc[sorted_idx][:max_radi_idx][-1] #Mass
-            V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the COM
+            V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
             Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx])) # root mean square velocity
             Vmax[i] = np.max(np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],2), axis=1))) # maximal velocity
-            #J[i] = #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+            J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
             if i == 0:
                 p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
                 # print("Mvir=%f Rvir=%f Npart=%i" % (M[0], R[0], Npart))
@@ -231,15 +243,17 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Rvir": R[0] * 1.0e3,
     "Vvir": V[0],
     "VRMSvir": Vrms[0],
-    "VMAXvir": Vmax[0]
+    "VMAXvir": Vmax[0],
+    "Jvir": J[0]
     }
     #saving all other quantities
     for i in range(0,len(massdefnames)):
-        returndict["M"+massdefnames[i]] = M[i+1] * 1.0e11 # the output is in Msol
-        returndict["R"+massdefnames[i]] = R[i+1] * 1.0e3 # the output in in kpc
+        returndict["M"+massdefnames[i]] = M[i+1] * 1.0e11 # the output masses are in Msol
+        returndict["R"+massdefnames[i]] = R[i+1] * 1.0e3 # the output radii are in kpc
         returndict["V"+massdefnames[i]] = V[i+1]
         returndict["VRMS"+massdefnames[i]] = Vrms[i+1]
         returndict["VMAX"+massdefnames[i]] = Vmax[i+1]
+        returndict["J"+massdefnames[i]] = J[i+1]
     return returndict
 
 #defining classes
@@ -324,10 +338,10 @@ class StePS_Halo_Catalog:
         return
 
     def print_halos(self,haloIDlist,Mdef="vir"):
-        print("\nID\tNpart\t(X      Y      Z) [Mpc]\t\t(Vx      Vy      Vz) [km/s]\t\tM"+Mdef+"[Msol]\t\tR"+Mdef+"[kpc]")
-        print("------------------------------------------------------------------------------------------------------------------------------------")
+        print("\nID\tNpart\t(X      Y      Z) [Mpc]\t\t\t(Vx      Vy      Vz) [km/s]\t\tM"+Mdef+"[Msol]\t\tR"+Mdef+"[kpc]\t\t(Jx      Jy      Jz)[Msol * Mpc * km/s]")
+        print("---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------")
         for line in haloIDlist:
-            print("%-1i\t%-1i\t(%+-10.2f %+-10.2f %+-7.2f)\t\t(%+-10.2f %+-10.2f %+-7.2f)\t\t%-8.4e\t\t%-8.2f" % (self.DataTable[line]["ID"],self.DataTable[line]["Npart"], self.DataTable[line]["Coordinates"][0], self.DataTable[line]["Coordinates"][1], self.DataTable[line]["Coordinates"][2], self.DataTable[line]["V"+Mdef][0], self.DataTable[line]["V"+Mdef][1], self.DataTable[line]["V"+Mdef][2],self.DataTable[line]["M"+Mdef],self.DataTable[line]["R"+Mdef]))
+            print("%-1i\t%-1i\t(%+-10.2f %+-10.2f %+-7.2f)\t\t(%+-10.2f %+-10.2f %+-7.2f)\t\t%-8.4e\t\t%-8.2f\t\t(%+-10.2f %+-10.2f %+-7.2f)" % (self.DataTable[line]["ID"],self.DataTable[line]["Npart"], self.DataTable[line]["Coordinates"][0], self.DataTable[line]["Coordinates"][1], self.DataTable[line]["Coordinates"][2], self.DataTable[line]["V"+Mdef][0], self.DataTable[line]["V"+Mdef][1], self.DataTable[line]["V"+Mdef][2],self.DataTable[line]["M"+Mdef],self.DataTable[line]["R"+Mdef],self.DataTable[line]["J"+Mdef][0],self.DataTable[line]["J"+Mdef][1],self.DataTable[line]["J"+Mdef][2]))
         print("\n")
         return
 
