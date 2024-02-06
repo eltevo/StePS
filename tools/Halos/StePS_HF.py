@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.1.4"
+_VERSION="v0.0.1.5"
 _YEAR="2024"
 
 #defining functions
@@ -82,13 +82,26 @@ def get_angular_momentum(r,v,m):
     """
     Function for calculating the angular momentum of a particle system.
     Assumed input:
-        - r: CoM (physical) coordinates
+        - r: CoM (physical) coordinates.
         - v: (physical) velocities.
-        - m: particle masses
+        - m: particle masses.
     """
     p = m.reshape((len(m),1))*v #Individual linear momenta: mass x position
     J = np.cross(r,p)# Individual orbital angular momenta" (position vector) x (linear momentum)
     return np.sum(J,axis=0) #returning the total angular momentum vector
+
+def get_bullock_spin(jvir,mvir,rvir):
+    """
+    Function for calculating Bullock spin parameter
+    Expected input:
+        - jvir: Total angular momentum within a virilized sphere in
+        - mvir: virial mass in Msol
+        - rvir: virial radius in physical Mpc
+    """
+    G  = 4.3009172706e-9# gravitational constant G in Mpc/Msol*(km/s)^2 units
+    vvir = np.sqrt(G*mvir/rvir) #circular velocity at the virial radius [Vvir^2 = G*Mvir/Rvir] (physical km/s)
+    S_Bullock = np.sqrt(np.sum(np.power(jvir,2.0))) / (np.sqrt(2) * mvir * rvir * vvir)
+    return S_Bullock
 
 def NFW_profile(r,rho0,Rs):
     rpRs = r/Rs
@@ -150,8 +163,6 @@ def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
     out_idx = rho_bins > 0.0 # selecting non-empty bins
     rho_bins[out_idx] -= background_density #removing background density
     return r_bin_centers[out_idx], rho_bins[out_idx]
-
-
 
 
 
@@ -230,9 +241,10 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                     par = [0.0,0.0]
                 rho0_NFW = par[0]
                 Rs_NFW = par[1] #NFW scale radius
+                #Energy = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
-    #Spin_Peebles[i] =  Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
-    #Spin_Bullock[i] =  BullockSpinParameter (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract
+    #Spin_Peebles = # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
+    Spin_Bullock = get_bullock_spin(J[0]*1e11,M[0]*1e11,R[0]*p.a) # Bullock Spin Parameter (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract
     #generating output dictionary containing all calculated quantities
     returndict = {
     "ID": HaloID,
@@ -244,7 +256,9 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Vvir": V[0],
     "VRMSvir": Vrms[0],
     "VMAXvir": Vmax[0],
-    "Jvir": J[0]
+    "Evir": Energy,
+    "Jvir": J[0] * 1e11,
+    "Spin_Bullock": Spin_Bullock
     }
     #saving all other quantities
     for i in range(0,len(massdefnames)):
@@ -253,7 +267,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         returndict["V"+massdefnames[i]] = V[i+1]
         returndict["VRMS"+massdefnames[i]] = Vrms[i+1]
         returndict["VMAX"+massdefnames[i]] = Vmax[i+1]
-        returndict["J"+massdefnames[i]] = J[i+1]
+        returndict["J"+massdefnames[i]] = J[i+1] * 1e11 # the output angular momenta in Msun * Mpc * km/s (physical)
     return returndict
 
 #defining classes
@@ -282,9 +296,9 @@ class StePS_Particle_Catalog:
             self.Masses *= (M_UNITS / 1e11)/self.h
         else:
             self.Coordinates *= D_UNITS
-            self.Masses *= (M_UNITS / 1e11)
+            self.Masses *= (M_UNITS / 1e11) # 1e11msol(/h) units
         self.Velocities *= V_UNITS
-        self.Velocities *= np.sqrt(self.a) #physical velocities, assuming Gadget convention
+        self.Velocities *= np.sqrt(self.a) # km/s physical velocities, assuming Gadget convention
         if FILENAME[-4:] != 'hdf5':
             self.Npart = len(self.Masses)
         # setting softening lengths
@@ -349,6 +363,7 @@ class StePS_Halo_Catalog:
         if self.Nhalos >= 1:
             #generating the header
             columnlist = ""
+            columnlist_numbered = ""
             fields = 0 #number of columns in the file
             for key in self.DataTable[0].keys():
                 datatype = type(self.DataTable[0][key])
@@ -356,12 +371,15 @@ class StePS_Halo_Catalog:
                     #this is a vector
                     if key == "Coordinates":
                         column = "X Y Z "
+                        columnlist_numbered += "%i-X %i-Y %i-Z " % (fields+1,fields+2,fields+3)
                     else:
                         column = key + "_X "+ key + "_Y " + key + "_Z "
+                        columnlist_numbered += "%i-"%(fields+1) + key + "_X " + "%i-"%(fields+2) + key + "_Y " + "%i-"%(fields+3) + key + "_Z "
                     fields += 3
                 else:
                     column = key + " "
                     fields += 1
+                    columnlist_numbered += "%i-"%fields + column
                 columnlist += column
             now = datetime.now()
             dt_string = now.strftime("%d/%m/%Y %H:%M")
@@ -379,7 +397,8 @@ class StePS_Halo_Catalog:
                     header += "  | " + key +": %s\n" % self.Header[key]
             header += "  | Ncolumns: %i\n" % fields
             header += "  +---------------------------\n"
-            header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Angular Momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
+            header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Angular momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
+            header += "\n" + columnlist_numbered
             #generating the output array
             outarray = np.zeros((self.Header["Nhalos"],fields), dtype=np.double)
             #figuring out the DataTable -> outarray mapping by using the first row:
