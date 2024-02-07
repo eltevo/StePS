@@ -19,12 +19,12 @@ DARKENERGYMODEL: 'Lambda'
 DARKENERGYPARAMS:
   - -1.0
 # Halo Finder parameters
-OUTFILE: "./Halos_LCDM_SP_1860_com_VOI100_10th.dat"
+OUTFILE: "./Halos_snapshot_0012_10th_CoMC.dat"
 INITIAL_DENSITY_MODE: "10th neighbor" # initial density estimation method. Possible values: "Voronoi" "10th neighbor"
 SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be investigated,  where dp is the typical particle separation
 KDWORKERS: 4 # number of worker threads in the KDTree search
 NPARTMIN: 10 # minimal particle number (should be at least 10)
-CENTERMODE: "CENTRALPARTICLE" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
+CENTERMODE: "CENTEROFMASSNPARTMIN" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
 MASSDEF:
   - "200b"
   - "200c"

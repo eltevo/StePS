@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.1.5"
+_VERSION="v0.0.1.6"
 _YEAR="2024"
 
 #defining functions
@@ -89,6 +89,59 @@ def get_angular_momentum(r,v,m):
     p = m.reshape((len(m),1))*v #Individual linear momenta: mass x position
     J = np.cross(r,p)# Individual orbital angular momenta" (position vector) x (linear momentum)
     return np.sum(J,axis=0) #returning the total angular momentum vector
+
+def cubic_spline_potential(r, h):
+    """
+    Function for calculating the potential of Cubic spline kernel (Monaghan & Lattanzio, 1985)
+    """
+    q = r / h
+    kernel_value = np.zeros_like(q)
+    # Define the kernel function for the cubic spline softening
+    mask = np.logical_and(q >= 0, q < 0.5)
+    kernel_value[mask] = 32.0*r[mask]**5/(15.0*h[mask]**6) - 9.6*r[mask]**4/h[mask]**5 + 16.0*r[mask]**2/(3.0*h[mask]**3) - 8.0/(3.0*h[mask])
+    mask = np.logical_and(q >= 0.5, q < 1.0)
+    kernel_value[mask] = -32.0*r[mask]**5/(15.0*h[mask]**6) + 9.6*r[mask]**4/h[mask]**5 - 16.0*r[mask]**3/h[mask]**4+32.0*r[mask]**2/(3.0*h[mask]**3) + 1/(15.0*r[mask]) - 16.0/(5.0*h[mask])
+    mask = q >= 1.0
+    kernel_value[mask] = -1/r[mask]
+    return kernel_value
+
+def get_individual_energy(r,v,m,force_res):
+    """
+    Function for calculating the individual energy of a particle system.
+    Expected input:
+        - r: CoM (physical) coordinates in Mpc.
+        - v: (physical) velocities in km/s.
+        - m: particle masses in Msol.
+        - force_res: (physical) softening length of each particle
+    Returns:
+        - Ekin: Kinetic energy in (Msol * (km/s)^2 ) units
+        - Epot: Potential energy in (Msol * (km/s)^2 ) units
+    """
+    Nparticle = len(m) #number of input particles
+    G  = 4.3009172706e-9# gravitational constant G in Mpc/Msol*(km/s)^2 units
+    Ekin = 0.5*m*np.sum(v**2,axis=1) # kinetic energy of the individual particles (Ekin = 0.5*m*v^2)
+    #calculating the potential energy
+    Epot = np.zeros(Nparticle,dtype=np.double)
+    for i in range(0,Nparticle):
+        idx = np.where(np.arange(0,Nparticle)!=i)
+        dist = np.sqrt(np.sum(np.power( r[idx] - r[i],2.0), axis=1))
+        Epot[i] += m[i]*np.sum(m[idx]*cubic_spline_potential(dist,force_res[idx]+force_res[i]))
+    Epot *= G
+    return Ekin, Epot
+
+def get_total_energy(r,v,m,force_res):
+        """
+        Function for calculating the total energy of a particle system.
+        Expected input:
+            - r: CoM (physical) coordinates in Mpc.
+            - v: (physical) velocities in km/s.
+            - m: particle masses in Msol.
+            - force_res: (physical) softening length of each particle
+        Returns:
+            - Etot: Total energy in of the system in (Msol * (km/s)^2 ) units
+        """
+        Ekin,Epot = get_individual_energy(r,v,m,force_res)
+        return np.sum(Ekin+Epot)
 
 def get_bullock_spin(jvir,mvir,rvir):
     """
@@ -241,7 +294,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                     par = [0.0,0.0]
                 rho0_NFW = par[0]
                 Rs_NFW = par[1] #NFW scale radius
-                #Energy = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11) #Total energy of the halo. Needed for Peebles spin parameter
+                Energy = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     #Spin_Peebles = # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
     Spin_Bullock = get_bullock_spin(J[0]*1e11,M[0]*1e11,R[0]*p.a) # Bullock Spin Parameter (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract
@@ -256,8 +309,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Vvir": V[0],
     "VRMSvir": Vrms[0],
     "VMAXvir": Vmax[0],
-    "Evir": Energy,
     "Jvir": J[0] * 1e11,
+    "Energy": Energy,
     "Spin_Bullock": Spin_Bullock
     }
     #saving all other quantities
@@ -397,7 +450,7 @@ class StePS_Halo_Catalog:
                     header += "  | " + key +": %s\n" % self.Header[key]
             header += "  | Ncolumns: %i\n" % fields
             header += "  +---------------------------\n"
-            header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Angular momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
+            header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Halo energies in Msol * (km/s)^2 (physical) \n  |\t Angular momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
             header += "\n" + columnlist_numbered
             #generating the output array
             outarray = np.zeros((self.Header["Nhalos"],fields), dtype=np.double)
@@ -471,10 +524,11 @@ rho_b = 3.0*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V * Omega_m #background densit
 print("\u03C1_c (comoving):\t\t%.4e Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
 Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
 
+min_mass_force_res = np.double(Params['PARTICLE_RADII'])
 if Params["H_INDEPENDENT_UNITS"]:
-    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening Length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),np.double(Params['PARTICLE_RADII']),np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
 else:
-    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening Length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),np.double(Params['PARTICLE_RADII']),np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
 
 print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s\nMass definitions:" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
 Nmassdef = len(Params["MASSDEF"])+1 #total number of mass definitions.
@@ -505,7 +559,7 @@ kdworkers = int(Params["KDWORKERS"])
 
 
 # Loading the input particle snapshot
-p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=np.double(Params['PARTICLE_RADII']))
+p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=min_mass_force_res)
 
 # Building KDTree for a quick nearest-neighbor lookup
 tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
