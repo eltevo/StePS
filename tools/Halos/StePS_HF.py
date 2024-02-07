@@ -17,7 +17,7 @@
 #*******************************************************************************#
 
 #*******************************************************************#
-# Base (planned) algorithm:                                         #
+# Base algorithm:                                                   #
 #   1. Load the snapshot                                            #
 #   2. Reconstruct the density field with                           #
 #      Voronoi tessellation / 10th nearest neighbor method          #
@@ -48,10 +48,17 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.1.6"
+_VERSION="v0.0.2.0"
 _YEAR="2024"
 
-#defining functions
+# Global variables
+G  = 4.3009172706e-9 # gravitational constant G in Mpc/Msol*(km/s)^2 units
+# usual StePS internal units
+UNIT_T=47.14829951063323 #Unit time in Gy
+UNIT_V=20.738652969925447 #Unit velocity in km/s
+UNIT_D=3.0856775814671917e24 #=1Mpc Unit distance in cm
+
+# Defining functions
 def voronoi_volumes(points, SILENT=False):
     if SILENT==False:
         v_start = time.time()
@@ -118,7 +125,6 @@ def get_individual_energy(r,v,m,force_res):
         - Epot: Potential energy in (Msol * (km/s)^2 ) units
     """
     Nparticle = len(m) #number of input particles
-    G  = 4.3009172706e-9# gravitational constant G in Mpc/Msol*(km/s)^2 units
     Ekin = 0.5*m*np.sum(v**2,axis=1) # kinetic energy of the individual particles (Ekin = 0.5*m*v^2)
     #calculating the potential energy
     Epot = np.zeros(Nparticle,dtype=np.double)
@@ -147,13 +153,12 @@ def get_bullock_spin(jvir,mvir,rvir):
     """
     Function for calculating Bullock spin parameter
     Expected input:
-        - jvir: Total angular momentum within a virilized sphere in
+        - jvir: length of the total angular momentum vector within a virilized sphere in  Msun * Mpc * km/s
         - mvir: virial mass in Msol
         - rvir: virial radius in physical Mpc
     """
-    G  = 4.3009172706e-9# gravitational constant G in Mpc/Msol*(km/s)^2 units
     vvir = np.sqrt(G*mvir/rvir) #circular velocity at the virial radius [Vvir^2 = G*Mvir/Rvir] (physical km/s)
-    S_Bullock = np.sqrt(np.sum(np.power(jvir,2.0))) / (np.sqrt(2) * mvir * rvir * vvir)
+    S_Bullock = jvir/ (np.sqrt(2) * mvir * rvir * vvir)
     return S_Bullock
 
 def NFW_profile(r,rho0,Rs):
@@ -296,8 +301,9 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 Rs_NFW = par[1] #NFW scale radius
                 Energy = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
-    #Spin_Peebles = # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
-    Spin_Bullock = get_bullock_spin(J[0]*1e11,M[0]*1e11,R[0]*p.a) # Bullock Spin Parameter (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract
+    absJvir = np.sqrt(np.sum(np.power(J[0],2)))
+    Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
+    Spin_Bullock = get_bullock_spin(absJvir*1e11,M[0]*1e11,R[0]*p.a) # Bullock Spin Parameter (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract
     #generating output dictionary containing all calculated quantities
     returndict = {
     "ID": HaloID,
@@ -311,6 +317,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "VMAXvir": Vmax[0],
     "Jvir": J[0] * 1e11,
     "Energy": Energy,
+    "Spin_Peebles": Spin_Peebles,
     "Spin_Bullock": Spin_Bullock
     }
     #saving all other quantities
@@ -323,7 +330,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         returndict["J"+massdefnames[i]] = J[i+1] * 1e11 # the output angular momenta in Msun * Mpc * km/s (physical)
     return returndict
 
-#defining classes
+# Defining classes
 class StePS_Particle_Catalog:
     '''
     A class for storing particle information.
@@ -513,10 +520,6 @@ elif Params['DARKENERGYMODEL'] == 'CPL':
 else:
     print("Error: unkown dark energy parametrization!\nExiting.\n")
     sys.exit(2)
-# Setting up the units of distance and time (the usual StePS internal units)
-UNIT_T=47.14829951063323 #Unit time in Gy
-UNIT_V=20.738652969925447 #Unit velocity in km/s
-UNIT_D=3.0856775814671917e24 #=1Mpc Unit distance in cm
 
 # Calculating relevant cosmological quantities
 rho_c = 3.0*Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])**2/(8*np.pi)/UNIT_V/UNIT_V/(redshift+1)**3 #comoving critical density in internal units (G=1)
