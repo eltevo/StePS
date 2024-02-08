@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.2.0"
+_VERSION="v0.0.2.1"
 _YEAR="2024"
 
 # Global variables
@@ -227,9 +227,10 @@ def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
 def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode,rho_b=0.0):
     Masslist = np.zeros(len(massdefdenstable), dtype=np.float32)
     Rlist = np.zeros(len(massdefdenstable), dtype=np.float32)
-    # sorting particles by distance from the central particle
+    # Sorting particles by distance from the central particle
     distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-p.Coordinates[idx]),2),axis=1)) # calculating Euclidian particle distances from the center
     sorted_idx = distances.argsort() # sorting
+    # Finding the center of the halo
     if centermode == "CENTRALPARTICLE":
         # using the particle with the highest estimated density as center
         Center = p.Coordinates[idx]
@@ -251,11 +252,10 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     else:
         rho_enc = M_enc / V_enc
     # calculating the parameters for each mass definitions (+ virial mass)
-    R = np.zeros(len(massdefdenstable))
-    M = np.zeros(len(massdefdenstable))
-    V = np.zeros((len(massdefdenstable),3))
-    Vrms = np.zeros(len(massdefdenstable))
-    Vmax = np.zeros(len(massdefdenstable))
+    R = np.zeros(len(massdefdenstable)) # Radii
+    M = np.zeros(len(massdefdenstable)) # Masses
+    V = np.zeros((len(massdefdenstable),3)) # Bulk velocity vector
+    Vrms = np.zeros(len(massdefdenstable)) # velocity dispersion within the halo
     J = np.zeros((len(massdefdenstable),3))
     Spin_Peebles = np.double(0.0)
     Spin_Bullock = np.double(0.0)
@@ -271,6 +271,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 else:
                     p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
                 return None
+            Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/distances[sorted_idx][:])) # Maximal circular velocity of the halo
         if max_radi_idx > 0:
             # if max_radi_idx==0, then this mass definition is not applicable,
             #  because the halo doesn't have high enough density even at the center.
@@ -278,7 +279,6 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
             M[i] = M_enc[sorted_idx][:max_radi_idx][-1] #Mass
             V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
             Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx])) # root mean square velocity
-            Vmax[i] = np.max(np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],2), axis=1))) # maximal velocity
             J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
             if i == 0:
                 p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
@@ -314,7 +314,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Rvir": R[0] * 1.0e3,
     "Vvir": V[0],
     "VRMSvir": Vrms[0],
-    "VMAXvir": Vmax[0],
+    "VMax": Vmax,
+    "c": R[0]/Rs_NFW,
     "Jvir": J[0] * 1e11,
     "Energy": Energy,
     "Spin_Peebles": Spin_Peebles,
@@ -326,7 +327,6 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         returndict["R"+massdefnames[i]] = R[i+1] * 1.0e3 # the output radii are in kpc
         returndict["V"+massdefnames[i]] = V[i+1]
         returndict["VRMS"+massdefnames[i]] = Vrms[i+1]
-        returndict["VMAX"+massdefnames[i]] = Vmax[i+1]
         returndict["J"+massdefnames[i]] = J[i+1] * 1e11 # the output angular momenta in Msun * Mpc * km/s (physical)
     return returndict
 
