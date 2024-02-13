@@ -43,12 +43,12 @@ from datetime import datetime
 import yaml
 import numpy as np
 from scipy.spatial import Voronoi, ConvexHull, KDTree
-from scipy.optimize import curve_fit
+from scipy.optimize import fsolve, curve_fit
 import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.2.1"
+_VERSION="v0.0.2.2"
 _YEAR="2024"
 
 # Global variables
@@ -148,6 +148,24 @@ def get_total_energy(r,v,m,force_res):
         """
         Ekin,Epot = get_individual_energy(r,v,m,force_res)
         return np.sum(Ekin+Epot)
+
+def get_Rs_Klypin(vmax,v200,R200):
+    """
+    Function for calculatin the c concentration and Rs scale length based on klypin Vmax method.
+    Details:
+        -> Francisco Prada, Anatoly A. Klypin, Antonio J. Cuesta, Juan E. Betancort-Rijo, Joel Primack (2012) https://academic.oup.com/mnras/article/423/4/3018/987360
+        -> Klypin, Anatoly A. ; Trujillo-Gomez, Sebastian ; Primack, Joel (2011) https://ui.adsabs.harvard.edu/abs/2011ApJ...740..102K/abstract
+        -> Klypin, Anatoly ; Kravtsov, Andrey V. ; Bullock, James S. ; Primack, Joel R. (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...554..903K/abstract
+    """
+    vmaxperv200sqr = (vmax/v200)**2
+    #using a polynomial fit of the solution to quickly estimate the initial guess
+    p=np.poly1d([ 3.02509213e-03, -1.20296527e-01, 2.34770468e+00, 2.07672808e+01, -2.43183200e+01, 5.44330487e+00])
+    init_guess = p(vmax/v200)
+    def f_klypin(x):
+        return 0.216*x/(np.log(1+x)-x/(1+x))-vmaxperv200sqr
+    c = fsolve(f_klypin,init_guess)[0] # numerically solving the transcendental equation above
+    Rs = R200/c
+    return c, Rs
 
 def get_bullock_spin(jvir,mvir,rvir):
     """
@@ -256,9 +274,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     M = np.zeros(len(massdefdenstable)) # Masses
     V = np.zeros((len(massdefdenstable),3)) # Bulk velocity vector
     Vrms = np.zeros(len(massdefdenstable)) # velocity dispersion within the halo
+    Vcirc = np.zeros(len(massdefdenstable)) # circular orbital velocity at Radius
     J = np.zeros((len(massdefdenstable),3))
-    Spin_Peebles = np.double(0.0)
-    Spin_Bullock = np.double(0.0)
     for i in range(0,len(massdefdenstable)):
         radius_idx = massdefdenstable[i] <= rho_enc
         max_radi_idx = np.where(radius_idx == False)[0][0] # apply cut when the density first fall below the limit
@@ -271,18 +288,19 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 else:
                     p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
                 return None
-            Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/distances[sorted_idx][:])) # Maximal circular velocity of the halo
+            Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][:]*p.a))) # Maximal circular velocity of the halo
         if max_radi_idx > 0:
             # if max_radi_idx==0, then this mass definition is not applicable,
             #  because the halo doesn't have high enough density even at the center.
             R[i] = distances[sorted_idx][:max_radi_idx][-1] #Radii
-            M[i] = M_enc[sorted_idx][:max_radi_idx][-1] #Mass
+            M[i] = M_enc[:max_radi_idx][-1] #Mass
             V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
             Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx])) # root mean square velocity
             J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+            Vcirc[i] = np.sqrt(G*1e11*M[i]/(R[i]*p.a))
             if i == 0:
                 p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
-                # print("Mvir=%f Rvir=%f Npart=%i" % (M[0], R[0], Npart))
+                c_klypin, Rs_klypin = get_Rs_Klypin(Vmax,Vcirc[0],R[0])
                 # calculating 1D profile and NFW parameters within r<Rvir
                 if Npart < 2*npartmin+1:
                     NprofileBins = int(np.floor(npartmin/2))-1
@@ -293,12 +311,12 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 rbin_centers, rho_r = get_1D_radial_profile(distances[sorted_idx][:max_radi_idx],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx],NprofileBins,background_density=rho_b) # equal volume radial bins
                 # fitting NFW profile
                 try:
-                    par,cov = curve_fit(NFW_profile, rbin_centers, rho_r, p0=[rho_r[0]/2,R[0]],maxfev = 38400)
+                    par,cov = curve_fit(NFW_profile, rbin_centers, rho_r, p0=[rho_r[0]/4,Rs_klypin],maxfev = 38400)
                 except:
                     print("Warning: NFW profile fitting failed for halo #%i. The Rs scale-length of this halo will be undefined." % HaloID)
                     par = [0.0,0.0]
-                rho0_NFW = par[0]
-                Rs_NFW = par[1] #NFW scale radius
+                rho0_NFW = par[0] #fitted NFW density
+                Rs_NFW = par[1] #fitted NFW scale radius
                 Energy = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     absJvir = np.sqrt(np.sum(np.power(J[0],2)))
@@ -310,12 +328,15 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Npart": Npart,
     "Mvir": M[0] * 1.0e11,
     "Coordinates": Center,
-    "Rs": Rs_NFW * 1.0e3,
     "Rvir": R[0] * 1.0e3,
     "Vvir": V[0],
     "VRMSvir": Vrms[0],
+    "Vvircirc": Vcirc[0],
     "VMax": Vmax,
     "c": R[0]/Rs_NFW,
+    "Rs": Rs_NFW * 1.0e3,
+    "c_klypin":c_klypin,
+    "Rs_klypin":Rs_klypin * 1.0e3,
     "Jvir": J[0] * 1e11,
     "Energy": Energy,
     "Spin_Peebles": Spin_Peebles,
@@ -327,6 +348,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         returndict["R"+massdefnames[i]] = R[i+1] * 1.0e3 # the output radii are in kpc
         returndict["V"+massdefnames[i]] = V[i+1]
         returndict["VRMS"+massdefnames[i]] = Vrms[i+1]
+        returndict["V"+massdefnames[i]+"circ"] = Vcirc[i+1]
         returndict["J"+massdefnames[i]] = J[i+1] * 1e11 # the output angular momenta in Msun * Mpc * km/s (physical)
     return returndict
 
