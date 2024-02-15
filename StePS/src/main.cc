@@ -305,7 +305,7 @@ int main(int argc, char *argv[])
 		if(IS_PERIODIC  != 0)
 		{
 			if(rank == 0)
-				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to run non-periodic simulations only.\nExiting.\n");
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run non-periodic simulations only.\nExiting.\n");
 			return (-2);
 		}
 	#endif
@@ -775,7 +775,7 @@ int main(int argc, char *argv[])
 		}
 		if(COMOVING_INTEGRATION == 1)
 		{
-		printf("Initial time:\tt_start = %.10fGy\nInitial scalefactor:\ta_start = %.8f\nMaximal scalefactor:\t%.8f\n\n", T*UNIT_T, a, a_max);
+		printf("Initial time:\t\tt_start = %.10f Gy\nInitial scalefactor:\ta_start = %.8f\nMaximal scalefactor:\ta_max   = %.8f\n\n", T*UNIT_T, a, a_max);
 		}
 		if(COMOVING_INTEGRATION == 0)
 		{
@@ -783,7 +783,7 @@ int main(int argc, char *argv[])
 			a_tmp = 0;
 			a_max = a_max/UNIT_T;
 			a = 1;
-			printf("Initial time:\tt_start = %.10fGy\nMaximal time:\t%.8f\n\n", T*UNIT_T, a_max*UNIT_T);
+			printf("Initial time:\tt_start = %.10f Gy\nMaximal time:\tt_max   = %.8f Gy\n\n", T*UNIT_T, a_max*UNIT_T);
 		}
 	}
 	else
