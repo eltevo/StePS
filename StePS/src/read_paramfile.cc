@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2024 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -486,14 +486,28 @@ if(COSMOLOGY == 1)
 	//Converting the Gy inputs into internal units
 	h_min /= UNIT_T;
 	h_max /= UNIT_T;
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%fMpc\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10fGy\nMaximal timestep length\t\t%.10fGy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	char dist_unit[6];
+	if(H0_INDEPENDENT_UNITS==0)
+	{
+		(void)strncpy(dist_unit, "Mpc  ", sizeof(dist_unit));
+	}
+	else
+	{
+		(void)strncpy(dist_unit, "Mpc/h", sizeof(dist_unit));
+	}
+	if(COMOVING_INTEGRATION==0 && a_max==1.0)
+		printf("\nWarning: The maximal simulation time is set 1.0Gy. Usually, the final scalefactor is set to 1. Are you sure that this is what you want?\n\n\n");
+	if(COMOVING_INTEGRATION==1)
+		printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%f %s\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,dist_unit,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	else
+		printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%f %s\nMaximal simulation time\t\t%f Gy\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,dist_unit,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
 }
 else
 {
 	printf("Non-cosmological simulation.\n");
-	printf("The parameters of the simulation:\n-------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%f\na_max\t\t\t\t%f\nParticleRadi\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ParticleRadi,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
+	printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%f\na_max\t\t\t\t%f\nParticleRadi\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ParticleRadi,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
 }
-printf("Simulation wall-clock time limit\t%fh\n", TIME_LIMIT_IN_MINS/60.0);
+printf("Wall-clock time limit\t\t%.2f h\n", TIME_LIMIT_IN_MINS/60.0);
 if(COSMOLOGY==1)
 	printf("H independent units\t\t%i\n", H0_INDEPENDENT_UNITS);
 else

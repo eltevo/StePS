@@ -1,6 +1,14 @@
 # Change Log
 All notable changes to the StePS simulation code will be documented in this file.
 
+## [v1.0.2.1] - 2024-**-**
+
+### Added
+- Added error messages for non-comoving cosmological simulations
+- Added better descriptions to the README file
+
+### Changed
+
 ## [v1.0.2.0] - 2024-01-23
 
 

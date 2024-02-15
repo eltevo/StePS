@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2024 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -345,7 +345,14 @@ int main(int argc, char *argv[])
 			printf("Output list found. Using the contents of this file for the output");
 		}
 		if(OUTPUT_TIME_VARIABLE == 1)
+		{
 			printf(" redshifts.\n");
+			if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+			{
+					fprintf(stderr, "Error: only output physical times can be used in non-comoving cosmological simulations.\nExiting.\n");
+					return (-2);
+			}
+		}
 		else
 			printf(" times.\n");
 	}
@@ -417,7 +424,7 @@ int main(int argc, char *argv[])
 		}
 		if(REDSHIFT_CONE == 1 && OUTPUT_TIME_VARIABLE != 1)
 		{
-			fprintf(stderr, "Error: you must use redshift output format in redshift cone simulations. \nExiting.\n");
+			fprintf(stderr, "Error: you must use redshift as output time variable in redshift cone simulations. \nExiting.\n");
 			return (-2);
 		}
 		if(REDSHIFT_CONE == 1)
@@ -525,7 +532,7 @@ int main(int argc, char *argv[])
 	//Bcasting the ICs to the rank!=0 threads
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
-        MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+  MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
@@ -612,7 +619,7 @@ int main(int argc, char *argv[])
 				#else
 					printf("unkown cosmology parametrization.\n");
 				#endif
-			printf("This is not supported in version %s. Exiting...\n", PROGRAM_VERSION);
+			printf("This is not supported in StePS version %s. Exiting...\n", PROGRAM_VERSION);
 			return (-1);
 			#endif
 		}
