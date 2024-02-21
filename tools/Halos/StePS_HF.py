@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.2.3"
+_VERSION="v0.0.2.4"
 _YEAR="2024"
 
 # Global variables
@@ -144,10 +144,14 @@ def get_total_energy(r,v,m,force_res):
             - m: particle masses in Msol.
             - force_res: (physical) softening length of each particle
         Returns:
-            - Etot: Total energy in of the system in (Msol * (km/s)^2 ) units
+            - TotE: Total energy in of the system in (Msol * (km/s)^2 ) units
+            - TotEkin: Total kinetic energy of the system in (Msol * (km/s)^2 ) units
+            - TotEpot: Total potential energy of the system in (Msol * (km/s)^2 ) units
         """
         Ekin,Epot = get_individual_energy(r,v,m,force_res)
-        return np.sum(Ekin+Epot)
+        TotEkin = np.sum(Ekin) #total kinetic energy of the halo
+        TotEpot = np.sum(Epot) #total potential energy of the halo
+        return TotEkin+TotEpot, TotEkin, TotEpot
 
 def get_Rs_Klypin(vmax,v200,R200):
     """
@@ -199,7 +203,8 @@ def Hz(z, H0, Om, Ol, DE_model, DE_params):
 
 def get_Delta_c(z, H0, Om, Ol, DE_model, DE_params):
     """
-    Virial overdensity constant calculation
+    Virial overdensity constant calculation, see eq 6. of https://ui.adsabs.harvard.edu/abs/1998ApJ...495...80B/abstract
+    (Assuming Omega_r=0)
     """
     if DE_model == "Lambda":
         cosmo = LambdaCDM(H0=H0, Om0=Om, Ode0=Ol)
@@ -305,38 +310,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
             if i == 0:
                 p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
                 c_klypin, Rs_klypin = get_Rs_Klypin(Vmax,Vcirc[0],R[0])
-                c_lim = 40.0 # at high concentrations, the internal part contains most of the information
-                if c_klypin<c_lim:
-                    Nmax = Ntota
-                else:
-                    alpha=c_lim/c_klypin
-                    Nmax = int(np.floor(alpha*Ntota+(1.0-alpha)*Npart))
-                # calculating 1D profile and NFW parameters for the largest halos (Npart>750)
-                if Npart > 90:
-                    if Npart > 750:
-                        NprofileBins = 50
-                    else:
-                        NprofileBins = int(np.floor(Npart/15))
-                    rbin_centers, rho_r = get_1D_radial_profile(distances[sorted_idx][:Nmax],p.Masses[halo_particleindexes][sorted_idx][:Nmax],NprofileBins,background_density=rho_b) # equal volume radial bins
-                    # fitting NFW profile
-                    try:
-                        rho_guess =  np.power(c_klypin,1.5)*M[0]/(4.0*np.pi/3.0*R[0]) #rough estimation: <rho^2>_Rvir ~ rho_0^2/c^3 -> rho_0~sqrt(c^3*<rho^2>_Rvir)
-                        Rs_guess = Rs_klypin
-                        par,cov = curve_fit(NFW_profile, rbin_centers, rho_r, p0=[rho_guess,Rs_guess],bounds=[[0.0,0.0],[np.inf,R[0]/2.1626]],maxfev = 600)
-                    except:
-                        print("Warning: NFW profile fitting failed for halo #%i. The Rs scale-length of this halo will be undefined." % HaloID)
-                        print("\tAdditional halo params: Mvir = %e Msol/h;\tNpart = %i;\tc_klypin = %f;\tRs_Klypin = %f kpc/h" % (M[0]*1e11,Npart,c_klypin,Rs_klypin*1e3))
-                        par = [-1.0,-1.0]
-                        cov = np.array([[0.0,0.0],[0.0,0.0]])
-                else:
-                    # Due to the low number of particles, the profile cannot be fitted.
-                    par = [-1.0,-1.0]
-                    cov = np.array([[0.0,0.0],[0.0,0.0]])
-                rho0_NFW = par[0] #fitted NFW density
-                var_rho0_NFW = cov[0,0]
-                Rs_NFW = par[1] #fitted NFW scale radius
-                var_Rs_NFW = cov[1,1]
-                Energy = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
+                Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     absJvir = np.sqrt(np.sum(np.power(J[0],2)))
     Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
@@ -352,13 +326,12 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "VRMSvir": Vrms[0],
     "Vcircvir": Vcirc[0],
     "VMax": Vmax,
-    "Rs": Rs_NFW * 1.0e3,
-    "RsError": np.sqrt(var_Rs_NFW)*1.0e3,
     "Rs_klypin":Rs_klypin * 1.0e3,
     "Jvir": J[0] * 1e11,
-    "Energy": Energy,
     "Spin_Peebles": Spin_Peebles,
-    "Spin_Bullock": Spin_Bullock
+    "Spin_Bullock": Spin_Bullock,
+    "Energy": Energy,
+    "T/|U|": Ekin/np.abs(Epot)
     }
     #saving all other quantities
     for i in range(0,len(massdefnames)):
