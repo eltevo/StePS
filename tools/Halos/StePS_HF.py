@@ -48,10 +48,10 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.2.4"
+_VERSION="v0.0.3.0"
 _YEAR="2024"
 
-# Global variables
+# Global variables (constants)
 G  = 4.3009172706e-9 # gravitational constant G in Mpc/Msol*(km/s)^2 units
 # usual StePS internal units
 UNIT_T=47.14829951063323 #Unit time in Gy
@@ -250,9 +250,7 @@ def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
 
 
 
-def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode,rho_b=0.0):
-    Masslist = np.zeros(len(massdefdenstable), dtype=np.float32)
-    Rlist = np.zeros(len(massdefdenstable), dtype=np.float32)
+def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode, boundonly=False, rho_b=0.0):
     # Sorting particles by distance from the central particle
     distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-p.Coordinates[idx]),2),axis=1)) # calculating Euclidian particle distances from the center
     sorted_idx = distances.argsort() # sorting
@@ -278,6 +276,37 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         rho_enc[0] = rho_enc[1] # the first bin can
     else:
         rho_enc = M_enc / V_enc
+    # Flagging unbound particles, if needed (this can have significant effect in the runtime, if the seach radius is too large)
+    if boundonly:
+        # For this, we have a first estimate on the bulk velocity of the halo. Using SO Mvir definition for this:
+        radius_idx = massdefdenstable[0] <= rho_enc
+        max_radi_idx = np.where(radius_idx == False)[0][0] # apply cut when the density first fall below the limit
+        if max_radi_idx<npartmin:
+            # In this case, the SO definition has smaller number of particles then npartmin. This also means that the BO halo definition will not have enough particles.
+            p.set_HaloParentIDs(p.IDs[idx],-2) # since this group doesn't have enough patricles, the "central" particle IDs had to be set to -2
+            if max_radi_idx == 0:
+                p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][0],-2)
+            else:
+                p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
+            return None
+        R_SO = distances[sorted_idx][:max_radi_idx][-1] #Radii
+        M_SO = M_enc[:max_radi_idx][-1] #Mass
+        V_SO = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
+        # Calculating individual energies
+        T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx],p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx])
+        bound = (T+U)<0.0 # a bool array. If the particle is bound True; False if not
+        # After this, the enclosed density and mass has to be re-calculated
+        M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx][bound]) # enclosed mass
+        V_enc = 4.0*np.pi/3.0*np.power(distances[sorted_idx][bound],3) # enclosed volume
+        if centermode == "CENTRALPARTICLE":
+            # In this mode, the first bin have zero volume, so we have to do this
+            rho_enc = np.zeros(len(V_enc))
+            rho_enc[1:]= M_enc[1:] / V_enc[1:] # enclosed mass / enclosed volume
+            rho_enc[0] = rho_enc[1] # the first bin can
+        else:
+            rho_enc = M_enc / V_enc
+    else:
+        bound = np.ones(len(distances),dtype='bool') # using all particles in SO mode.
     # calculating the parameters for each mass definitions (+ virial mass)
     R = np.zeros(len(massdefdenstable)) # Radii
     M = np.zeros(len(massdefdenstable)) # Masses
@@ -291,26 +320,32 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         if i == 0:
             Npart = max_radi_idx+1
             if Npart < npartmin:
-                p.set_HaloParentIDs(p.IDs[idx],-2) # since this group has too less patricles, the "central" particle ID had to be set to -2
+                p.set_HaloParentIDs(p.IDs[idx],-2) # since this group doesn't have enough patricles, the "central" particle IDs had to be set to -2
                 if max_radi_idx == 0:
                     p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][0],-2)
                 else:
-                    p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
+                    p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][bound][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
                 return None
-            Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][:]*p.a))) # Maximal circular velocity of the halo
+            Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][bound][:]*p.a))) # Maximal circular velocity of the halo
         if max_radi_idx > 0:
             # if max_radi_idx==0, then this mass definition is not applicable,
             #  because the halo doesn't have high enough density even at the center.
-            R[i] = distances[sorted_idx][:max_radi_idx][-1] #Radii
+            R[i] = distances[sorted_idx][bound][:max_radi_idx][-1] #Radii
             M[i] = M_enc[:max_radi_idx][-1] #Mass
-            V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
-            Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx])) # root mean square velocity
-            J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+            V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
+            Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx])) # root mean square velocity
+            J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
             Vcirc[i] = np.sqrt(G*1e11*M[i]/(R[i]*p.a))
             if i == 0:
-                p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
+                p.set_HaloParentIDs(p.IDs[idx],-2) # even if the "central" particle is not bound, this will ensure to not to check this group again.
+                p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][bound][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
                 c_klypin, Rs_klypin = get_Rs_Klypin(Vmax,Vcirc[0],R[0])
-                Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
+                if boundonly:
+                    Ekin = np.sum(T[bound])
+                    Epot = np.sum(U[bound])
+                    Energy = np.sum(Ekin+Epot)
+                else:
+                    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     absJvir = np.sqrt(np.sum(np.power(J[0],2)))
     Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
@@ -319,6 +354,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     returndict = {
     "ID": HaloID,
     "Npart": Npart,
+    "MvirSO": 0.0,
+    "RvirSO": 0.0,
     "Mvir": M[0] * 1.0e11,
     "Coordinates": Center,
     "Rvir": R[0] * 1.0e3,
@@ -333,6 +370,12 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Energy": Energy,
     "T/|U|": Ekin/np.abs(Epot)
     }
+    if boundonly:
+        returndict["MvirSO"] = M_SO * 1.0e11 # the output masses are in Msol
+        returndict["RvirSO"] = R_SO * 1.0e3 # the output radii are in kpc
+    else:
+        del returndict["MvirSO"]
+        del returndict["RvirSO"]
     #saving all other quantities
     for i in range(0,len(massdefnames)):
         returndict["M"+massdefnames[i]] = M[i+1] * 1.0e11 # the output masses are in Msol
@@ -396,7 +439,7 @@ class StePS_Halo_Catalog:
     '''
     A class for storing halo catalogs
     '''
-    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode):
+    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode, Npartmin, RemoveUnBoundParts):
         #During initialization we fill the header
         Mdef = [PrimaryMDef]
         Mdef.append(SecondaryMdefList)
@@ -412,7 +455,9 @@ class StePS_Halo_Catalog:
             "rho_c": rho_c,
             "rho_b": rho_b,
             "CenterMode": Centermode,
-            "DensityMode": DensityMode
+            "DensityMode": DensityMode,
+            "Npart_min": Npartmin,
+            "RemoveUnBoundParts": RemoveUnBoundParts
         }
         self.Nhalos = 0
         self.DataTable = [] # empty list
@@ -546,7 +591,12 @@ if Params["H_INDEPENDENT_UNITS"]:
 else:
     print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
 
-print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s\nMass definitions:" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
+print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
+if Params["BOUNDONLYMODE"]:
+    print("Spherical Overdensity Mode:\t\tBound Only (BO)")
+else:
+    print("Spherical Overdensity Mode:\t\tStrict Spherical Overdensity (SO)")
+print("Mass definitions:")
 Nmassdef = len(Params["MASSDEF"])+1 #total number of mass definitions.
 print("\t\t- %s" % "Vir [\u0394c = %.2f] (Default primary definition, cannot be changed)" % Delta_c)
 for i in range(0,Nmassdef-1):
@@ -598,7 +648,7 @@ elif DensMode == "10th neighbor":
 # Identifying halos using Spherical Overdensity (SO) method
 print("Identifying halos and calculating halo parameters...")
 id_start = time.time()
-halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"])
+halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
 halo_ID = 0
 while True:
     #selecting the largest density particle with parentID=-1
@@ -608,12 +658,12 @@ while True:
     search_radius = alpha*np.cbrt(p.Masses[idx]/rho_b) #In StePS simulations, the particles are more density packed at the center. The typical particle separation is proportional to the cubic root of the particle mass.
     halo_particleindexes = tree.query_ball_point(p.Coordinates[idx], search_radius, p=2.0, eps=0, workers=kdworkers, return_sorted=False)
     if len(halo_particleindexes) >= npartmin:
-        #print("\nCentral estimated density for halo #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
-        #print("\tCentral coordinate of halo #%i: " % (halo_ID), p.Coordinates[idx])
-        #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
+        print("\nCentral estimated density for halo #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
+        print("\tCentral coordinate of halo #%i: " % (halo_ID), p.Coordinates[idx])
+        print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
         #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
         #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
-        halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],rho_b=rho_b)
+        halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b)
         if halo_params != None:
             halos.add_halo(halo_params) #adding the identified halo to the catalog
             halo_ID +=1
