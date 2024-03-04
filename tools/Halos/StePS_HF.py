@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.3.0"
+_VERSION="v0.0.3.1"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -60,6 +60,13 @@ UNIT_D=3.0856775814671917e24 #=1Mpc Unit distance in cm
 
 # Defining functions
 def voronoi_volumes(points, SILENT=False):
+    """
+    Function for calculating voronoi volumes
+    Input:
+        - points: array containing the coordinates of the input particles
+    Returns:
+        - vol: array containing the volumes of all cells
+    """
     if SILENT==False:
         v_start = time.time()
         print("Calculating Voronoi tessellation...")
@@ -83,6 +90,14 @@ def voronoi_volumes(points, SILENT=False):
     return vol
 
 def get_center_of_mass(r, m):
+    """
+    Function for calculating the center of mass of a particle system
+    Input:
+        - r: particle coordinates
+        - m: particle masses
+    Returns:
+        - Center of mass coordinates
+    """
     return np.sum((r.T*m).T,axis=0)/np.sum(m)
 
 def get_angular_momentum(r,v,m):
@@ -92,6 +107,8 @@ def get_angular_momentum(r,v,m):
         - r: CoM (physical) coordinates.
         - v: (physical) velocities.
         - m: particle masses.
+    Returns:
+        - J: angular momentum vector
     """
     p = m.reshape((len(m),1))*v #Individual linear momenta: mass x position
     J = np.cross(r,p)# Individual orbital angular momenta" (position vector) x (linear momentum)
@@ -100,6 +117,11 @@ def get_angular_momentum(r,v,m):
 def cubic_spline_potential(r, h):
     """
     Function for calculating the potential of Cubic spline kernel (Monaghan & Lattanzio, 1985)
+    Input:
+        - r: distance from the particle
+        - h: softening length
+    Returns:
+        - cubic spline potential value (assuming unit masses and G=1 units)
     """
     q = r / h
     kernel_value = np.zeros_like(q)
@@ -114,7 +136,7 @@ def cubic_spline_potential(r, h):
 
 def get_individual_energy(r,v,m,force_res):
     """
-    Function for calculating the individual energy of a particle system.
+    Function for calculating the individual energy of a particle system by using direct summation of the potential.
     Expected input:
         - r: CoM (physical) coordinates in Mpc.
         - v: (physical) velocities in km/s.
@@ -155,7 +177,14 @@ def get_total_energy(r,v,m,force_res):
 
 def get_Rs_Klypin(vmax,v200,R200):
     """
-    Function for calculatin the c concentration and Rs scale length based on klypin Vmax method.
+    Function for calculatin the c concentration and Rs scale length based on Klypin Vmax method.
+    Input:
+        - vmax: maximal circular velocity of the halo
+        - v200: circular velocity at the virial radius
+        - R200: virial radius
+    Returns:
+        - c: Rvir/Rs concentration of the halo
+        - Rs: Scale radius of the halo
     Details:
         -> Francisco Prada, Anatoly A. Klypin, Antonio J. Cuesta, Juan E. Betancort-Rijo, Joel Primack (2012) https://academic.oup.com/mnras/article/423/4/3018/987360
         -> Klypin, Anatoly A. ; Trujillo-Gomez, Sebastian ; Primack, Joel (2011) https://ui.adsabs.harvard.edu/abs/2011ApJ...740..102K/abstract
@@ -184,13 +213,34 @@ def get_bullock_spin(jvir,mvir,rvir):
     return S_Bullock
 
 def NFW_profile(r,rho0,Rs):
+    """
+    A function for calculating the Navarro-Frenk-White profile
+    Input:
+        - r: distance from the center
+        - rho0: density parameter of the NFW profile
+        - Rs: scale lenght of the halo
+    Returns:
+        - NFW profile values at "r" input distances
+    """
     rpRs = r/Rs
     return rho0/(rpRs*np.power((1.0+rpRs),2))
 
-def log_NFW_profile(r,rho0,Rs):
-    return np.log10(NFW_profile(r,rho0,Rs))
-
 def Hz(z, H0, Om, Ol, DE_model, DE_params):
+    """
+    Hubble parameter at given redshift using astropy.
+    Input:
+        - z: redshift
+        - H0: Hubble constant in km/s/Mpc units
+        - Om: non-relativistic matter density parameter
+        - Ol: dark energy density parameter
+        - DE_model: Dark Energy model name. must be "Lambda", "w0", or "CPL"
+        - DE_params: list of the parameters of the DE model.
+            -> "Lambda": not used
+            -> "w0": [w0]
+            -> "CPL": [w0,wa]
+    Returns:
+        - Hz: Hubble parameter at z redshift in km/s/Mpc units
+    """
     if DE_model == "Lambda":
         cosmo = LambdaCDM(H0=H0, Om0=Om, Ode0=Ol)
     elif DE_model == 'w0':
@@ -218,7 +268,6 @@ def get_Delta_c(z, H0, Om, Ol, DE_model, DE_params):
     return 18.0*np.pi**2 + 82.0*x + 39.0*x**2
 
 def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
-
     """
     This function reconstructs the 1D density profile of a halo
     by using equal "Npart" radial binning
@@ -251,6 +300,25 @@ def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
 
 
 def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode, boundonly=False, rho_b=0.0):
+    """
+    Function for calculating various halo parameters
+    Input:
+        - p: a StePS_Particle_Catalog containing the particles of the simulation
+        - idx: ID of the central particle candidate of the halo
+        - halo_particleindexes: list of indexes of the particles that can be potentially part of the halo
+        - HaloID: ID of the new halo
+        - massdefnames: a list containing the mass definition names
+        - massdefdenstable: an array containing the density limits of the mass definitions
+        - npartmin: minimal particle number of a halo
+        - centermode: method for identifying the center of the halo. Implemented methods:
+            -> "CENTRALPARTICLE": the coordinates of the central particle is the halo center (fast)
+            -> "CENTEROFMASSNPARTMIN": using center of mass of the most inner npartmin particles as center (more physical)
+        - boundonly: If True, only bound particles will be considered during the parameter estimation.
+        - rho_b: background densiy
+    Returns:
+        - returndict: A dictionary containing all calculated halo parameters such us position, velocity, mass, radius, angular momentum, spin parameters, scale radius, energy, velocity dispersion, etc.
+
+    """
     # Sorting particles by distance from the central particle
     distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-p.Coordinates[idx]),2),axis=1)) # calculating Euclidian particle distances from the center
     sorted_idx = distances.argsort() # sorting
@@ -658,9 +726,9 @@ while True:
     search_radius = alpha*np.cbrt(p.Masses[idx]/rho_b) #In StePS simulations, the particles are more density packed at the center. The typical particle separation is proportional to the cubic root of the particle mass.
     halo_particleindexes = tree.query_ball_point(p.Coordinates[idx], search_radius, p=2.0, eps=0, workers=kdworkers, return_sorted=False)
     if len(halo_particleindexes) >= npartmin:
-        print("\nCentral estimated density for halo #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
-        print("\tCentral coordinate of halo #%i: " % (halo_ID), p.Coordinates[idx])
-        print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
+        #print("\nCentral estimated density for halo #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
+        #print("\tCentral coordinate of halo #%i: " % (halo_ID), p.Coordinates[idx])
+        #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
         #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
         #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
         halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b)
