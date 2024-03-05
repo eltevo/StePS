@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.3.1"
+_VERSION="v0.0.3.2"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -613,8 +613,73 @@ class StePS_Halo_Catalog:
                         outarray[i][j[0]:j[2]] = self.DataTable[i][key]
                     else:
                         outarray[i][j] = self.DataTable[i][key]
-            np.savetxt(filename,outarray,fmt=fmtstring,header=header)
-            return
+            np.savetxt(filename+".dat",outarray,fmt=fmtstring,header=header)
+        else:
+            print("The halo catalog is empty. No file is saved.");
+        return
+
+    def save_hdf5_catalog(self, filename, save_particles=False, precision=0):
+        if self.Nhalos >= 1:
+            if int(precision) == 0:
+                HDF5datatype = 'float32'
+                npdatatype = np.float32
+                print(" using 32bit precision.")
+            if int(precision) == 1:
+                HDF5datatype = 'double'
+                npdatatype = np.float64
+                print(" using 64bit precision.")
+            HDF5_snapshot = h5py.File(filename+".hdf5", "w")
+            #generating the header
+            header_group = HDF5_snapshot.create_group("/Header")
+            header_group.attrs['HaloFinder'] = "StePS_HF.py"
+            header_group.attrs['HaloFinderVersion'] = _VERSION
+            now = datetime.now()
+            header_group.attrs['Date'] = now.strftime("%d/%m/%Y %H:%M")
+            header_group.attrs['NumHalos'] = np.uint32(self.Nhalos)
+            for key in self.Header.keys():
+                if key != "MassDefinitions":
+                    header_group.attrs[key] = self.Header[key]
+                else:
+                    mdeflist = []
+                    mdeflist.append(self.Header[key][0])
+                    for i in range(0,len(self.Header[key][1])):
+                        mdeflist.append(self.Header[key][1][i])
+                    header_group.attrs[key] = mdeflist
+            #Header created.
+            #Creating datasets for the halo data
+            halo_group = HDF5_snapshot.create_group("/Halos")
+            for key in self.DataTable[0].keys():
+                if type(self.DataTable[0][key]) == np.ndarray:
+                    #Vector quantity
+                    dataset = halo_group.create_dataset(key, (self.Nhalos,3),dtype=HDF5datatype)
+                    outarray = np.zeros((self.Nhalos,3),dtype=npdatatype)
+                    for i in range(0,self.Nhalos):
+                        outarray[i] = npdatatype(self.DataTable[i][key])
+                    dataset[:,:] = outarray
+                elif type(self.DataTable[0][key]) == int or type(self.DataTable[0][key]) == np.uint32 or type(self.DataTable[0][key]) == np.uint64:
+                    #ID or particle number
+                    dataset = halo_group.create_dataset(key, (self.Nhalos,),dtype='uint32')
+                    outarray = np.zeros((self.Nhalos),dtype=np.uint32)
+                    for i in range(0,self.Nhalos):
+                        outarray[i] = npdatatype(self.DataTable[i][key])
+                    dataset[:] = outarray
+                else:
+                    #everything else. the data type should be scalar float in this case.
+                    if key == "T/|U|":
+                        dataset = halo_group.create_dataset("Tper|U|", (self.Nhalos,),dtype=HDF5datatype)
+                    else:
+                        dataset = halo_group.create_dataset(key, (self.Nhalos,),dtype=HDF5datatype)
+                    outarray = np.zeros(self.Nhalos,dtype=npdatatype)
+                    for i in range(0,self.Nhalos):
+                        outarray[i] = npdatatype(self.DataTable[i][key])
+                    dataset[:] = outarray
+            if save_particles:
+                #Creating datasets for the particle data
+                particle_group = HDF5_snapshot.create_group("/PartType1")
+            HDF5_snapshot.close()
+        else:
+            print("The halo catalog is empty. No file is saved.");
+        return
 
 
 
@@ -746,7 +811,11 @@ while True:
 id_end = time.time()
 print("...done in %.2f s.\n" % (id_end-id_start))
 if halos.Nhalos > 0:
-    print("Saving the generated catalog to %s" % Params["OUTFILE"])
-    halos.save_ascii_catalog(Params["OUTFILE"])
+    if Params["OUTFORMAT"] == "ASCII" or Params["OUTFORMAT"] == "BOTH":
+        print("Saving the generated catalog to %s.dat" % Params["OUTFILE"])
+        halos.save_ascii_catalog(Params["OUTFILE"])
+    if Params["OUTFORMAT"] == "HDF5" or Params["OUTFORMAT"] == "BOTH":
+        print("Saving the generated catalog to %s.hdf5" % Params["OUTFILE"], end='')
+        halos.save_hdf5_catalog(Params["OUTFILE"],save_particles=Params["SAVEPARTICLES"])
 end = time.time()
-print("SO halo finding finished under %fs.\n" % (end-start))
+print("\nSO halo finding finished under %fs.\n" % (end-start))
