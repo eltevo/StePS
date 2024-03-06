@@ -48,7 +48,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.0.3.2"
+_VERSION="v0.1.0.0"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -364,8 +364,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx],p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx])
         bound = (T+U)<0.0 # a bool array. If the particle is bound True; False if not
         # After this, the enclosed density and mass has to be re-calculated
-        M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx][bound]) # enclosed mass
-        V_enc = 4.0*np.pi/3.0*np.power(distances[sorted_idx][bound],3) # enclosed volume
+        M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx][bound]) # enclosed (bound) mass
+        V_enc = 4.0*np.pi/3.0*np.power(distances[sorted_idx][bound],3) # enclosed (bound) volume
         if centermode == "CENTRALPARTICLE":
             # In this mode, the first bin have zero volume, so we have to do this
             rho_enc = np.zeros(len(V_enc))
@@ -409,8 +409,10 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][bound][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
                 c_klypin, Rs_klypin = get_Rs_Klypin(Vmax,Vcirc[0],R[0])
                 if boundonly:
-                    Ekin = np.sum(T[bound])
-                    Epot = np.sum(U[bound])
+                    Ekin = np.sum(T[bound][:max_radi_idx])
+                    Epot = np.sum(U[bound][:max_radi_idx])
+                    MSSO = np.sum(p.Masses[halo_particleindexes][distances<=R[i]]) # total mass within Rvir (strict SO)
+                    MboundPerMtot = M[i] / MSSO #Total bounded mass ratio within Rvir
                     Energy = np.sum(Ekin+Epot)
                 else:
                     Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
@@ -441,6 +443,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     if boundonly:
         returndict["MvirSO"] = M_SO * 1.0e11 # the output masses are in Msol
         returndict["RvirSO"] = R_SO * 1.0e3 # the output radii are in kpc
+        returndict["MboundRatio"] = MboundPerMtot
     else:
         del returndict["MvirSO"]
         del returndict["RvirSO"]
@@ -462,7 +465,7 @@ class StePS_Particle_Catalog:
     '''
 
     def __init__(self, FILENAME, D_UNITS, V_UNITS, M_UNITS, H_INDEPENDENT_UNITS, HUBBLE, REDSHIFT=0.0, FORCE_RES=0.0):
-        print("Creating a new particle catalog by loading %s\n" % FILENAME)
+        print("Loading particle data from %s\n" % FILENAME)
         if FILENAME[-4:] == 'hdf5':
             self.Redshift, self.Om, self.Ol, self.H0, self.Npart = Load_params_from_HDF5_snap(FILENAME)
         else:
@@ -676,6 +679,7 @@ class StePS_Halo_Catalog:
             if save_particles:
                 #Creating datasets for the particle data
                 particle_group = HDF5_snapshot.create_group("/PartType1")
+                print("Warning: Saving particle data is not implemented yet.")
             HDF5_snapshot.close()
         else:
             print("The halo catalog is empty. No file is saved.");
