@@ -929,8 +929,7 @@ void read_hdf5_ic(char *ic_file)
 	hid_t datatype = 0;
 	hid_t dataspace_in_file = 0;
 	hid_t IC = 0;
-	int *Nbuf;
-	Nbuf = (int *)malloc(6*sizeof(int));
+	int Nbuf[6];
 	printf("Reading the %s IC file...\n", ic_file);
 	IC = H5Fopen(ic_file, H5F_ACC_RDONLY, H5P_DEFAULT);
 	//reading the total number of particles from the header
@@ -986,7 +985,7 @@ void read_hdf5_ic(char *ic_file)
 	{
 		printf("\t\tData stored in doubles.\n");
 		double* buffer;
-		if(!(buffer = (double*)malloc(3*N*sizeof(REAL))))
+		if(!(buffer = (double*)malloc(3*N*sizeof(double))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for x_buffer.\n", rank);
 			exit(-2);
@@ -1007,7 +1006,7 @@ void read_hdf5_ic(char *ic_file)
 	{
 		printf("\t\tData stored in floats.\n");
 		float* buffer;
-		if(!(buffer = (float*)malloc(3*N*sizeof(REAL))))
+		if(!(buffer = (float*)malloc(3*N*sizeof(float))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for x_buffer.\n", rank);
 			exit(-2);
@@ -1037,7 +1036,7 @@ void read_hdf5_ic(char *ic_file)
 	{
 		printf("\t\tData stored in doubles.\n");
 		double* buffer;
-		if(!(buffer = (double*)malloc(3*N*sizeof(REAL))))
+		if(!(buffer = (double*)malloc(3*N*sizeof(double))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for v_buffer.\n", rank);
 			exit(-2);
@@ -1058,7 +1057,7 @@ void read_hdf5_ic(char *ic_file)
 	{
 		printf("\t\tData stored in floats.\n");
 		float* buffer;
-		if(!(buffer = (float*)malloc(3*N*sizeof(REAL))))
+		if(!(buffer = (float*)malloc(3*N*sizeof(float))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for v_buffer.\n", rank);
 			exit(-2);
@@ -1088,7 +1087,7 @@ void read_hdf5_ic(char *ic_file)
 	{
 		printf("\t\tData stored in doubles.\n");
 		double* buffer;
-		if(!(buffer = (double*)malloc(N*sizeof(REAL))))
+		if(!(buffer = (double*)malloc(N*sizeof(double))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for M_buffer.\n", rank);
 			exit(-2);
@@ -1109,7 +1108,7 @@ void read_hdf5_ic(char *ic_file)
 	{
 		printf("\t\tData stored in floats.\n");
 		float* buffer;
-		if(!(buffer = (float*)malloc(N*sizeof(REAL))))
+		if(!(buffer = (float*)malloc(N*sizeof(float))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for M_buffer.\n", rank);
 			exit(-2);
