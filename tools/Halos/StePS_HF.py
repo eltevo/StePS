@@ -38,6 +38,7 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..','StePS_IC','src'))
 from os.path import exists
+from mpi4py import MPI
 import time
 from datetime import datetime
 import yaml
@@ -48,7 +49,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.1.0.0"
+_VERSION="v0.1.1.0"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -477,6 +478,7 @@ class StePS_Particle_Catalog:
         self.Coordinates, self.Velocities, self.Masses, self.IDs = Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=True,RETURN_IDs=True,SILENT=True)
         self.HaloParentIDs = -1*np.ones(len(self.Masses),dtype=np.int64)
         self.Density= np.zeros(len(self.Masses),dtype=np.double)
+        self.ParentThreadID= np.zeros(len(self.Masses),dtype=np.uint64)
         # converting the input data to StePS units (Mpc, km/s, 1e11Msol)
         if H_INDEPENDENT_UNITS:
             self.Coordinates *= D_UNITS/self.h
@@ -498,6 +500,30 @@ class StePS_Particle_Catalog:
         self.HaloParentIDs[idx] = ParentID
         if SILENT==False:
             print("Halo parent IDs got updated for ", PartIDs, " to ", ParentID)
+        return
+
+    def SetParentThreadIDs(self, N_MPI_threads, centralsphere=True):
+        if N_MPI_threads <= 1:
+            return
+        if centralsphere:
+            Nslices = N_MPI_threads-1
+        else:
+            Nslices = N_MPI_threads
+        delta_theta = 2.0*np.pi/Nslices
+        # using equal-angle cuts in the X-Y plane
+        # for this, we use polar coordinates
+        theta = np.arctan2(self.Coordinates[:,0], self.Coordinates[:,1])
+        r = np.sqrt(np.sum(np.power(self.Coordinates,2.0),axis=1))
+        for i in range(1,Nslices+1):
+            self.ParentThreadID[np.logical_and(theta>=(i-1)*delta_theta,theta<=(i)*delta_theta)] = i
+        if centralsphere:
+            #sorting all particles in increasing order
+            sorted_idx = r.argsort()
+            Ncentral = np.uint64(0.5*(self.Npart / Nslices))
+            self.ParentThreadID[sorted_idx][:Ncentral] = 0
+        else:
+            self.ParentThreadID -= 1
+        return
 
     def printlines(self,lines):
         print("ID\t(X      Y      Z) [Mpc]\t\t(Vx      Vy      Vz) [km/s]\t\tM[1e11Msol]\tDensity[rho/rho_crit]\tParentID\n----------------------------------------------------------------------------------------------------------------------------------------")
@@ -537,6 +563,21 @@ class StePS_Halo_Catalog:
         self.DataTable.append(haloparamdict)
         self.Nhalos += 1
         self.Header["Nhalos"] = self.Nhalos
+        #print(haloparamdict)
+        return
+
+    def add_catalog(self,halocatalog,overlaps=True):
+        for j in range(0,halocatalog.Nhalos):
+            if overlaps:
+                print("not implemented")
+            else:
+                halocatalog.DataTable[j]["ID"] += self.Nhalos
+                self.DataTable.append(halocatalog.DataTable[j])
+        if overlaps:
+            print("not implemented")
+        else:
+            self.Nhalos += halocatalog.Nhalos
+            self.Header["Nhalos"] = self.Nhalos
         #print(haloparamdict)
         return
 
@@ -688,108 +729,174 @@ class StePS_Halo_Catalog:
 
 
 #Beginning of the script
-print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
-if len(sys.argv) != 2:
-    print("Error: missing yaml file!")
-    print("usage: ./StePS_HF.py <input yaml file>\nExiting.")
-    sys.exit(2)
-start = time.time()
-print("Reading the %s paramfile...\n" % str(sys.argv[1]))
-document = open(str(sys.argv[1]))
-Params = yaml.safe_load(document)
-#setting the redshift (and cosmological parameters, if the input in HDF5 format)
-if Params['INFILE'][-4:] == 'hdf5':
-    redshift, Omega_m, Omega_l, H0, Npart = Load_params_from_HDF5_snap(Params['INFILE'])
-else:
-    redshift = np.double(Params['REDSHIFT'])
-    Omega_m = np.double(Params['OMEGAM'])
-    Omega_l = np.double(Params['OMEGAL'])
-    H0 = np.double(Params['H0'])
-print("Cosmological Parameters:\n------------------------\n\u03A9_m:\t\t\t%f\t(Ommh2=%f; Omch2=%f)\n\u03A9_lambda:\t\t%f\n\u03A9_k:\t\t\t%f\n\u03A9_b:\t\t\t%f\t(Ombh2=%f)\nH0:\t\t\t%f km/s/Mpc\nDark energy model:\t%s" % (Omega_m, Omega_m * (Params['H0']/100.0)**2, (Omega_m - Params['OMEGAB']) * (Params['H0']/100.0)**2, Omega_l, 1.0-Omega_m-Omega_l, Params['OMEGAB'], (Params['OMEGAB']) * (Params['H0']/100.0)**2, Params['H0'], Params['DARKENERGYMODEL']))
-if Params['DARKENERGYMODEL'] == 'Lambda':
-    print("\t\t\t(w = -1)")
-elif Params['DARKENERGYMODEL'] == 'w0':
-    print("\t\t\tw = %f" % Params['DARKENERGYPARAMS'][0])
-elif Params['DARKENERGYMODEL'] == 'CPL':
-    print("\t\t\tw0 = %f\n\t\t\twa = %f" % (Params['DARKENERGYPARAMS'][0], Params['DARKENERGYPARAMS'][1]))
-else:
-    print("Error: unkown dark energy parametrization!\nExiting.\n")
-    sys.exit(2)
 
-# Calculating relevant cosmological quantities
-rho_c = 3.0*Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])**2/(8*np.pi)/UNIT_V/UNIT_V/(redshift+1)**3 #comoving critical density in internal units (G=1)
-rho_b = 3.0*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
-print("\u03C1_c (comoving):\t\t%.4e Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
-Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
+#initializing MPI
+comm = MPI.COMM_WORLD
+size = comm.Get_size() #total number of MPI threads
+rank = comm.Get_rank() #rank of this MPI thread
 
+#parameters that are used in all threads
+Params = None
+ERROR = 0
+rho_c = None
+rho_b = None
+Delta_c = None
+Nmassdef = None
+massdefdenstable = None
+p = None
+redshift = None
+
+#Welcome message
+if rank == 0:
+    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
+    if len(sys.argv) != 2:
+        print("Error: missing yaml file!")
+        print("usage: ./StePS_HF.py <input yaml file>\nExiting.")
+        ERROR = 1
+    start = time.time()
+ERROR = comm.bcast(ERROR, root=0)
+if ERROR>0:
+    sys.exit(ERROR)
+if rank == 0:
+    print("Reading the %s paramfile...\n" % str(sys.argv[1]))
+    try:
+        document = open(str(sys.argv[1]))
+        Params = yaml.safe_load(document)
+    except:
+        print("Error: invalid input; cannot read yaml file\nExiting.")
+        ERROR = 2
+ERROR = comm.bcast(ERROR, root=0)
+if ERROR>0:
+    sys.exit(ERROR)
+
+#Bcasting the loaded parameters
+Params = comm.bcast(Params, root=0)
 min_mass_force_res = np.double(Params['PARTICLE_RADII'])
-if Params["H_INDEPENDENT_UNITS"]:
-    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
-else:
-    print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
-
-print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
-if Params["BOUNDONLYMODE"]:
-    print("Spherical Overdensity Mode:\t\tBound Only (BO)")
-else:
-    print("Spherical Overdensity Mode:\t\tStrict Spherical Overdensity (SO)")
-print("Mass definitions:")
-Nmassdef = len(Params["MASSDEF"])+1 #total number of mass definitions.
-print("\t\t- %s" % "Vir [\u0394c = %.2f] (Default primary definition, cannot be changed)" % Delta_c)
-for i in range(0,Nmassdef-1):
-    print("\t\t- %s" % Params["MASSDEF"][i])
-# generating density levels for the different mass definitions:
-massdefdenstable = np.zeros(Nmassdef,dtype=np.float32) # array containing the mass definition density levels.
-massdefdenstable[0] = Delta_c * rho_c # virial density parameter (Delta_c*rho_crit)
-for i in range(1,Nmassdef):
-    massdefdenstable[i] = np.double(Params["MASSDEF"][i-1][:-1])
-    if Params["MASSDEF"][i-1][-1] == "c" or Params["MASSDEF"][i-1][-1] == "C":
-        massdefdenstable[i] *= rho_c
-    elif Params["MASSDEF"][i-1][-1] == "b" or Params["MASSDEF"][i-1][-1] == "B":
-        massdefdenstable[i] *= rho_b
-    else:
-        raise Exception(f"Error: Unrecognized mass definition %s." % Params["MASSDEF"][i])
-print("\n")
 npartmin = int(Params["NPARTMIN"])
-if Params["INITIAL_DENSITY_MODE"] != "Voronoi" and Params["INITIAL_DENSITY_MODE"] != "10th neighbor":
-    raise Exception(f"Error: Unknown initial density estimation method %s." % Params["INITIAL_DENSITY_MODE"])
-else:
-    DensMode = Params["INITIAL_DENSITY_MODE"]
-if Params["CENTERMODE"] != "CENTRALPARTICLE" and Params["CENTERMODE"] != "CENTEROFMASSNPARTMIN":
-    raise Exception("Error: unkown CENTERMODE parameter %s." % Params["CENTERMODE"])
 alpha = np.double(Params["SEARCH_RADIUS_ALPHA"])
 kdworkers = int(Params["KDWORKERS"])
 
+if rank == 0:
+    #setting the redshift (and cosmological parameters, if the input in HDF5 format)
+    if Params['INFILE'][-4:] == 'hdf5':
+        redshift, Omega_m, Omega_l, H0, Npart = Load_params_from_HDF5_snap(Params['INFILE'])
+    else:
+        redshift = np.double(Params['REDSHIFT'])
+        Omega_m = np.double(Params['OMEGAM'])
+        Omega_l = np.double(Params['OMEGAL'])
+        H0 = np.double(Params['H0'])
+    print("Cosmological Parameters:\n------------------------\n\u03A9_m:\t\t\t%f\t(Ommh2=%f; Omch2=%f)\n\u03A9_lambda:\t\t%f\n\u03A9_k:\t\t\t%f\n\u03A9_b:\t\t\t%f\t(Ombh2=%f)\nH0:\t\t\t%f km/s/Mpc\nDark energy model:\t%s" % (Omega_m, Omega_m * (Params['H0']/100.0)**2, (Omega_m - Params['OMEGAB']) * (Params['H0']/100.0)**2, Omega_l, 1.0-Omega_m-Omega_l, Params['OMEGAB'], (Params['OMEGAB']) * (Params['H0']/100.0)**2, Params['H0'], Params['DARKENERGYMODEL']))
+    if Params['DARKENERGYMODEL'] == 'Lambda':
+        print("\t\t\t(w = -1)")
+    elif Params['DARKENERGYMODEL'] == 'w0':
+        print("\t\t\tw = %f" % Params['DARKENERGYPARAMS'][0])
+    elif Params['DARKENERGYMODEL'] == 'CPL':
+        print("\t\t\tw0 = %f\n\t\t\twa = %f" % (Params['DARKENERGYPARAMS'][0], Params['DARKENERGYPARAMS'][1]))
+    else:
+        print("Error: unkown dark energy parametrization!\nExiting.\n")
+        ERROR=3
+ERROR = comm.bcast(ERROR, root=0)
+if ERROR>0:
+    sys.exit(ERROR)
 
-# Loading the input particle snapshot
-p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=min_mass_force_res)
+if rank == 0:
+    # Calculating relevant cosmological quantities
+    rho_c = 3.0*Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])**2/(8*np.pi)/UNIT_V/UNIT_V/(redshift+1)**3 #comoving critical density in internal units (G=1)
+    rho_b = 3.0*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
+    print("\u03C1_c (comoving):\t\t%.4e Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
+    Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
+    if Params["H_INDEPENDENT_UNITS"]:
+        print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+    else:
+        print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+        print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
+    if Params["BOUNDONLYMODE"]:
+        print("Spherical Overdensity Mode:\t\tBound Only (BO)")
+    else:
+        print("Spherical Overdensity Mode:\t\tStrict Spherical Overdensity (SO)")
+    print("Mass definitions:")
+    Nmassdef = len(Params["MASSDEF"])+1 #total number of mass definitions.
+    print("\t\t- %s" % "Vir [\u0394c = %.2f] (Default primary definition, cannot be changed)" % Delta_c)
+    for i in range(0,Nmassdef-1):
+        print("\t\t- %s" % Params["MASSDEF"][i])
+    # generating density levels for the different mass definitions:
+    massdefdenstable = np.zeros(Nmassdef,dtype=np.float32) # array containing the mass definition density levels.
+    massdefdenstable[0] = Delta_c * rho_c # virial density parameter (Delta_c*rho_crit)
+    for i in range(1,Nmassdef):
+        massdefdenstable[i] = np.double(Params["MASSDEF"][i-1][:-1])
+        if Params["MASSDEF"][i-1][-1] == "c" or Params["MASSDEF"][i-1][-1] == "C":
+            massdefdenstable[i] *= rho_c
+        elif Params["MASSDEF"][i-1][-1] == "b" or Params["MASSDEF"][i-1][-1] == "B":
+            massdefdenstable[i] *= rho_b
+        else:
+            print("Error: Unrecognized mass definition %s.\nExiting." % Params["MASSDEF"][i])
+            ERROR=4
+ERROR = comm.bcast(ERROR, root=0)
+if ERROR>0:
+    sys.exit(ERROR)
+else:
+    #Bcasting calculated quantities
+    rho_c = comm.bcast(rho_c, root=0)
+    rho_b = comm.bcast(rho_b, root=0)
+    Delta_c = comm.bcast(Delta_c, root=0)
+    Nmassdef = comm.bcast(Nmassdef, root=0)
+    massdefdenstable = comm.bcast(massdefdenstable, root=0)
+    redshift = comm.bcast(redshift, root=0)
 
-# Building KDTree for a quick nearest-neighbor lookup
-tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
+if rank == 0:
+    print("\n")
+    if Params["INITIAL_DENSITY_MODE"] != "Voronoi" and Params["INITIAL_DENSITY_MODE"] != "10th neighbor":
+        print("Error: Unknown initial density estimation method %s.\nExiting." % Params["INITIAL_DENSITY_MODE"])
+        ERROR = 5
+    if Params["CENTERMODE"] != "CENTRALPARTICLE" and Params["CENTERMODE"] != "CENTEROFMASSNPARTMIN":
+        print("Error: unkown CENTERMODE parameter %s.\nExiting." % Params["CENTERMODE"])
+        ERROR = 6
+ERROR = comm.bcast(ERROR, root=0)
+if ERROR>0:
+    sys.exit(ERROR)
+DensMode = Params["INITIAL_DENSITY_MODE"]
 
-# Density reconstruction
-if DensMode == "Voronoi":
-    # Calculating voronoi volumes:
-    p.Density = p.Masses/voronoi_volumes(p.Coordinates)/rho_c
-elif DensMode == "10th neighbor":
-    # searching for the distance of the 10th nearest neighbor for all particle
-    print("Density reconstruction with 10th nearest neighbor method...")
-    kd_start = time.time()
-    for i in range(0,p.Npart):
-        d,idx = tree.query(p.Coordinates[i,:], k=10, workers=kdworkers)
-        p.Density[i] = (p.Masses[i]/(d[9]**3))
-    p.Density *= 10/(4.0*np.pi/3.0)/rho_c #assuming 10 particles with p.Masses[i] with in r<d spherical volume.
-    kd_end = time.time()
-    print("...done in %.2f s.\n" % (kd_end-kd_start))
+if rank == 0:
+    # Loading the input particle snapshot
+    p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=min_mass_force_res)
+    # Building KDTree for a quick nearest-neighbor lookup
+    tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
+    # Density reconstruction on the master thread
+    if DensMode == "Voronoi":
+        # Calculating voronoi volumes:
+        p.Density = p.Masses/voronoi_volumes(p.Coordinates)/rho_c
+    elif DensMode == "10th neighbor":
+        # searching for the distance of the 10th nearest neighbor for all particle
+        print("Density reconstruction with 10th nearest neighbor method...")
+        kd_start = time.time()
+        for i in range(0,p.Npart):
+            d,idx = tree.query(p.Coordinates[i,:], k=10, workers=kdworkers)
+            p.Density[i] = (p.Masses[i]/(d[9]**3))
+        p.Density *= 10/(4.0*np.pi/3.0)/rho_c #assuming 10 particles with p.Masses[i] with in r<d spherical volume.
+        kd_end = time.time()
+        print("...done in %.2f s.\n" % (kd_end-kd_start))
+    if size>1:
+        #Distributing the halo candidates evenly between the threads
+        p.SetParentThreadIDs(size)
+
+
+# Bcasting the particle data
+# All MPI threads will have a complete copy of the particles. Since the typical StePS snapshotis a few 100MB, this will not cause a large memory requirement
+# On the other hand, for larger simulations, this can cause large memory foot print.
+p = comm.bcast(p, root=0)
+if rank > 0:
+    # Building KDTree for a quick nearest-neighbor lookup for every other thread.
+    tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
 
 # Identifying halos using Spherical Overdensity (SO) method
-print("Identifying halos and calculating halo parameters...")
+print("MPI Rank %i: Identifying halos and calculating halo parameters..." % rank)
 id_start = time.time()
 halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
 halo_ID = 0
+#print(p.ParentThreadID)
 while True:
     #selecting the largest density particle with parentID=-1
-    idx = p.IDs[p.HaloParentIDs == -1][np.argmax(p.Density[p.HaloParentIDs == -1])]
+    idx = p.IDs[np.logical_and(p.HaloParentIDs == -1, p.ParentThreadID == rank)][np.argmax(p.Density[np.logical_and(p.HaloParentIDs == -1, p.ParentThreadID == rank)])]
     maxdens = p.Density[idx]
     #Query the kd-tree for nearest neighbors.
     search_radius = alpha*np.cbrt(p.Masses[idx]/rho_b) #In StePS simulations, the particles are more density packed at the center. The typical particle separation is proportional to the cubic root of the particle mass.
@@ -810,16 +917,31 @@ while True:
         #print("Central estimated density for the last halo candidate #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
         #This means that in the center, we did not reach Delta_c*rho_c.
         #After this, we will not find new halos.
-        print("Total number of identified halos: ", halos.Nhalos)
+        print("MPI Rank %i: Total number of identified halos: "%rank, halos.Nhalos)
         break;
 id_end = time.time()
-print("...done in %.2f s.\n" % (id_end-id_start))
-if halos.Nhalos > 0:
-    if Params["OUTFORMAT"] == "ASCII" or Params["OUTFORMAT"] == "BOTH":
-        print("Saving the generated catalog to %s.dat" % Params["OUTFILE"])
-        halos.save_ascii_catalog(Params["OUTFILE"])
-    if Params["OUTFORMAT"] == "HDF5" or Params["OUTFORMAT"] == "BOTH":
-        print("Saving the generated catalog to %s.hdf5" % Params["OUTFILE"], end='')
-        halos.save_hdf5_catalog(Params["OUTFILE"],save_particles=Params["SAVEPARTICLES"])
-end = time.time()
-print("\nSO halo finding finished under %fs.\n" % (end-start))
+print("MPI Rank %i: ...done in %.2f s.\n" % (rank, id_end-id_start))
+#collecting all catalog into the main thread
+if rank == 0:
+    print("MPI Rank %i: Collecting and merging all calculated catalogs to the master thread.")
+    halos_final = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
+    halos_final.add_catalog(halos,overlaps=False) # adding the catalog of the master thread to the final catalog
+#collecting all remaining halos from the slave threads
+if size > 1:
+    if rank != 0:
+        comm.send(halos, 0, tag=rank)
+    else:
+        for i in range(1,size):
+            halos = comm.recv(buf=None, source=i, tag=i)
+            halos_final.add_catalog(halos,overlaps=False)
+
+if rank == 0:
+    if halos.Nhalos > 0:
+        if Params["OUTFORMAT"] == "ASCII" or Params["OUTFORMAT"] == "BOTH":
+            print("Saving the generated catalog to %s.dat" % Params["OUTFILE"])
+            halos_final.save_ascii_catalog(Params["OUTFILE"])
+        if Params["OUTFORMAT"] == "HDF5" or Params["OUTFORMAT"] == "BOTH":
+            print("Saving the generated catalog to %s.hdf5" % Params["OUTFILE"], end='')
+            halos_final.save_hdf5_catalog(Params["OUTFILE"],save_particles=Params["SAVEPARTICLES"])
+    end = time.time()
+    print("\nSO halo finding finished under %fs.\n" % (end-start))
