@@ -225,7 +225,6 @@ int read_OUT_LST()
 		sscanf(buffer, "%lf%n", &out_list[i], &offset);
 		buffer += offset;
 	}
-	out_list[size] = 1.0/a_max-1.0;
 	if(OUTPUT_TIME_VARIABLE == 1)
 	{
 		out_list[size] = 1.0/a_max-1.0;
