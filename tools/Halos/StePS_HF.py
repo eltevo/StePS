@@ -38,6 +38,7 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..','StePS_IC','src'))
 from os.path import exists
+import copy
 from mpi4py import MPI
 import time
 from datetime import datetime
@@ -49,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.1.1.0"
+_VERSION="v0.1.1.1"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -71,6 +72,7 @@ def voronoi_volumes(points, SILENT=False):
     if SILENT==False:
         v_start = time.time()
         print("Calculating Voronoi tessellation...")
+        sys.stdout.flush()
     v = Voronoi(points)
     if SILENT==False:
         v_end = time.time()
@@ -478,7 +480,7 @@ class StePS_Particle_Catalog:
         self.Coordinates, self.Velocities, self.Masses, self.IDs = Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=True,RETURN_IDs=True,SILENT=True)
         self.HaloParentIDs = -1*np.ones(len(self.Masses),dtype=np.int64)
         self.Density= np.zeros(len(self.Masses),dtype=np.double)
-        self.ParentThreadID= np.zeros(len(self.Masses),dtype=np.uint64)
+        self.ParentThreadID= np.zeros(len(self.Masses),dtype=int)
         # converting the input data to StePS units (Mpc, km/s, 1e11Msol)
         if H_INDEPENDENT_UNITS:
             self.Coordinates *= D_UNITS/self.h
@@ -504,7 +506,7 @@ class StePS_Particle_Catalog:
 
     def SetParentThreadIDs(self, N_MPI_threads, centralsphere=True):
         if N_MPI_threads <= 1:
-            return
+            return 0.0
         if centralsphere:
             Nslices = N_MPI_threads-1
         else:
@@ -512,18 +514,20 @@ class StePS_Particle_Catalog:
         delta_theta = 2.0*np.pi/Nslices
         # using equal-angle cuts in the X-Y plane
         # for this, we use polar coordinates
-        theta = np.arctan2(self.Coordinates[:,0], self.Coordinates[:,1])
+        theta = np.arctan2(self.Coordinates[:,0], self.Coordinates[:,1])+np.pi
         r = np.sqrt(np.sum(np.power(self.Coordinates,2.0),axis=1))
         for i in range(1,Nslices+1):
             self.ParentThreadID[np.logical_and(theta>=(i-1)*delta_theta,theta<=(i)*delta_theta)] = i
         if centralsphere:
             #sorting all particles in increasing order
             sorted_idx = r.argsort()
-            Ncentral = np.uint64(0.5*(self.Npart / Nslices))
-            self.ParentThreadID[sorted_idx][:Ncentral] = 0
+            Ncentral = np.uint64(0.33*(self.Npart / Nslices))
+            Rcentral = r[sorted_idx][Ncentral]
+            self.ParentThreadID[r<Rcentral] = 0
+            return r[sorted_idx][Ncentral]
         else:
             self.ParentThreadID -= 1
-        return
+            return 0.0
 
     def printlines(self,lines):
         print("ID\t(X      Y      Z) [Mpc]\t\t(Vx      Vy      Vz) [km/s]\t\tM[1e11Msol]\tDensity[rho/rho_crit]\tParentID\n----------------------------------------------------------------------------------------------------------------------------------------")
@@ -556,28 +560,74 @@ class StePS_Halo_Catalog:
             "Npart_min": Npartmin,
             "RemoveUnBoundParts": RemoveUnBoundParts
         }
-        self.Nhalos = 0
-        self.DataTable = [] # empty list
+        self.Nhalos = 0 # total number of halos in the catalog
+        self.DataTable = [] # table containing all calculated halo parameters
+        self.DenstyEstimation = [] # table containing all initial halo central density estimation
+        self.DuplicateCandidate = [] # this is True, if the halo is close to the edge of the VOI of the thread (always False if only 1 MPI thread used)
 
-    def add_halo(self,haloparamdict):
+    def add_halo(self,haloparamdict,centraldensity,possibleduplicate):
         self.DataTable.append(haloparamdict)
+        self.DenstyEstimation.append(centraldensity)
+        self.DuplicateCandidate.append(possibleduplicate)
         self.Nhalos += 1
         self.Header["Nhalos"] = self.Nhalos
-        #print(haloparamdict)
+        #print("Added halo #%i: "%self.DataTable[-1]["ID"], "\tlen(self.DuplicateCandidate): %i"%len(self.DuplicateCandidate))
         return
 
     def add_catalog(self,halocatalog,overlaps=True):
-        for j in range(0,halocatalog.Nhalos):
-            if overlaps:
-                print("not implemented")
-            else:
+        Nhalos_stored = copy.deepcopy(self.Nhalos)
+        DuplicatesFound = 0
+        if overlaps:
+            for j in range(0,halocatalog.Nhalos):
+                if halocatalog.DuplicateCandidate[j]:
+                    # the center of the halo is too close to the edge of the volume.
+                    # it is possible that there is a duplicate of this halo in the other side.
+                    NotDuplicate = True
+                    #print("self.Nhalos: %i\nNhalos_stored: %i\nlen(self.DuplicateCandidate): %i\nlen(halocatalog.DuplicateCandidate): %i"%(self.Nhalos,Nhalos_stored,len(self.DuplicateCandidate),len(halocatalog.DuplicateCandidate)))
+                    for k in range(0,Nhalos_stored):
+                        #print("k=%i"%k)
+                        if self.DuplicateCandidate[k]:
+                            if np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0))) < np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3:
+                                print("dist = %f" % (np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0)))))
+                                print("max(Rvir) = ", np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3)
+                                print("min(Rvir) = ", np.min([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3)
+                                print("------\nOverlap candidates found:")
+                                self.print_halos([k],Mdef="vir")
+                                halocatalog.print_halos([j],Mdef="vir")
+                                print("Only keeping the one with the highest central density\n------")
+                                if self.DenstyEstimation[k]>=halocatalog.DenstyEstimation[j]:
+                                    # in this case, the acceptor catalog had the correct halo.
+                                    # keeping this, and discarding the donor catalog halo
+                                    NotDuplicate = False
+                                else:
+                                    # in this case, the donor catalog had the correct halo.
+                                    # we overwrite the old halo with the new one
+                                    self.DataTable[k] = halocatalog.DataTable[j]
+                                    self.DataTable[k]["ID"] = k
+                                    NotDuplicate = False
+                                DuplicatesFound += 1
+                                break;
+                    if NotDuplicate:
+                        halocatalog.DataTable[j]["ID"] += Nhalos_stored - DuplicatesFound
+                        self.DataTable.append(halocatalog.DataTable[j])
+                        self.DuplicateCandidate.append(halocatalog.DuplicateCandidate[j])
+                        self.DenstyEstimation.append(halocatalog.DenstyEstimation[j])
+                        self.Nhalos += 1
+                else:
+                    halocatalog.DataTable[j]["ID"] += Nhalos_stored
+                    self.DataTable.append(halocatalog.DataTable[j])
+                    self.DuplicateCandidate.append(halocatalog.DuplicateCandidate[j])
+                    self.DenstyEstimation.append(halocatalog.DenstyEstimation[j])
+                    self.Nhalos += 1
+        else:
+            for j in range(0,halocatalog.Nhalos):
                 halocatalog.DataTable[j]["ID"] += self.Nhalos
                 self.DataTable.append(halocatalog.DataTable[j])
-        if overlaps:
-            print("not implemented")
-        else:
-            self.Nhalos += halocatalog.Nhalos
-            self.Header["Nhalos"] = self.Nhalos
+                self.DuplicateCandidate.append(halocatalog.DuplicateCandidate[j])
+                self.DenstyEstimation.append(halocatalog.DenstyEstimation[j])
+        self.Nhalos = len(self.DataTable)
+        self.Header["Nhalos"] = self.Nhalos
+        print("Nhalos after merge: ", self.Nhalos)
         #print(haloparamdict)
         return
 
@@ -650,13 +700,17 @@ class StePS_Halo_Catalog:
                     else:
                         fmtstring += "%.7g "
             # storing the data into a numpy array
+            # in an decreasinf central density order
+            print("len(self.DenstyEstimation) = ", len(self.DenstyEstimation))
+            sorted_idx = np.array(self.DenstyEstimation).argsort()[::-1]
+            print("Sorted_idx array: ", sorted_idx)
             for i in range(0,self.Nhalos):
                 for key in self.DataTable[0].keys():
                     j = mapdict[key]
                     if type(mapdict[key]) == np.array:
-                        outarray[i][j[0]:j[2]] = self.DataTable[i][key]
+                        outarray[i][j[0]:j[2]] = self.DataTable[sorted_idx[i]][key]
                     else:
-                        outarray[i][j] = self.DataTable[i][key]
+                        outarray[i][j] = self.DataTable[sorted_idx[i]][key]
             np.savetxt(filename+".dat",outarray,fmt=fmtstring,header=header)
         else:
             print("The halo catalog is empty. No file is saved.");
@@ -735,6 +789,11 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size() #total number of MPI threads
 rank = comm.Get_rank() #rank of this MPI thread
 
+# parameters of the parallelisation
+delta_r = 1.25 #Mpc. Half of the thickness of the shell in which duplicates are searched
+delta_theta = 4/180.0*np.pi #RAD Thickness of rangential coordinate in which duplicates are searched
+size_tan = size - 1 #number of tangential divisions
+
 #parameters that are used in all threads
 Params = None
 ERROR = 0
@@ -745,6 +804,7 @@ Nmassdef = None
 massdefdenstable = None
 p = None
 redshift = None
+r_central = None
 
 #Welcome message
 if rank == 0:
@@ -855,7 +915,7 @@ ERROR = comm.bcast(ERROR, root=0)
 if ERROR>0:
     sys.exit(ERROR)
 DensMode = Params["INITIAL_DENSITY_MODE"]
-
+sys.stdout.flush()
 if rank == 0:
     # Loading the input particle snapshot
     p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=min_mass_force_res)
@@ -868,6 +928,7 @@ if rank == 0:
     elif DensMode == "10th neighbor":
         # searching for the distance of the 10th nearest neighbor for all particle
         print("Density reconstruction with 10th nearest neighbor method...")
+        sys.stdout.flush()
         kd_start = time.time()
         for i in range(0,p.Npart):
             d,idx = tree.query(p.Coordinates[i,:], k=10, workers=kdworkers)
@@ -877,19 +938,21 @@ if rank == 0:
         print("...done in %.2f s.\n" % (kd_end-kd_start))
     if size>1:
         #Distributing the halo candidates evenly between the threads
-        p.SetParentThreadIDs(size)
+        r_central = p.SetParentThreadIDs(size)
 
 
 # Bcasting the particle data
 # All MPI threads will have a complete copy of the particles. Since the typical StePS snapshotis a few 100MB, this will not cause a large memory requirement
 # On the other hand, for larger simulations, this can cause large memory foot print.
 p = comm.bcast(p, root=0)
+r_central = comm.bcast(r_central, root=0) # radius of the central region that will be analysed in the master thread
 if rank > 0:
     # Building KDTree for a quick nearest-neighbor lookup for every other thread.
     tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
 
 # Identifying halos using Spherical Overdensity (SO) method
 print("MPI Rank %i: Identifying halos and calculating halo parameters..." % rank)
+sys.stdout.flush()
 id_start = time.time()
 halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
 halo_ID = 0
@@ -909,7 +972,26 @@ while True:
         #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
         halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b)
         if halo_params != None:
-            halos.add_halo(halo_params) #adding the identified halo to the catalog
+            possibleduplicate = False
+            if size == 1:
+                possibleduplicate = False
+            elif size == 2:
+                r = np.sqrt(np.sum(np.power(p.Coordinates[idx],2.0)))
+                if (r>r_central-delta_r) and (r<r_central+delta_r):
+                    possibleduplicate = True
+                else:
+                    possibleduplicate = False
+            else:
+                theta = np.arctan2(p.Coordinates[idx][0], p.Coordinates[idx][1])
+                r = np.sqrt(np.sum(np.power(p.Coordinates[idx],2.0)))
+                if (r>r_central-delta_r) and (r<r_central+delta_r):
+                    possibleduplicate = True
+                elif (r<r_central+delta_r) and ( ((theta+delta_theta*0.5)/(2.0*np.pi)*size_tan)%1 < delta_theta):
+                    # has to be double-checked!
+                    possibleduplicate = True
+                else:
+                    possibleduplicate = False
+            halos.add_halo(halo_params, maxdens, possibleduplicate) #adding the identified halo to the catalog
             halo_ID +=1
         #else:
         #    print("This candidate didn't had enough partilces.")
@@ -921,9 +1003,10 @@ while True:
         break;
 id_end = time.time()
 print("MPI Rank %i: ...done in %.2f s.\n" % (rank, id_end-id_start))
+sys.stdout.flush()
 #collecting all catalog into the main thread
 if rank == 0:
-    print("MPI Rank %i: Collecting and merging all calculated catalogs to the master thread.")
+    print("MPI Rank %i: Collecting and merging all calculated catalogs to the master thread."%rank)
     halos_final = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
     halos_final.add_catalog(halos,overlaps=False) # adding the catalog of the master thread to the final catalog
 #collecting all remaining halos from the slave threads
@@ -931,9 +1014,14 @@ if size > 1:
     if rank != 0:
         comm.send(halos, 0, tag=rank)
     else:
+        collection_start = time.time()
         for i in range(1,size):
+            print("MPI Rank %i: Receiving halos from Rank %i."%(rank,i))
             halos = comm.recv(buf=None, source=i, tag=i)
-            halos_final.add_catalog(halos,overlaps=False)
+            halos_final.add_catalog(halos,overlaps=True)
+        collection_end = time.time()
+        print("MPI Rank %i: Halo catalog collection and merge took %fs."%(rank,collection_end-collection_start))
+        print("MPI Rank %i: The total size of the generated halo catalog is: %i\n"%(rank,halos_final.Nhalos))
 
 if rank == 0:
     if halos.Nhalos > 0:
