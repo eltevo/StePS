@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.1.1.1"
+_VERSION="v0.1.1.2"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -588,25 +588,28 @@ class StePS_Halo_Catalog:
                         #print("k=%i"%k)
                         if self.DuplicateCandidate[k]:
                             if np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0))) < np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3:
-                                print("dist = %f" % (np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0)))))
+                                dist = np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0)))
+                                print("dist = %f" % (dist))
                                 print("max(Rvir) = ", np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3)
                                 print("min(Rvir) = ", np.min([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3)
                                 print("------\nOverlap candidates found:")
                                 self.print_halos([k],Mdef="vir")
                                 halocatalog.print_halos([j],Mdef="vir")
                                 print("Only keeping the one with the highest central density\n------")
-                                if self.DenstyEstimation[k]>=halocatalog.DenstyEstimation[j]:
+                                if self.DenstyEstimation[k]>=halocatalog.DenstyEstimation[j] and dist<=self.DataTable[k]["Rvir"]/1e3:
                                     # in this case, the acceptor catalog had the correct halo.
                                     # keeping this, and discarding the donor catalog halo
                                     NotDuplicate = False
-                                else:
+                                    DuplicatesFound += 1
+                                    break;
+                                elif self.DenstyEstimation[k]<halocatalog.DenstyEstimation[j] and dist<=halocatalog.DataTable[j]["Rvir"]/1e3:
                                     # in this case, the donor catalog had the correct halo.
                                     # we overwrite the old halo with the new one
                                     self.DataTable[k] = halocatalog.DataTable[j]
                                     self.DataTable[k]["ID"] = k
                                     NotDuplicate = False
-                                DuplicatesFound += 1
-                                break;
+                                    DuplicatesFound += 1
+                                    break;
                     if NotDuplicate:
                         halocatalog.DataTable[j]["ID"] += Nhalos_stored - DuplicatesFound
                         self.DataTable.append(halocatalog.DataTable[j])
@@ -790,8 +793,8 @@ size = comm.Get_size() #total number of MPI threads
 rank = comm.Get_rank() #rank of this MPI thread
 
 # parameters of the parallelisation
-delta_r = 1.25 #Mpc. Half of the thickness of the shell in which duplicates are searched
-delta_theta = 4/180.0*np.pi #RAD Thickness of rangential coordinate in which duplicates are searched
+delta_r = 1.125 #Mpc. Half of the thickness of the shell in which duplicates are searched
+delta_theta = 8.0/180.0*np.pi #RAD Thickness of rangential coordinate in which duplicates are searched
 size_tan = size - 1 #number of tangential divisions
 
 #parameters that are used in all threads
