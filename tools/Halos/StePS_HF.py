@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.1.1.2"
+_VERSION="v0.1.1.3"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -511,17 +511,17 @@ class StePS_Particle_Catalog:
             Nslices = N_MPI_threads-1
         else:
             Nslices = N_MPI_threads
-        delta_theta = 2.0*np.pi/Nslices
+        d_theta = 2.0*np.pi/Nslices
         # using equal-angle cuts in the X-Y plane
         # for this, we use polar coordinates
         theta = np.arctan2(self.Coordinates[:,0], self.Coordinates[:,1])+np.pi
         r = np.sqrt(np.sum(np.power(self.Coordinates,2.0),axis=1))
         for i in range(1,Nslices+1):
-            self.ParentThreadID[np.logical_and(theta>=(i-1)*delta_theta,theta<=(i)*delta_theta)] = i
+            self.ParentThreadID[np.logical_and(theta>=(i-1)*d_theta,theta<=(i)*d_theta)] = i
         if centralsphere:
             #sorting all particles in increasing order
             sorted_idx = r.argsort()
-            Ncentral = np.uint64(0.33*(self.Npart / Nslices))
+            Ncentral = np.uint64(0.4*(self.Npart / Nslices))
             Rcentral = r[sorted_idx][Ncentral]
             self.ParentThreadID[r<Rcentral] = 0
             return r[sorted_idx][Ncentral]
@@ -575,41 +575,57 @@ class StePS_Halo_Catalog:
         return
 
     def add_catalog(self,halocatalog,overlaps=True):
+        DuplicateFILE = "./duplicatecoords.txt"
+        f = open(DuplicateFILE,'a')
         Nhalos_stored = copy.deepcopy(self.Nhalos)
         DuplicatesFound = 0
+        Income = 0
+        Kept = 0
+        Both = 0 
         if overlaps:
             for j in range(0,halocatalog.Nhalos):
                 if halocatalog.DuplicateCandidate[j]:
                     # the center of the halo is too close to the edge of the volume.
                     # it is possible that there is a duplicate of this halo in the other side.
                     NotDuplicate = True
-                    #print("self.Nhalos: %i\nNhalos_stored: %i\nlen(self.DuplicateCandidate): %i\nlen(halocatalog.DuplicateCandidate): %i"%(self.Nhalos,Nhalos_stored,len(self.DuplicateCandidate),len(halocatalog.DuplicateCandidate)))
+                    np.savetxt(f, halocatalog.DataTable[j]["Coordinates"], fmt='%1.6f', newline=", ")
+                    f.write("\n")
                     for k in range(0,Nhalos_stored):
                         #print("k=%i"%k)
                         if self.DuplicateCandidate[k]:
-                            if np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0))) < np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3:
-                                dist = np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0)))
+                            dist = np.sqrt(np.sum(np.power(self.DataTable[k]["Coordinates"] - halocatalog.DataTable[j]["Coordinates"], 2.0)))
+                            if dist < np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3:
+                                #Ezt egy kicsit jobban at kell gondolni
                                 print("dist = %f" % (dist))
                                 print("max(Rvir) = ", np.max([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3)
                                 print("min(Rvir) = ", np.min([self.DataTable[k]["Rvir"],halocatalog.DataTable[j]["Rvir"]])/1e3)
                                 print("------\nOverlap candidates found:")
                                 self.print_halos([k],Mdef="vir")
                                 halocatalog.print_halos([j],Mdef="vir")
-                                print("Only keeping the one with the highest central density\n------")
-                                if self.DenstyEstimation[k]>=halocatalog.DenstyEstimation[j] and dist<=self.DataTable[k]["Rvir"]/1e3:
+                                #np.savetxt(f, np.append(self.DataTable[k]["Coordinates"],halocatalog.DataTable[j]["Coordinates"]), fmt='%1.6f', newline=", ")
+                                #f.write("\n")
+                                if self.DenstyEstimation[k]>=halocatalog.DenstyEstimation[j] and self.DataTable[k]["Rvir"]>=dist:
+                                    print("Original (in thread \#0) kept.\n------")
+                                    Kept += 1
                                     # in this case, the acceptor catalog had the correct halo.
                                     # keeping this, and discarding the donor catalog halo
                                     NotDuplicate = False
                                     DuplicatesFound += 1
                                     break;
-                                elif self.DenstyEstimation[k]<halocatalog.DenstyEstimation[j] and dist<=halocatalog.DataTable[j]["Rvir"]/1e3:
+                                elif self.DenstyEstimation[k]<halocatalog.DenstyEstimation[j] and dist<=halocatalog.DataTable[j]["Rvir"]:
                                     # in this case, the donor catalog had the correct halo.
                                     # we overwrite the old halo with the new one
+                                    print("Incoming kept.\n------")
+                                    Income += 1
                                     self.DataTable[k] = halocatalog.DataTable[j]
+                                    self.DenstyEstimation[k] = halocatalog.DenstyEstimation[j]
                                     self.DataTable[k]["ID"] = k
                                     NotDuplicate = False
                                     DuplicatesFound += 1
                                     break;
+                                else:
+                                    print("Both kept.\n------")
+                                    Both += 1
                     if NotDuplicate:
                         halocatalog.DataTable[j]["ID"] += Nhalos_stored - DuplicatesFound
                         self.DataTable.append(halocatalog.DataTable[j])
@@ -631,7 +647,12 @@ class StePS_Halo_Catalog:
         self.Nhalos = len(self.DataTable)
         self.Header["Nhalos"] = self.Nhalos
         print("Nhalos after merge: ", self.Nhalos)
+        print("Duplicate candidates found: ", DuplicatesFound)
+        print("Incoming kept: ", Income)
+        print("Original kept: ", Kept)
+        print("Both kept: ", Both)
         #print(haloparamdict)
+        f.close()
         return
 
     def print_halos(self,haloIDlist,Mdef="vir"):
@@ -793,8 +814,8 @@ size = comm.Get_size() #total number of MPI threads
 rank = comm.Get_rank() #rank of this MPI thread
 
 # parameters of the parallelisation
-delta_r = 1.125 #Mpc. Half of the thickness of the shell in which duplicates are searched
-delta_theta = 8.0/180.0*np.pi #RAD Thickness of rangential coordinate in which duplicates are searched
+delta_r = 2.5 #Mpc. Half of the thickness of the shell in which duplicates are searched
+delta_theta = 4.0/180.0*np.pi #RAD Thickness of rangential coordinate in which duplicates are searched
 size_tan = size - 1 #number of tangential divisions
 
 #parameters that are used in all threads
@@ -811,7 +832,7 @@ r_central = None
 
 #Welcome message
 if rank == 0:
-    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
+    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
     if len(sys.argv) != 2:
         print("Error: missing yaml file!")
         print("usage: ./StePS_HF.py <input yaml file>\nExiting.")
@@ -942,6 +963,7 @@ if rank == 0:
     if size>1:
         #Distributing the halo candidates evenly between the threads
         r_central = p.SetParentThreadIDs(size)
+        print("MPI Rank %i: r_central = %f" % (rank, r_central))
 
 
 # Bcasting the particle data
@@ -964,41 +986,42 @@ while True:
     #selecting the largest density particle with parentID=-1
     idx = p.IDs[np.logical_and(p.HaloParentIDs == -1, p.ParentThreadID == rank)][np.argmax(p.Density[np.logical_and(p.HaloParentIDs == -1, p.ParentThreadID == rank)])]
     maxdens = p.Density[idx]
-    #Query the kd-tree for nearest neighbors.
-    search_radius = alpha*np.cbrt(p.Masses[idx]/rho_b) #In StePS simulations, the particles are more density packed at the center. The typical particle separation is proportional to the cubic root of the particle mass.
-    halo_particleindexes = tree.query_ball_point(p.Coordinates[idx], search_radius, p=2.0, eps=0, workers=kdworkers, return_sorted=False)
-    if len(halo_particleindexes) >= npartmin:
-        #print("\nCentral estimated density for halo #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
-        #print("\tCentral coordinate of halo #%i: " % (halo_ID), p.Coordinates[idx])
-        #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
-        #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
-        #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
-        halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b)
-        if halo_params != None:
-            possibleduplicate = False
-            if size == 1:
+    if maxdens>Delta_c:
+        #Query the kd-tree for nearest neighbors.
+        search_radius = alpha*np.cbrt(p.Masses[idx]/rho_b) #In StePS simulations, the particles are more density packed at the center. The typical particle separation is proportional to the cubic root of the particle mass.
+        halo_particleindexes = tree.query_ball_point(p.Coordinates[idx], search_radius, p=2.0, eps=0, workers=kdworkers, return_sorted=False)
+        if len(halo_particleindexes) >= npartmin:
+            #print("\nCentral estimated density for halo #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
+            #print("\tCentral coordinate of halo #%i: " % (halo_ID), p.Coordinates[idx])
+            #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
+            #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
+            #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
+            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b)
+            if halo_params != None:
                 possibleduplicate = False
-            elif size == 2:
-                r = np.sqrt(np.sum(np.power(p.Coordinates[idx],2.0)))
-                if (r>r_central-delta_r) and (r<r_central+delta_r):
-                    possibleduplicate = True
-                else:
+                if size == 1:
                     possibleduplicate = False
-            else:
-                theta = np.arctan2(p.Coordinates[idx][0], p.Coordinates[idx][1])
-                r = np.sqrt(np.sum(np.power(p.Coordinates[idx],2.0)))
-                if (r>r_central-delta_r) and (r<r_central+delta_r):
-                    possibleduplicate = True
-                elif (r<r_central+delta_r) and ( ((theta+delta_theta*0.5)/(2.0*np.pi)*size_tan)%1 < delta_theta):
-                    # has to be double-checked!
-                    possibleduplicate = True
+                elif size == 2:
+                    r = np.sqrt(np.sum(np.power(p.Coordinates[idx],2.0)))
+                    if (r>r_central-delta_r) and (r<r_central+delta_r):
+                        possibleduplicate = True
+                    else:
+                        possibleduplicate = False
                 else:
-                    possibleduplicate = False
-            halos.add_halo(halo_params, maxdens, possibleduplicate) #adding the identified halo to the catalog
-            halo_ID +=1
-        #else:
-        #    print("This candidate didn't had enough partilces.")
-    if maxdens <= Delta_c:
+                    theta = np.arctan2(p.Coordinates[idx][0], p.Coordinates[idx][1])
+                    r = np.sqrt(np.sum(np.power(p.Coordinates[idx],2.0)))
+                    if (r>r_central-delta_r) and (r<r_central+delta_r):
+                        possibleduplicate = True
+                    elif (r>r_central+delta_r) and ( ((theta+delta_theta*0.5)/(2.0*np.pi)*size_tan)%1 < delta_theta):
+                        # has to be double-checked! <--- this is not correct
+                        possibleduplicate = True
+                    else:
+                        possibleduplicate = False
+                halos.add_halo(halo_params, maxdens, possibleduplicate) #adding the identified halo to the catalog
+                halo_ID +=1
+            #else:
+            #    print("This candidate didn't had enough partilces.")
+    else:
         #print("Central estimated density for the last halo candidate #%i: %.2f \u03C1_c" % (halo_ID, maxdens))
         #This means that in the center, we did not reach Delta_c*rho_c.
         #After this, we will not find new halos.

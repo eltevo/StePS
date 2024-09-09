@@ -1,5 +1,5 @@
 # Input snapshot parameters
-INFILE: "../../../Simulations/StePS/example_simulations/LCDM_SP_1860_com_VOI100/snapshot_0012.hdf5"
+INFILE: "../../../../Simulations/StePS/example_simulations/LCDM_SP_1860_com_VOI100/snapshot_0012.hdf5"
 REDSHIFT: 0.0 #if the input file is in HDF5 format, this parameter will not be used.
 RSIM: 930.026572187775
 LBOX: 1860.05314437555
@@ -28,7 +28,7 @@ SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be 
 KDWORKERS: 4 # number of worker threads in the KDTree search
 NPARTMIN: 10 # minimal particle number (should be at least 10)
 BOUNDONLYMODE: False #If True, particles with Etot>=0 will removed from the halo
-CENTERMODE: "CENTEROFMASSNPARTMIN" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
+CENTERMODE: "CENTRALPARTICLE" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
 MASSDEF:
   - "200b"
   - "200c"
