@@ -28,7 +28,7 @@ SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be 
 KDWORKERS: 4 # number of worker threads in the KDTree search
 NPARTMIN: 10 # minimal particle number (should be at least 10)
 BOUNDONLYMODE: False #If True, particles with Etot>=0 will removed from the halo
-CENTERMODE: "CENTRALPARTICLE" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
+CENTERMODE: "CENTEROFMASSNPARTMIN" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
 MASSDEF:
   - "200b"
   - "200c"
