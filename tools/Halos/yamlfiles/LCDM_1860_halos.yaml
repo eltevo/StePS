@@ -35,3 +35,6 @@ MASSDEF:
   - "500c"
   - "1000c"
   - "2500c"
+# Parallelization parameters
+DELTA_R: 5.25 # in Mpc(/h) units. Only used if more than one thread is used
+DELTA_THETA: 5.5 # in degrees. Only used if more than two thread is used

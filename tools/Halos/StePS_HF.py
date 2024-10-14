@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.0.1"
+_VERSION="v0.2.0.2"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -787,10 +787,6 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size() #total number of MPI threads
 rank = comm.Get_rank() #rank of this MPI thread
 
-# parameters of the parallelisation
-delta_theta = np.pi/32.0 #RAD Thickness of rangential coordinate in which duplicates are searched
-d_r = 0.045 #thicknes of the shell in which duplicates are searched (in the units of the central, high res region)
-
 #parameters that are used in all threads
 Params = None
 ERROR = 0
@@ -833,6 +829,10 @@ min_mass_force_res = np.double(Params['PARTICLE_RADII'])
 npartmin = int(Params["NPARTMIN"])
 alpha = np.double(Params["SEARCH_RADIUS_ALPHA"])
 kdworkers = int(Params["KDWORKERS"])
+# parameters of the parallelisation
+delta_theta = np.double(Params["DELTA_THETA"])/180.0*np.pi #RAD Thickness of rangential coordinate in which duplicates are searched
+d_r = np.double(Params["DELTA_R"]) #thicknes of the shell in which duplicates are searched in Mpc units
+
 
 if rank == 0:
     #setting the redshift (and cosmological parameters, if the input in HDF5 format)
@@ -931,7 +931,7 @@ if rank == 0:
     print("Estimated radius of the high-res central region of the simulation: %.2f Mpc/h" % r_central)
     print("Radius of the subvolume of the master thread: %.2f Mpc/h" % r_master)
     if size>1:
-        print("Thickness of the overlap region: %.3f Mpc/h" % (d_r*r_central))
+        print("Thickness of the overlap region: %.3f Mpc/h" % (d_r))
     if size>2:
         print("Angle of the tangential slices of the slave threads: %.2f degrees" % (360.0/(size-1)))
         print("Thickness of the tangential overlap region: %.2f degrees" % (180.0*delta_theta/np.pi))
@@ -967,7 +967,7 @@ if rank > 0:
 
 if size>1:
     #Distributing the halo candidates evenly between the threads
-    ParentThreadID = SetParentThreadIDs(p, r_master, d_r*r_central, delta_theta,size, rank) # this is a local variable for every thread
+    ParentThreadID = SetParentThreadIDs(p, r_master, d_r, delta_theta,size, rank) # this is a local variable for every thread
     #print("ParentThreadID: ", ParentThreadID)
 else:
     ParentThreadID = np.zeros(p.Npart, dtype=np.int32)
@@ -1021,13 +1021,11 @@ if size > 1:
     if rank != 0:
         comm.send(halos, 0, tag=rank)
     else:
-        collection_start = time.time()
         for i in range(1,size):
             print("MPI Rank %i: Receiving halos from Rank %i."%(rank,i))
             halos = comm.recv(buf=None, source=i, tag=i)
             halos_final.add_catalog(halos,overlaps=True,MPI_parent_thread=i)
-        collection_end = time.time()
-        print("MPI Rank %i: Halo catalog collection and merge took %fs."%(rank,collection_end-collection_start))
+        print("MPI Rank %i: Halo catalogs merged."%(rank))
         print("MPI Rank %i: The total size of the generated halo catalog is: %i\n"%(rank,halos_final.Nhalos))
 
 if rank == 0:
