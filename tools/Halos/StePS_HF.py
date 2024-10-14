@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.0.0"
+_VERSION="v0.2.0.1"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -481,7 +481,16 @@ def SetParentThreadIDs(p, R_center, d_r, delta_theta, N_MPI_threads, MPI_rank):
         # for this, we use polar coordinates
         theta = np.arctan2(p.Coordinates[:,0], p.Coordinates[:,1])+np.pi
         # Note: the overlap region has a fixed width of delta_theta
-        ParentThreadID[np.logical_and(np.logical_and(theta>=(MPI_rank-1)*d_theta-0.5*delta_theta,theta<=(MPI_rank)*d_theta+0.5*delta_theta),r>R_center-0.5*d_r)] = MPI_rank
+        if MPI_rank == 1:
+            # the second thread needs special threatment due to the overlap region is around 0 degrees
+            ParentThreadID[np.logical_and(theta<=d_theta+0.5*delta_theta,r>R_center-0.5*d_r)] = MPI_rank
+            ParentThreadID[np.logical_and(theta>=2*np.pi-0.5*delta_theta,r>R_center-0.5*d_r)] = MPI_rank
+        elif MPI_rank == N_MPI_threads-1:
+            # the last thread needs special threatment due to the overlap region is around 2*pi degrees
+            ParentThreadID[np.logical_and(theta>=(N_MPI_threads-2)*d_theta-0.5*delta_theta,r>R_center-0.5*d_r)] = MPI_rank
+            ParentThreadID[np.logical_and(theta<=0.5*delta_theta,r>R_center-0.5*d_r)] = MPI_rank
+        else:
+            ParentThreadID[np.logical_and(np.logical_and(theta>=(MPI_rank-1)*d_theta-0.5*delta_theta,theta<=(MPI_rank)*d_theta+0.5*delta_theta),r>R_center-0.5*d_r)] = MPI_rank
         return ParentThreadID
 
 def IsHaloInThreadSubvolume(r,theta, z, R_center, N_MPI_threads, MPI_rank):
