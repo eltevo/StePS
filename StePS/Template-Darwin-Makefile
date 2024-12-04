@@ -5,7 +5,7 @@
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.0.2.2"'
+VERSION='"v1.0.3.0-cs"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -21,8 +21,9 @@ VERSION='"v1.0.2.2"'
 #------------------------------- Precision option for the force calculation
 #OPT += -DUSE_SINGLE_PRECISION
 
-#------------------------------- Option for periodic boundary condition
-#OPT += -DPERIODIC
+#------------------------------- Options for boundary conditions (only uncomment one of them)
+#OPT += -DPERIODIC # Periodic boundary conditions
+#OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only
 
 #------------------------------- Option of HDF5
 OPT += -DHAVE_HDF5

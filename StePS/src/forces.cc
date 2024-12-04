@@ -40,7 +40,7 @@ void recalculate_softening()
 	}
 }
 
-#ifndef PERIODIC
+#if !defined(PERIODIC) && !defined(PERIODIC_Z)
 void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 {
 //timing
@@ -75,7 +75,7 @@ for(i=0; i<N_mpi_thread; i++)
 			beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
 			beta_privp2 = beta_priv*0.5;
 			//calculating particle distances
-                        dx=x[3*j]-x[3*i];
+            dx=x[3*j]-x[3*i];
 			dy=x[3*j+1]-x[3*i+1];
 			dz=x[3*j+2]-x[3*i+2];
 			r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
@@ -177,6 +177,154 @@ REAL SOFT_CONST[5];
 			dy=x[3*j+1]-x[3*i+1];
 			dz=x[3*j+2]-x[3*i+2];
 			//In here we use multiple images
+			for(m=0;m<el;m++)
+			{
+				r = sqrt(pow((dx-((REAL) e[m][0])*L), 2)+pow((dy-((REAL) e[m][1])*L), 2)+pow((dz-((REAL) e[m][2])*L), 2));
+				wij = 0;
+				if(r >= beta_priv && r < 2.6*L)
+				{
+					wij = M[j]/(pow(r, 3));
+				}
+				else if(r > beta_privp2 && r < beta_priv)
+				{
+					SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
+					SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
+					SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
+					SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
+					SOFT_CONST[4] = -1.0/15.0;
+					wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
+				}
+				else if(r <= beta_privp2)
+				{
+					SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
+        	                        SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
+	                                SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
+					wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
+				}
+				if(wij != 0)
+				{
+					Fx_tmp += wij*(dx-((REAL) e[m][0])*L);
+					Fy_tmp += wij*(dy-((REAL) e[m][1])*L);
+					Fz_tmp += wij*(dz-((REAL) e[m][2])*L);
+				}
+			}
+			#pragma omp atomic
+                        F[3*(i-ID_min)] += Fx_tmp;
+			#pragma omp atomic
+                        F[3*(i-ID_min)+1] += Fy_tmp;
+			#pragma omp atomic
+                        F[3*(i-ID_min)+2] += Fz_tmp;
+		}
+		}
+	}
+	}
+	else
+	{
+		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+        	{
+        	#pragma omp for schedule(dynamic,chunk)
+	        	for(i=ID_min; i<ID_max+1; i++)
+			{
+				for(j=0; j<N; j++)
+				{
+					beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
+					beta_privp2 = beta_priv*0.5;
+					//calculating particle distances
+					dx=x[3*j]-x[3*i];
+					dy=x[3*j+1]-x[3*i+1];
+					dz=x[3*j+2]-x[3*i+2];
+					//in this case we use only the nearest image
+                                	if(fabs(dx)>0.5*L)
+                                        	dx = dx-L*dx/fabs(dx);
+					if(fabs(dy)>0.5*L)
+						dy = dy-L*dy/fabs(dy);
+					if(fabs(dz)>0.5*L)
+						dz = dz-L*dz/fabs(dz);
+					r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
+					wij = 0;
+					if(r >= beta_priv)
+					{
+						wij = M[j]/(pow(r, 3));
+					}
+					else if(r > beta_privp2 && r < beta_priv)
+					{
+						SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
+						SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
+						SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
+						SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
+						SOFT_CONST[4] = -1.0/15.0;
+						wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
+					}
+					else
+					{
+						SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
+						SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
+						SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
+						wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
+					}
+					Fx_tmp = wij*(dx);
+					Fy_tmp = wij*(dy);
+					Fz_tmp = wij*(dz);
+					#pragma omp atomic
+					F[3*(i-ID_min)] += Fx_tmp;
+					#pragma omp atomic
+					F[3*(i-ID_min)+1] += Fy_tmp;
+					#pragma omp atomic
+					F[3*(i-ID_min)+2] += Fz_tmp;
+				}
+			}
+		}	
+	}
+//timing
+double omp_end_time = omp_get_wtime();
+//timing
+printf("Force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
+return;
+}
+#endif
+
+#ifdef PERIODIC_Z
+//TODO: Implement the forces_periodic_z function (everything below is fully periodic placeholder)
+void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation with multiple images only in the z direction
+{
+//timing
+double omp_start_time = omp_get_wtime();
+//timing
+REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2;
+REAL SOFT_CONST[5];
+	int i, j, k, m, chunk;
+	for(i=0; i<N_mpi_thread; i++)
+	{
+		for(k=0; k<3; k++)
+		{
+			F[3*i+k] = 0;
+		}
+	}
+	REAL r, dx, dy, dz, wij;
+	chunk = (ID_max-ID_min)/(omp_get_max_threads());
+	if(chunk < 1)
+	{
+		chunk = 1;
+	}
+	if(IS_PERIODIC>=2)
+	{
+	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+	{
+	#pragma omp for schedule(dynamic,chunk)
+	for(i=ID_min; i<ID_max+1; i++)
+	{
+		for(j=0; j<N; j++)
+		{
+			Fx_tmp = 0;
+			Fy_tmp = 0;
+			Fz_tmp = 0;
+			beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
+			beta_privp2 = beta_priv*0.5; 
+			//calculating particle distances inside the simulation box
+			dx=x[3*j]-x[3*i];
+			dy=x[3*j+1]-x[3*i+1];
+			dz=x[3*j+2]-x[3*i+2];
+			//In here we use multiple images, but only in the z direction
 			for(m=0;m<el;m++)
 			{
 				r = sqrt(pow((dx-((REAL) e[m][0])*L), 2)+pow((dy-((REAL) e[m][1])*L), 2)+pow((dz-((REAL) e[m][2])*L), 2));
