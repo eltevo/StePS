@@ -7,12 +7,21 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v1.0.2.2
-Copyright (C) 2017-2024 Gábor Rácz
+v2.0.0.0
+Copyright (C) 2017-2026 Gábor Rácz - gabor.racz@helsinki.fi
+  Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland
   Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
   Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
   Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218
-gabor.racz@jpl.nasa.gov
+
+Contributors:
+  2025 Viola Varga - viola.varga@helsinki.fi
+    Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland 
+  2025 Balázs Pál - pal.balazs@ttk.elte.hu
+    Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
+    Institute for Particle and Nuclear Physics, HUN-REN Wigner Research Centre for Physics | Pf. 49, H-1525 Budapest, Hungary.
+
+
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,13 +33,14 @@ gabor.racz@jpl.nasa.gov
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
-A direct N-body code for compactified cosmological simulations.
+An N-body code for compactified cosmological simulations.
 
 Main features:
 - Optimized to run dark matter only N-body simulations in LambdaCDM, wCDM or w0waCDM cosmology.
-- Running simulations with different models are possible by using external tabulated expansion histories.
-- Able to run standard periodic and non-periodic spherical cosmological simulations.
-- Can be used to make periodic, quasi-periodic or spherical glass.
+- Running simulations with other models are possible by using external tabulated expansion histories.
+- Able to run standard periodic (T^3), cylindrical (S^1 x R^2), and non-periodic spherical (R^3) cosmological simulations.
+- Direct [CPU & GPU], Octree (a.k.a. Barnes-Hut)[CPU only], and randomized Octree [CPU only] force calculation.
+- Can be used to make periodic, quasi-periodic, cylindrical or spherical glass.
 - Available for GNU/Linux and Darwin (macOS).
 - Written in C++ with MPI, OpenMP and CUDA parallelization.
 - Able to use multiple GPUs simultaneously in a large computing cluster.
@@ -76,7 +86,19 @@ Compiling:
 		-HAVE_HDF5
 			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
 		-PERIODIC
-			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
+			Set this if the simulations will use periodic boundary conditions (T^3 topological manifold). Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
+		-PERIODIC_Z
+			Set this if the simulation will use periodic boundary conditions only in the "z" direction (S^1xR^2 topological manifold). You cannot use this with the "PERIODIC" compile time option.
+		-PERIODIC_Z_RSPACELOOKUP
+			Using direct real-space summation with large cutoff (N>10^3) to generate the periodic lookup table. Otherwise, Tornberg (2015) Ewald summation method will be used. Only works with "PERIODIC_Z" turned on.
+		-PERIODIC_Z_NOLOOKUP
+			Instead of using a lookup tabe, a direct real-space summation of the periodic images will be used to calculate the forces in S^1xR^2 topology for every gravitational interaction. Only works with "PERIODIC_Z" turned on.
+		-EWALD_INTERPOLATION_ORDER
+			Order of the Ewald lookup table interpolation during fully periodic and cylindrical simulations (0:NGP, 2:CIC, 4:TSC(default))
+		-USE_BH
+			If this is set, the gravitational forces between particles will be calculated with Barnes-Hut octree algorithm.
+		-RANDOMIZE_BH
+			If this option is set, the domain center will be randomly shifted between every timestep during the BH force calculation. In R^3 and S^1xR^2 topology, the code will additionally randomly rotate the BH domains to mitigate the anisotropies of the octree method.
 		-COSMOPARAM
 			Parametrization of the background cosmology. Possible values:
 				0: standard Lambda-CDM parametrization (default)
@@ -96,7 +118,7 @@ Once you compiled the code, you can simply run it by typing:
 	$ export OMP_NUM_THREADS=<Number of shared memory OMP threads per MPI tasks>
 	$ mpirun -np <number of MPI tasks> ./build/StePS <parameterfile>
   or
-  $ mpirun -np <number of MPI tasks> ./buildStePS <parameterfile> <Number of shared memory OMP threads per MPI tasks>
+  $ mpirun -np <number of MPI tasks> ./build/StePS <parameterfile> <Number of shared memory OMP threads per MPI tasks>
 where the parameterfile specifies the parameters of the simulation.
 
 If you compiled the code with CUDA, you can simply run it by typing:
@@ -177,7 +199,7 @@ a_max           1.0				%The final scalefactor (if COMOVING_INTEGRATION=1) or the
 Simulation parameters:
 -----------------------
 COSMOLOGY       1			%1=cosmological simulation 0=traditional n-body sim.
-IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=Ewald forces, 3=high precision Ewald forces
+IS_PERIODIC     0						%Boundary condition 0=vacuum boundaries, 1=nearest images (a.k.a. quasi-periodic), 2=Ewald forces, 3>=high precision Ewald forces
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 L_BOX           1860.0531					%Linear size of the simulation volume
 IC_FILE 	./examples/ic/IC_LCDM_SP_1860Mpc_Nr224_Nhp32_ds105_z63_VOI100_notcomoving.hdf5	%ic file
@@ -189,6 +211,8 @@ OUTPUT_FORMAT   2						%Output format 0: ASCII 2: (Gadget-)HDF5
 REDSHIFT_CONE   0						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 ACC_PARAM	0.005						%Accuracy parameter (using 0.012 results ~1% accuracy in the power spectrum)
+RADIAL_FORCE_ACCURACY   1000    %Sets the number of integration steps when calculating the force lookup table, only used in cylindrical simulations
+RADIAL_FORCE_TABLE_SIZE 1000    %Sets the size of the force lookup table, only used in cylindrical simulations
 STEP_MIN           0.00025						%Minimal timestep length (in Gy)
 STEP_MAX           0.03125						%Maximal timestep length (in Gy)
 PARTICLE_RADII   0.134226516867827				%Softening length of particle with minimal mass (in comoving units, if COMOVING_INTEGRATION=1, otherwise in physical units)
@@ -198,8 +222,15 @@ SNAPSHOT_START_NUMBER	0					%Initial snapshot number. Useful for restarting simu
 H_INDEPENDENT_UNITS   0         %Units of the I/O files. 0: i/o in Mpc, Msol, etc. (default); 1: i/o in Mpc/h, Msol/h, etc.
 TIME_LIMIT_IN_MIN     3600      %Simulation wall-clock time limit in minutes. If 0, or not defined, then no time limit will be considered.
 
-Optional parameters:    %These parameters are only needed when alternative cosmology parametrizations are turned on in the makefile.
---------------------
+Optional BH parameters: % These parameters only used in octree force calculation mode in spherical and cylindrical topology
+-----------------------
+RADIAL_BH_FORCE_CORRECTION          1     % 0: No radial octree force correction. 1: Radial correction of the Harnes-Hut force calculation is on.
+GLASS_FILE_FOR_BH_FORCE_CORRECTION  None  % Location of the initial glass file for estimating the correction. If None, the IC will be used to calculate the correction table.
+RADIAL_BH_FORCE_TABLE_SIZE          128   % Size of the radial correction table.
+RADIAL_BH_FORCE_TABLE_ITERATION     16    % Number of iterations used in the radial correction table calculation, if randomized BH force calculation is turned on in the makefile.
+
+Optional cosmological parameters:    %These parameters are only needed when alternative cosmology parametrizations are turned on in the makefile.
+---------------------------------
 w0    -0.9                        %Dark energy equation of state at z=0 in wCDM and w0waCDM parametrization. (LCDM: w0=-1.0)
 wa    0.1                         %Negative derivative of the dark energy equation of state in w0waCDM parametrization. (LCDM: wa=0.0)
 EXPANSION_FILE      ./wpwaCDM.dat %input file with tabulated expansion history. Columns in the file: age [Gy], scale factor [dimensionless], Hubble parameter [km/s/Mpc]
@@ -212,3 +243,4 @@ Acknowledgement
   GR would like to thank the Department of Physics & Astronomy, JHU for supporting this work.
   GR acknowledges sponsorship of a NASA Postdoctoral Program Fellowship. GR was supported by JPL, which is run under contract by California Institute of Technology for NASA.
   The developer acknowledges support from the National Science Foundation (NSF) award 1616974.
+  GR acknowledges the support of the Research Council of Finland grant 354905 and the support by the European Research Council via ERC Consolidator grant KETJU (no. 818930).

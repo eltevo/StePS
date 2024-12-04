@@ -1,5 +1,7 @@
 INFILENAME: "../../StePS/examples/LCDM_SP_1860_noncom_VOI100/snapshot_0013.hdf5"
 OUTFILENAME: "./generated_image.png"
+TOPOLOGY: "SPHERICAL"  # "SPHERICAL" or "CYLINDRICAL"
+SLICE_Z_COORD: 0.0
 R_PLOT: 620.0
 R_CUTOFF: "Auto"
 PLOTMODE: "Wedge"

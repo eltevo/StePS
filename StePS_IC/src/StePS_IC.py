@@ -29,8 +29,8 @@ from powerspec import *
 from subprocess import call
 from pynverse import inversefunc
 
-_VERSION="v1.0.1.0"
-_YEAR="2018-2024"
+_VERSION="v1.2.0.0"
+_YEAR="2018-2025"
 
 #some basic function for the stereographic projection
 #Functions for the constant omega binning method
@@ -87,6 +87,7 @@ print("+---------------------------------------------------------------+\n" \
 "| This is free software, and you are welcome to redistribute it |\n" \
 "| under certain conditions. See the LICENSE file for details.   |\n" \
 "+---------------------------------------------------------------+\n\n")
+print("Warning: This script is the old initial condition generator for StePS simulations, and got replaced by stepsic2 (https://github.com/eltevo/stepsic).\nPlease consider using stepsic2 for generating initial conditions for StePS simulations.\n")
 if len(sys.argv) != 2:
     print("Error: missing yaml file!")
     print("usage: ./StePS_IC.py <input yaml file>\nExiting.")
@@ -114,7 +115,21 @@ else:
     sys.exit(2)
 Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'] = np.float64(Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
 renormalizeinputspectrum = Params['RENORMALIZEINPUTSPECTRUM']
-print("IC parameters:\n--------------\nLbox:\t\t\t%f Mpc\nRsim:\t\t\t%f Mpc\nVOI_x:\t\t\t%f Mpc\nVOI_y:\t\t\t%f Mpc\nVOI_z:\t\t\t%f Mpc\nSeed:\t\t\t%i\nSpheremode:\t\t%i\nWhichSpectrum:\t\t%i\nFileWithInputSpectrum:\t%s\nInputSpectrum_UnitLength_in_cm\t%e\nReNormalizeInputSpectrum:\t%i\nShapeGamma:\t\t%f\nPrimordialIndex:\t%f\nNgrid samples:\t\t%i\nGlassFile:\t\t%s\nOutDir:\t\t\t%s\nFileBase:\t\t%s\nComoving IC:\t\t%s\nNumber of MPI tasks:\t%i\nH0 independent units:\t%i\n" % (Params['LBOX'], Params['RSIM'], Params['VOIX'], Params['VOIY'], Params['VOIZ'], Params['SEED'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], renormalizeinputspectrum, Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['NGRIDSAMPLES'], Params['GLASSFILE'], Params['OUTDIR'], Params['FILEBASE'], Params['COMOVINGIC'], Params['MPITASKS'], Params['HINDEPENDENTUNITS']))
+if 'GEOMETRY' not in Params.keys():
+    GEOMETRY = 'spherical'
+else:
+    GEOMETRY = Params['GEOMETRY']
+print("IC parameters:\n--------------\nGeometry:\t\t%s\nLbox:\t\t\t%f Mpc\nRsim:\t\t\t%f Mpc\nVOI_x:\t\t\t%f Mpc\nVOI_y:\t\t\t%f Mpc\nVOI_z:\t\t\t%f Mpc\nSeed:\t\t\t%i\nSpheremode:\t\t%i\nWhichSpectrum:\t\t%i\nFileWithInputSpectrum:\t%s\nInputSpectrum_UnitLength_in_cm\t%e\nReNormalizeInputSpectrum:\t%i\nShapeGamma:\t\t%f\nPrimordialIndex:\t%f\nNgrid samples:\t\t%i\nGlassFile:\t\t%s\nOutDir:\t\t\t%s\nFileBase:\t\t%s\nComoving IC:\t\t%s\nNumber of MPI tasks:\t%i\nH0 independent units:\t%i" % (GEOMETRY, Params['LBOX'], Params['RSIM'], Params['VOIX'], Params['VOIY'], Params['VOIZ'], Params['SEED'], Params['SPHEREMODE'], Params['WHICHSPECTRUM'], Params['FILEWITHINPUTSPECTRUM'], Params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], renormalizeinputspectrum, Params['SHAPEGAMMA'], Params['PRIMORDIALINDEX'], Params['NGRIDSAMPLES'], Params['GLASSFILE'], Params['OUTDIR'], Params['FILEBASE'], Params['COMOVINGIC'], Params['MPITASKS'], Params['HINDEPENDENTUNITS']))
+if GEOMETRY != 'spherical' and GEOMETRY != 'cylindrical':
+    print("Error: the GEOMETRY parameter should be 'spherical' or 'cylindrical'!\nExiting.\n")
+    sys.exit(2)
+if GEOMETRY == 'cylindrical':
+    if ('REPEAT_GLASS_Z' not in Params.keys() ) or Params['REPEAT_GLASS_Z'] < 1:
+        REPEAT_GLASS_Z = 1
+    else:
+        REPEAT_GLASS_Z = Params['REPEAT_GLASS_Z']
+    print("Repeating the glass in the z direction:\t%i" % REPEAT_GLASS_Z)
+print("")
 Params['UNITLENGTH_IN_CM'] = np.float64(Params['UNITLENGTH_IN_CM'])
 Params['UNITMASS_IN_G'] = np.float64(Params['UNITMASS_IN_G'])
 Params['UNITVELOCITY_IN_CM_PER_S'] = np.float64(Params['UNITVELOCITY_IN_CM_PER_S'])
@@ -133,7 +148,7 @@ else:
     sys.exit(2)
 print("Executable:\t%s\n" % Params['EXECUTABLE'])
 if not exists(Params['EXECUTABLE']):
-    print("Error: the " + Params['EXECUTABLE'] + "executable does not exist. Exiting...")
+    print("Error: the " + Params['EXECUTABLE'] + " executable does not exist. Exiting...")
     exit(2)
 if (Params['BIN_MODE'] > 1) or (Params['BIN_MODE'] < 0):
     print("Error: unkown binning mode %i!\nExiting.\n" % Params['BIN_MODE'])
@@ -151,7 +166,7 @@ if Params['OUTPUTFORMAT'] == 2:
     if Params['OUTPUTPRECISION'] == 1:
         print("Output precision:\t64bit")
     if (Params['OUTPUTPRECISION'] != 1) and (Params['OUTPUTPRECISION'] != 0):
-        printf("Error: unkown output percision were set.\nExiting.")
+        print("Error: unkown output percision were set.\nExiting.")
         sys.exit()
 if (Params['OUTPUTFORMAT'] != 0) and (Params['OUTPUTFORMAT'] != 2):
     print("Error: unkown output format\nExiting.")
@@ -183,14 +198,33 @@ if Params['USECAMBINPUTSPECTRUM']:
 #Loading the input glass:
 print("Loading the %s input glass file..." % Params['GLASSFILE'])
 glasscoords,glassmasses = Load_snapshot(Params['GLASSFILE'])
+if GEOMETRY == 'cylindrical':
+    #Repeating the glass in the z 
+    Lz_glass = Params['LZGLASS']
+    Nglass = len(glasscoords)
+    print("Repeating the input glass %i times in the z direction (Lz = %.2f Mpc, Nglass=%i )..."% (REPEAT_GLASS_Z,Lz_glass, Nglass))
+    for i in range(1, REPEAT_GLASS_Z):
+        shifted_glass = np.copy(glasscoords[:Nglass,:])
+        shifted_masses = np.copy(glassmasses[:Nglass])
+        shifted_glass[:,2] += i * Lz_glass
+        glasscoords = np.vstack((glasscoords, shifted_glass))
+        glassmasses = np.hstack((glassmasses, shifted_masses))
+    print("...done.")
 input_glass = np.vstack((np.hstack((glasscoords,np.zeros(glasscoords.shape,dtype=np.double))).T,glassmasses)).T
 Npart = len(input_glass)
+if GEOMETRY == 'cylindrical':
+    glassfname = Params['OUTDIR'] + Params['FILEBASE'] + "_Glass.hdf5"
+    print("Saving the generated glass file to %s..." % glassfname)
+    writeHDF5snapshot(input_glass, glassfname, Params['LBOX'], 0.0, Params['OMEGAM'], Params['OMEGAL'], Params['H0']/100.0,Params['OUTPUTPRECISION'])
 del(glasscoords)
 del(glassmasses)
 print("...done.")
 #Calculating the total mass, and the average density
 M_tot = np.sum(input_glass[:,6])
-V_sim = 4.0*np.pi/3.0*Params['RSIM']**3
+if GEOMETRY == 'spherical':
+    V_sim = 4.0*np.pi/3.0*Params['RSIM']**3
+elif GEOMETRY == 'cylindrical':
+    V_sim = np.pi*Params['RSIM']**2*Params['LBOX']
 OmegaM_mean_input = (M_tot/V_sim)/rho_crit
 if np.absolute(OmegaM_mean_input/Params['OMEGAM']-1.0) < 1e-9:
     print("\nThe cosmological Omega_m parameter, calculated from the particle masses:\tOmega_m=%f\n" % (OmegaM_mean_input))
@@ -394,6 +428,9 @@ else:
                     index_of_this_particle=snapshot.ID[1][k]-1
                     Disp_field[index_of_this_particle] = snapshot.pos[1][k] / (Params['H0'] / 100.0) * Params['UNITLENGTH_IN_CM']/UNIT_D
                     Vel_field[index_of_this_particle] = snapshot.vel[1][k]
+            else:
+                print("Error: the " + filename + " file does not exist. Exiting...")
+                exit(-3)
     print("    ...done.\n    Calculating the displacement field...")
     Disp_field[:,0:3] = Disp_field[:,0:3]-input_glass[:,0:3]
     for j in range(0,Npart):
@@ -435,6 +472,15 @@ if Params['HINDEPENDENTUNITS'] == 1:
     IC[:,6] *= h
     print("...done\n")
 
+if GEOMETRY == 'cylindrical':
+    print("Enforcing periodic boundary conditions in the z direction...")
+    for i in range(0,Npart):
+        if IC[i,2] < 0:
+            IC[i,2] += Params['LBOX']
+        if IC[i,2] > Params['LBOX']:
+            IC[i,2] -= Params['LBOX']
+    print("...done\n")
+
 
 if Params['OUTPUTFORMAT'] == 0:
     outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".dat"
@@ -446,54 +492,55 @@ if Params['OUTPUTFORMAT'] == 0:
 if Params['OUTPUTFORMAT'] == 2:
     writeHDF5snapshot(IC, outputfilename, np.double(2.0*Params['RSIM']), Params['REDSHIFT'], Params['OMEGAM'], Params['OMEGAL'], Params['H0']/100.0, Params['OUTPUTPRECISION'])
 print("...done\n")
-print("Calculating redshifts for the spherical shells...")
-#calculating the comoving distances of the particles
-shell_limits = np.zeros(np.uint64(Params['NRBINS'])+np.uint64(1), dtype=np.float64)
-z_list = np.zeros(np.uint64(Params['NRBINS']), dtype=np.float64)
-if Params['BIN_MODE'] == 0:
-    last_cell_size = Params['NRBINS']*np.pi/(2*np.arctan(Params['RSIM']/Params['D_S']))-Params['NRBINS']
-i = np.arange(Params['NRBINS'])
-if Params['BIN_MODE'] == 0:
-    r_list = Calculate_r_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
-    if Params['HINDEPENDENTUNITS'] == 1:
-        r_list *= h
-if Params['BIN_MODE'] == 1:
-    r_list = Calculate_r_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
-    if Params['HINDEPENDENTUNITS'] == 1:
-        r_list *= h
-del(i)
-i = np.arange(Params['NRBINS']+1)
-if Params['BIN_MODE'] == 0:
-    shell_limits = Calculate_rlimits_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
-    if Params['HINDEPENDENTUNITS'] == 1:
-        shell_limits *= h
-if Params['BIN_MODE'] == 1:
-    shell_limits = Calculate_rlimits_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
-    if Params['HINDEPENDENTUNITS'] == 1:
-        shell_limits *= h
-#calculating redshift-comoving distance function for the redshift cone
-if Params['DARKENERGYMODEL'] == 'Lambda':
-    #LCDM model
-    cosmo = LambdaCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'])
-elif Params['DARKENERGYMODEL'] == 'w0':
-    #wCDM model
-    cosmo = wCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'],w0=Params['DARKENERGYPARAMS'][0])
-elif Params['DARKENERGYMODEL'] == 'CPL':
-    #w0waCDM model
-    cosmo = w0waCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'],w0=Params['DARKENERGYPARAMS'][0],wa=Params['DARKENERGYPARAMS'][1])
-for i in range(0,len(z_list)):
-    z_list[i] = z_at_value(cosmo.comoving_distance, r_list[i]*u.Mpc)
-if Params['OUTPUTFORMAT'] == 0:
-    outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".dat_zbins"
-if Params['OUTPUTFORMAT'] == 2:
-    outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".hdf5_zbins"
-np.savetxt(outputfilename, z_list)
-if Params['OUTPUTFORMAT'] == 0:
-    outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".dat_zbins_rlimits"
-if Params['OUTPUTFORMAT'] == 2:
-    outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".hdf5_zbins_rlimits"
-np.savetxt(outputfilename, shell_limits)
-print("...done\n")
+if GEOMETRY == 'spherical':
+    print("Calculating redshifts for the spherical shells...")
+    #calculating the comoving distances of the particles
+    shell_limits = np.zeros(np.uint64(Params['NRBINS'])+np.uint64(1), dtype=np.float64)
+    z_list = np.zeros(np.uint64(Params['NRBINS']), dtype=np.float64)
+    if Params['BIN_MODE'] == 0:
+        last_cell_size = Params['NRBINS']*np.pi/(2*np.arctan(Params['RSIM']/Params['D_S']))-Params['NRBINS']
+    i = np.arange(Params['NRBINS'])
+    if Params['BIN_MODE'] == 0:
+        r_list = Calculate_r_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
+        if Params['HINDEPENDENTUNITS'] == 1:
+            r_list *= h
+    if Params['BIN_MODE'] == 1:
+        r_list = Calculate_r_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
+        if Params['HINDEPENDENTUNITS'] == 1:
+            r_list *= h
+    del(i)
+    i = np.arange(Params['NRBINS']+1)
+    if Params['BIN_MODE'] == 0:
+        shell_limits = Calculate_rlimits_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
+        if Params['HINDEPENDENTUNITS'] == 1:
+            shell_limits *= h
+    if Params['BIN_MODE'] == 1:
+        shell_limits = Calculate_rlimits_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
+        if Params['HINDEPENDENTUNITS'] == 1:
+            shell_limits *= h
+    #calculating redshift-comoving distance function for the redshift cone
+    if Params['DARKENERGYMODEL'] == 'Lambda':
+        #LCDM model
+        cosmo = LambdaCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'])
+    elif Params['DARKENERGYMODEL'] == 'w0':
+        #wCDM model
+        cosmo = wCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'],w0=Params['DARKENERGYPARAMS'][0])
+    elif Params['DARKENERGYMODEL'] == 'CPL':
+        #w0waCDM model
+        cosmo = w0waCDM(H0=Params['H0'], Om0=Params['OMEGAM'], Ode0=Params['OMEGAL'],w0=Params['DARKENERGYPARAMS'][0],wa=Params['DARKENERGYPARAMS'][1])
+    for i in range(0,len(z_list)):
+        z_list[i] = z_at_value(cosmo.comoving_distance, r_list[i]*u.Mpc)
+    if Params['OUTPUTFORMAT'] == 0:
+        outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".dat_zbins"
+    if Params['OUTPUTFORMAT'] == 2:
+        outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".hdf5_zbins"
+    np.savetxt(outputfilename, z_list)
+    if Params['OUTPUTFORMAT'] == 0:
+        outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".dat_zbins_rlimits"
+    if Params['OUTPUTFORMAT'] == 2:
+        outputfilename = Params['OUTDIR'] + Params['FILEBASE'] + ".hdf5_zbins_rlimits"
+    np.savetxt(outputfilename, shell_limits)
+    print("...done\n")
 print("Deleting the temporary files...")
 
 if Params['LOCAL_EXECUTION'] > 0:
@@ -503,14 +550,26 @@ if Params['LOCAL_EXECUTION'] > 0:
             if Params['MPITASKS'] == 1:
                 if Params['ICGENERATORTYPE'] == 2:
                     call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0")])
-                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                    # keeping the last inputspec file
+                    if i == len(Nsample_tab) - 1:
+                        call(["mv", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt"), (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                    else:
+                        call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
                 else:
                     call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i)])
-                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                    # keeping the last inputspec file
+                    if i == len(Nsample_tab) - 1:
+                        call(["mv", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt"), (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                    else:
+                        call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
             else:
                 for j in range(0,Params['MPITASKS']):
                     call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j)])
-                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                    # keeping the last inputspec file
+                    if i == len(Nsample_tab) - 1 and j==0:
+                        call(["mv", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt"))])
+                    else:
+                        call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
     else:
         call(["rm", "-f", paramfile_name])
         if Params['MPITASKS'] == 1:
@@ -519,11 +578,14 @@ if Params['LOCAL_EXECUTION'] > 0:
                 call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
             else:
                 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'])])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                # keeping the last inputspec file
+                #call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
         else:
-            for j in range(0,Params['MPITASKS']):
+           for j in range(0,Params['MPITASKS']):
                 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j)])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                # keeping the last inputspec file
+                if j!=0:
+                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS")])
 print("...done.\n")
 end = time.time()

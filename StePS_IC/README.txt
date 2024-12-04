@@ -8,8 +8,11 @@
                                                |_|    |___/
 StePS_IC.py - an IC generator python script for STEreographically Projected cosmological Simulations
 
-v1.0.1.0
-Copyright (C) 2018-2024 Gábor Rácz
+IMPORTANT NOTE: This is an old and abandoned IC generator for StePS, and it got replaced by stepsic2 (https://github.com/eltevo/stepsic)
+
+v1.2.0.0
+Copyright (C) 2018-2025 Gábor Rácz
+	Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland
 	Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
 	Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218
@@ -58,6 +61,8 @@ The example yaml file in the ./examples library:
 RSIM: 1860.05314437555		%Linear size of the simulation
 
 LBOX: 3720.2			%Linear size of the cube where the displacement field will be calculated
+
+GEOMETRY: 'cylindrical' %Geometry of the initial condition 'cylindrical' or 'spherical' (default)
 
 OMEGAM: 0.3089			%Non-relativistic matter density parameter
 OMEGAL: 0.6911			%Cosmological constant density parameter

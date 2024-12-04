@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2025 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -29,6 +29,12 @@
 
 void write_header_attributes_in_hdf5(hid_t handle);
 #endif
+
+//Functions for reading GADGET2 format IC
+int gadget_format_conversion(bool allocate_memory);
+int load_snapshot(char *fname, int files);
+int allocate_memory(void);
+int reordering(void);
 
 int file_exist(char *file_name)
 {
@@ -91,41 +97,47 @@ void read_expansion_history(char* filename)
 }
 #endif
 
-void read_ascii_ic(FILE *ic_file, int N)
+void read_ascii_ic(FILE *ic_file, int N, bool allocate_memory)
 {
+	// This function reads the initial conditions from an ASCII file.
+	// Input parameters:
+	// ic_file: pointer to the input file
+	// N: number of particles
+	// allocate_memory: if true, allocates memory for the particle data arrays. if false, assumes that the memory is already allocated.
 	int i,j;
-
-	//Allocating memory for the coordinates
-	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+	if(allocate_memory)
 	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
-		exit(-2);
+		//Allocating memory for the coordinates
+		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the velocities
+		if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the forces
+		if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the masses
+		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the softening lengths
+		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			exit(-2);
+		}
 	}
-	//Allocating memory for the velocities
-	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the forces
-	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the masses
-	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the softening lengths
-	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
-		exit(-2);
-	}
-
 	printf("\nReading IC from the %s file...\n", IC_FILE);
 	for(i=0; i<N; i++) //reading
 	{
@@ -872,14 +884,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 		}
 	}
 	FILE *coordinate_file;
-	if(t < 1)
-	{
-		coordinate_file = fopen(filename, "w");
-	}
-	else
-	{
-		coordinate_file = fopen(filename, "a");
-	}
+	coordinate_file = fopen(filename, "w");
 
 	for(i=0; i<N; i++)
 	{
@@ -913,15 +918,156 @@ void Log_write() //Writing logfile
 		fprintf(stderr, "Error: The name of the logfile got truncated.\nAborting.\n");
 		abort();
 	}
-	LOGFILE = fopen(filename, "a");
-	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
+	if(file_exist(filename) == 0)
+	{
+		LOGFILE = fopen(filename, "a");
+		//Writing header
+		//Program information
+		fprintf(LOGFILE, "# %s logfile\n# code version: %s\n# git commit: %s\n# git branch: %s\n# build date: %s\n", PROGRAMNAME, PROGRAM_VERSION, GIT_COMMIT_ID, GIT_BRANCH, BUILD_DATE);
+		//Cosmological parameters
+		if(COSMOLOGY == 1)
+		{
+			fprintf(LOGFILE, "# Cosmological parameters used:\n");
+			fprintf(LOGFILE, "# H0 = %.2f km/s/Mpc, Omega_m0 = %.5f, Omega_l0 = %.5f, Omega_r0 = %.5e", H0*UNIT_V, Omega_m, Omega_lambda, Omega_r);
+			#if COSMOPARAM==1
+			fprintf(LOGFILE, ", w0 = %.5f", w0);
+			#elif COSMOPARAM==2
+			fprintf(LOGFILE, ", w0 = %.5f, wa = %.5f", w0, wa);
+			#elif COSMOPARAM==-1
+			fprintf(LOGFILE, "\n Tabulated expansion history from %s", EXPANSION_FILE);
+			#endif
+			fprintf(LOGFILE, "\n");
+		}
+		//Topology information
+		#if defined(PERIODIC)
+			fprintf(LOGFILE, "# Topological manifold: T^3 (Periodic box)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Box size: %.3f Mpc\n", L);
+			else
+				fprintf(LOGFILE, "# Box size: %.3f Mpc/h\n", L*H0*UNIT_V/100.0);
+		#elif defined(PERIODIC_Z)
+			fprintf(LOGFILE, "# Topological manifold: S^1xR^2 (Periodic cylinder)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
+			else
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#else
+			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc\n", Rsim);
+			else
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc/h\n", Rsim*H0*UNIT_V/100.0);
+		#endif
+		//Writing column headers
+		fprintf(LOGFILE, "# Time[Gy]\tMax_Error\tStep_Size[Gy]\tScale factor\tRedshift\tHubble_Parameter[km/s/Mpc]\tDeceleration_Parameter\tOmega_m_Effective\n");
+		//Writing first line
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
+	}
+	else
+	{
+		LOGFILE = fopen(filename, "a");
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
+	}
 	fclose(LOGFILE);
+}
+#ifdef GLASS_MAKING
+void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean, REAL dmax, REAL V_mean, REAL V_max)
+{
+	FILE *LOGFILE;
+	char A[] = "Glass_logfile.dat";
+	char filename[0x100];
+	if(snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A) < 0)
+	{
+		fprintf(stderr, "Error: The name of the glass logfile got truncated.\nAborting.\n");
+		abort();
+	}
+	if(file_exist(filename) == 0)
+	{
+		LOGFILE = fopen(filename, "a");
+		//Writing header
+		//Program information
+		fprintf(LOGFILE, "# %s glass making logfile\n# code version: %s\n# git commit: %s\n# git branch: %s\n# build date: %s\n", PROGRAMNAME, PROGRAM_VERSION, GIT_COMMIT_ID, GIT_BRANCH, BUILD_DATE);
+		//Cosmological parameters
+		if(COSMOLOGY == 1)
+		{
+			fprintf(LOGFILE, "# Cosmological parameters used:\n");
+			fprintf(LOGFILE, "# H0 = %.2f km/s/Mpc, Omega_m0 = %.5f, Omega_l0 = %.5f, Omega_r0 = %.5e", H0*UNIT_V, Omega_m, Omega_lambda, Omega_r);
+			#if COSMOPARAM==1
+			fprintf(LOGFILE, ", w0 = %.5f", w0);
+			#elif COSMOPARAM==2
+			fprintf(LOGFILE, ", w0 = %.5f, wa = %.5f", w0, wa);
+			#elif COSMOPARAM==-1
+			fprintf(LOGFILE, "\n Tabulated expansion history from %s", EXPANSION_FILE);
+			#endif
+			fprintf(LOGFILE, "\n");
+		}
+		//Topology information
+		#if defined(PERIODIC)
+			fprintf(LOGFILE, "# Topological manifold: T^3 (Periodic box)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Box size: %.3f Mpc\n", L);
+			else
+				fprintf(LOGFILE, "# Box size: %.3f Mpc/h\n", L*H0*UNIT_V/100.0);
+		#elif defined(PERIODIC_Z)
+			fprintf(LOGFILE, "# Topological manifold: S^1xR^2 (Periodic cylinder)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
+			else
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#else
+			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc\n", Rsim);
+			else
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc/h\n", Rsim*H0*UNIT_V/100.0);
+		#endif
+		//Writing column headers
+		fprintf(LOGFILE, "# 1. Cosmic time[Gy]\t2. Scale factor (a/a_start)\t3. Redshift\t4. Hubble_Parameter[km/s/Mpc]\t5. Deceleration_Parameter\t6. Mean(F)\t7. Max(F)\t8. Mean(A)\t9. Max(A)\t10. Mean(disp)\t11. Max(disp)\t12. Mean(velocity)[km/s]\t13. Max(velocity)[km/s]\n");
+		//Writing first line
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\n", T*UNIT_T, a/a_start, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, F_mean, Fmax, A_mean, A_max, dmean, dmax, V_mean*UNIT_V, V_max*UNIT_V);
+	}
+	else
+	{
+		LOGFILE = fopen(filename, "a");
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\n", T*UNIT_T, a/a_start, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, F_mean, Fmax, A_mean, A_max, dmean, dmax, V_mean*UNIT_V, V_max*UNIT_V);
+	}
+	fclose(LOGFILE);
+}
+#endif
+
+void save_function_to_ascii_table(char *filename, REAL x_min, REAL x_max, REAL deltax, REAL *values, int Ntable, char* header)
+{
+	//Saving a function to an ascii table
+	// Input parameters:
+	// filename: the name of the output ascii file
+	// x_min: the minimum x value
+	// x_max: the maximum x value
+	// deltax: the step size in x
+	// values: array containing the function values
+	// Ntable: number of entries in the values array
+	// header: header string to be written at the top of the file
+
+	FILE *output_file;
+	output_file = fopen(filename, "w");
+	fprintf(output_file, "%s\n", header);
+	REAL argument = x_min;
+	for(int i=0; i<Ntable; i++)
+	{
+		if(argument > x_max) break;
+		fprintf(output_file, "%.6f\t%.15f\n", argument, values[i]);
+		argument += deltax;
+	}
+	fclose(output_file);
 }
 
 #ifdef HAVE_HDF5
 
-void read_hdf5_ic(char *ic_file)
+void read_hdf5_ic(char *ic_file, bool allocate_memory)
 {
+	//Reading initial conditions from an HDF5 file
+	// Input parameters:
+	// ic_file: the name of the HDF5 file containing the initial conditions
+	// allocate_memory: if true, memory will be allocated for the particle data arrays. if false, the function will assume that the memory is already allocated.
 	hid_t attr_id = 0;
 	hid_t group = 0;
 	hid_t dataset = 0;
@@ -939,36 +1085,40 @@ void read_hdf5_ic(char *ic_file)
 	printf("\tThe number of particles:\t%i\n", N);
 	H5Aclose(attr_id);
 	H5Gclose(group);
-	//Allocating memory
-	//Allocating memory for the coordinates
-	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+	if(allocate_memory)
 	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the velocities
-	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the forces
-	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the masses
-	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the softening lengths
-	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
-		exit(-2);
+		//Allocating memory
+		printf("\tAllocating memory for the particle data arrays...\n");
+		//Allocating memory for the coordinates
+		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the velocities
+		if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the forces
+		if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the masses
+		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the softening lengths
+		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			exit(-2);
+		}
 	}
 	//reading the particle coordinates
 	printf("\tReading /PartType1/Coordinates\n");
@@ -1073,6 +1223,72 @@ void read_hdf5_ic(char *ic_file)
 	H5Sclose(dataspace_in_file);
 	H5Dclose(dataset);
 	//reading the particle masses
+	// checking if the masses are stored in the file
+	if (H5Lexists(IC, "/PartType1/Masses", H5P_DEFAULT) <= 0)
+	{
+		printf("\tMasses not found in the IC file. Assuming constant mass resolution in the full simulation volume.\n");
+		// the mass resolution is stored in the header as the second value in the attribute: "/Header/MassTable"
+		group = H5Gopen2(IC,"Header", H5P_DEFAULT);
+		attr_id = H5Aopen(group, "MassTable", H5P_DEFAULT);
+		REAL mass_table[6];
+		datatype =  H5Aget_type(attr_id);
+#ifdef USE_SINGLE_PRECISION
+		if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+		{
+			H5Aread(attr_id,  H5T_NATIVE_FLOAT, &mass_table);
+		}
+		else
+		{
+			printf("\t\tData stored in doubles.\n");
+			double* buffer;
+			if(!(buffer = (double*)malloc(6*sizeof(double))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for mass_table_buffer.\n", rank);
+				exit(-2);
+			}
+			H5Aread(attr_id,  H5T_NATIVE_DOUBLE, buffer);
+			for (int i = 0; i < 6; i++)
+			{
+				mass_table[i] = (REAL) buffer[i];
+			}
+			free(buffer);
+		}
+#else
+		if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+		{
+			H5Aread(attr_id,  H5T_NATIVE_DOUBLE, &mass_table);
+		}
+		else
+		{
+			printf("\t\tData stored in floats.\n");
+			float* buffer;
+			if(!(buffer = (float*)malloc(6*sizeof(float))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for mass_table_buffer.\n", rank);
+				exit(-2);
+			}
+			H5Aread(attr_id,  H5T_NATIVE_FLOAT, buffer);
+			for (int i = 0; i < 6; i++)
+			{
+				mass_table[i] = (REAL) buffer[i];
+			}
+			free(buffer);
+		}
+#endif
+		H5Aclose(attr_id);
+		H5Gclose(group);
+		// mass_table[0] is the mass of the first particle type (gas), mass_table[1] is the mass of the second particle type (dark matter)
+		printf("\tThe particle mass is set to %.7f * 10^10 Msol(/h)\n", mass_table[1]);
+		// set the mass of all particles to the mass of the second particle type (dark matter)
+		for(int i = 0; i < N; i++)
+		{
+			M[i] = mass_table[1]/10.0;
+		}
+		H5Fclose(IC);
+		printf("...done\n\n");
+		return;
+	}
+
 	printf("\tReading /PartType1/Masses\n");
 	dataset = H5Dopen2(IC, "/PartType1/Masses", H5P_DEFAULT);
 	dataspace_in_file = H5Dget_space(dataset);
@@ -1126,6 +1342,7 @@ void read_hdf5_ic(char *ic_file)
 
 	H5Fclose(IC);
 	printf("...done\n\n");
+	return;
 }
 
 void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
@@ -1312,6 +1529,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	hsize_t adim[1] = { 6 };
 	hid_t hdf5_dataspace, hdf5_attribute;
 
+	//NumPart_ThisFile
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	hdf5_attribute = H5Acreate(handle, "NumPart_ThisFile", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
@@ -1323,6 +1541,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//NumPart_Total
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	hdf5_attribute = H5Acreate(handle, "NumPart_Total", H5T_NATIVE_UINT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
@@ -1330,6 +1549,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//NumPart_Total_HighWord
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	for(i=0; i<6; i++)
@@ -1339,7 +1559,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
-
+	//MassTable
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	double mass[6];
@@ -1351,6 +1571,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Time (or scale factor)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Time", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
 	if(COSMOLOGY == 0 || (OUTPUT_TIME_VARIABLE==0 && COMOVING_INTEGRATION==0))
@@ -1361,6 +1582,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Redshift
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Redshift", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	double redshift=(1.0/a-1.0);
@@ -1368,12 +1590,49 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//BoxSize
+	double L_out;
+	#ifdef USE_SINGLE_PRECISION
+		L_out = (double)L;
+	#else
+		L_out = L;
+	#endif
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "BoxSize", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
-	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L); //Linear simulation size
+	if(H0_INDEPENDENT_UNITS == 0)
+	{
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L_out); //Linear simulation size
+	}
+	else
+	{
+		doublebuf = L_out*H0*UNIT_V/100.0; //Linear simulation size
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &doublebuf); //Linear simulation size in Mpc/h
+	}
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Simulation radius
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "SimulationRadius", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	double Rsim_out;
+	#ifdef USE_SINGLE_PRECISION
+		Rsim_out = (double)Rsim;
+	#else
+		Rsim_out = Rsim;
+	#endif
+	if(H0_INDEPENDENT_UNITS == 0)
+	{
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Rsim_out); //Simulation radius
+	}
+	else
+	{
+		doublebuf = Rsim_out*H0*UNIT_V/100.0; //Simulation radius
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &doublebuf); //Simulation radius in Mpc/h
+	}
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	//NumFilesPerSnapshot
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "NumFilesPerSnapshot", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	int numfiles = 1;
@@ -1381,18 +1640,21 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Omega0 (Omega_matter)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Omega0", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Omega_m);
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//OmegaLambda (Omega_dark_energy)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "OmegaLambda", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Omega_lambda);
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//HubbleParam (H0 in 100km/s/Mpc units)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "HubbleParam", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	redshift = H0*UNIT_V/100.0;
@@ -1400,6 +1662,92 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Parameters of cosmological models beyond LCDM (if applicable)
+	#if COSMOPARAM==1 || COSMOPARAM==2
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "DE_w0", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &w0);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	#endif
+
+	#if COSMOPARAM==2
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "DE_wa", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &wa);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	#endif
+
+	//Flags for Compile time options, program name, and version info
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hid_t str_type = H5Tcopy(H5T_C_S1);
+	H5Tset_size(str_type, strlen(PROGRAMNAME) + 1);
+	H5Tset_cset(str_type, H5T_CSET_ASCII);
+
+	// Name of the executable
+	hdf5_attribute = H5Acreate(handle, "ProgramName", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)PROGRAMNAME);
+	H5Aclose(hdf5_attribute);
+
+	// Version of the executable
+	H5Tset_size(str_type, strlen(PROGRAM_VERSION) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramVersion", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)PROGRAM_VERSION);
+	H5Aclose(hdf5_attribute);
+
+	// Build date of the executable
+	H5Tset_size(str_type, strlen(BUILD_DATE) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramBuildDate", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)BUILD_DATE);
+	H5Aclose(hdf5_attribute);
+
+	// Compiler version used for the executable
+	H5Tset_size(str_type, strlen(COMPILER_VERSION) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramCompiler", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)COMPILER_VERSION);
+	H5Aclose(hdf5_attribute);
+
+	//Git commit ID of the executable
+	H5Tset_size(str_type, strlen(GIT_COMMIT_ID) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramCommitID", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)GIT_COMMIT_ID);
+	H5Aclose(hdf5_attribute);
+	
+	//Branch name of the executable
+	H5Tset_size(str_type, strlen(GIT_BRANCH) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramBranchName", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)GIT_BRANCH);
+	H5Aclose(hdf5_attribute);
+
+	//Boundary conditions
+	#if defined(PERIODIC)
+	//Periodic (3-torus) boundary conditions
+	H5Tset_size(str_type, strlen("T^3") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"T^3");
+	H5Aclose(hdf5_attribute);
+	#elif defined(PERIODIC_Z)
+	//Periodic in z direction, free in x and y (S1xR2 topological manifold)
+	H5Tset_size(str_type, strlen("S^1xR^2") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"S^1xR^2");
+	H5Aclose(hdf5_attribute);
+	#else
+	//Free boundary conditions (R^3 topological manifold)
+	H5Tset_size(str_type, strlen("R^3") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"R^3");
+	H5Aclose(hdf5_attribute);
+	#endif
+
+
+	H5Sclose(hdf5_dataspace);
+	H5Tclose(str_type);
+
+	
+
+	//Flags for GADGET compatibility
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Flag_Sfr", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	int zero = 0;
@@ -1438,4 +1786,716 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 }
+
+#if defined(PERIODIC)
+//Save the T^3 Ewald force-correction lookup table to HDF5 format
+int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_EWALD_FORCE_TABLE)
+{
+	hid_t datatype = 0;
+	hid_t headergrp = 0;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+	#endif
+    herr_t status;
+    hid_t ewald_file = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (ewald_file < 0) { fprintf(stderr, "HDF5: cannot create Ewald lookup file %s\n", filename); return -1; }
+
+	//Creating the header group, and write the header into the file
+	headergrp = H5Gcreate(ewald_file, "/Header", 0, H5P_DEFAULT,H5P_DEFAULT);
+    //Creatin the t3_ewald group for storing the dataset
+    hid_t g = H5Gcreate2(ewald_file, "/t3_ewald", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (g < 0) { H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald group\n"); return -2; }
+
+    // dataset space: (Ngrid, Ngrid, Ngrid, 3)
+    hsize_t dims[4] = { (hsize_t)Ngrid, (hsize_t)Ngrid, (hsize_t)Ngrid, (hsize_t)3 };
+    hid_t dspace = H5Screate_simple(4, dims, NULL);
+
+    // dataset create
+    hid_t dset = H5Dcreate2(g, "T3_EWALD_FORCE_TABLE", datatype, dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (dset < 0) { H5Sclose(dspace); H5Gclose(g); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald dataset\n"); return -3; }
+
+
+	// Explicit memory dataspace: same dims as dataset
+    hid_t mspace = H5Screate_simple(4, dims, NULL);
+
+
+    // write raw data
+    status = H5Dwrite(dset, datatype, mspace, dspace, H5P_DEFAULT, T3_EWALD_FORCE_TABLE);
+    if (status < 0) { fprintf(stderr, "HDF5: dataset write failed\n"); }
+
+	// Writing header attributes
+	write_header_attributes_in_hdf5(headergrp);
+	//saving the Ewald grid size
+	hid_t hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hid_t hdf5_attribute = H5Acreate(headergrp, "EWALD_GRID_SIZE", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Ngrid);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	//saving float/double precision info
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_PRECISION", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	#ifdef USE_SINGLE_PRECISION
+		int precision = 0; //32-bit float
+	#else
+		int precision = 1; //64-bit double
+	#endif
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+    /* clean-up */
+    H5Dclose(dset);
+    H5Sclose(dspace);
+	H5Gclose(headergrp);
+    H5Gclose(g);
+    H5Fclose(ewald_file);
+    return (status < 0) ? -4 : 0;
+}
+
+
+int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_out)
+{
+	hid_t datatype = 0;
+	herr_t status = 0;
+	int precision = 0;
+	int format_mismatch = 0; //0: no mismatch, 1: file=float/program=double, 2: file=double/program=float
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+		double *mismatchbuf; //temporary buffer for conversion if needed
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+		float *mismatchbuf; //temporary buffer for conversion if needed
+	#endif
+
+    hid_t f = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (f < 0)
+	{
+		fprintf(stderr, "HDF5: cannot open file %s\n", filename);
+		return -1;
+	}
+
+	//loading the header and reading the Ewald grid size and float/double precision info
+
+	hid_t headergrp = H5Gopen2(f, "/Header", H5P_DEFAULT);
+	if (headergrp < 0)
+	{
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open header group\n");
+		return -3;
+	}
+	hid_t hdf5_attribute = H5Aopen(headergrp, "EWALD_GRID_SIZE", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_GRID_SIZE attribute\n");
+		return -4;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Ngrid);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_GRID_SIZE attribute\n");
+		return -5;
+	}
+	H5Aclose(hdf5_attribute);
+	hdf5_attribute = H5Aopen(headergrp, "EWALD_PRECISION", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_PRECISION attribute\n");
+		return -6;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_PRECISION attribute\n");
+		return -6;
+	}
+	H5Aclose(hdf5_attribute);
+	H5Gclose(headergrp);
+
+	#ifdef USE_SINGLE_PRECISION
+		if (precision == 1)
+		{
+			printf("HDF5 warning: Ewald table precision mismatch (file: double, program: float)\n");
+			//Need to read into temporary double buffer and convert to float
+			format_mismatch = 2;
+		}
+	#else
+		if (precision == 0)
+		{
+			printf("HDF5 warning: Ewald table precision mismatch (file: float, program: double)\n");
+			//Need to read into temporary float buffer and convert to double
+			format_mismatch = 1;
+		}
+	#endif
+
+    hid_t g = H5Gopen2(f, "/t3_ewald", H5P_DEFAULT);
+    if (g < 0)
+	{
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open group /t3_ewald\n");
+		return -2;
+	}
+
+    /* Open dataset */
+    hid_t dset   = H5Dopen2(g, "T3_EWALD_FORCE_TABLE", H5P_DEFAULT);
+    if (dset < 0)
+	{
+		H5Gclose(g);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open dataset\n");
+		return -4;
+	}
+
+    hid_t dspace = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_ndims(dspace);
+    if (ndims != 4)
+	{
+        H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "HDF5: dataset rank != 4\n");
+        return -5;
+    }
+    hsize_t dims[4];
+    H5Sget_simple_extent_dims(dspace, dims, NULL);
+    if ((int)dims[0] != *Ngrid || (int)dims[1] != *Ngrid || (int)dims[2] != *Ngrid || (int)dims[3] != 3)
+	{
+        H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "HDF5: dimension mismatch (%llu,%llu,%llu,%llu)\n", (unsigned long long)dims[0], (unsigned long long)dims[1], (unsigned long long)dims[2], (unsigned long long)dims[3]);
+        return -6;
+    }
+
+    // Create matching memory dataspace (explicitly C order)
+    hid_t mspace = H5Screate_simple(4, dims, NULL);
+
+    // Allocate and read
+    size_t n = (size_t)(*Ngrid) * (size_t)(*Ngrid) * (size_t)(*Ngrid) * 3u;
+    REAL *buf = (REAL*)malloc(n * sizeof(REAL));
+    if (!buf)
+	{
+        H5Sclose(mspace);
+		H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "Ewald table malloc failed\n");
+        return -7;
+    }
+
+	if (format_mismatch == 0)
+	{
+		//No format mismatch, read directly into output buffer}
+		status = H5Dread(dset, datatype, mspace, dspace, H5P_DEFAULT, buf);
+		if (status < 0) {
+			free(buf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+	}
+	else if (format_mismatch == 1)
+	{
+		//File=float, program=double
+		#ifndef USE_SINGLE_PRECISION
+		size_t n = (size_t)(*Ngrid) * (size_t)(*Ngrid) * (size_t)(*Ngrid) * 3u;
+		mismatchbuf = (float*)malloc(n * sizeof(float));
+		if (!mismatchbuf)
+		{
+			H5Fclose(f);
+			fprintf(stderr, "Ewald table malloc failed\n");
+			return -7;
+		}
+		status = H5Dread(dset, H5T_NATIVE_FLOAT, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) {
+			free(buf);
+			free(mismatchbuf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+		//Convert to double
+		for (size_t i = 0; i < n; i++)
+			buf[i] = (REAL)mismatchbuf[i];
+		free(mismatchbuf);
+		printf("Loaded Ewald lookup table (%i^3) with float->double conversion.\n", *Ngrid);
+		#endif
+	}
+	else if (format_mismatch == 2)
+	{
+		//File=double, program=float
+		#ifdef USE_SINGLE_PRECISION
+		size_t n = (size_t)(*Ngrid) * (size_t)(*Ngrid) * (size_t)(*Ngrid) * 3u;
+		mismatchbuf = (double*)malloc(n * sizeof(double));
+		if (!mismatchbuf)
+		{
+			H5Fclose(f);
+			fprintf(stderr, "Ewald table malloc failed\n");
+			return -7;
+		}
+		status = H5Dread(dset, H5T_NATIVE_DOUBLE, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) {
+			free(buf);
+			free(mismatchbuf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+		//Convert to float
+		for (size_t i = 0; i < n; i++)
+			buf[i] = (REAL)mismatchbuf[i];
+		free(mismatchbuf);
+		printf("Loaded Ewald lookup table (%i^3) with double->float conversion.\n", *Ngrid);
+		#endif
+	}
+	else
+	{
+		//Should not happen
+		free(buf);
+		H5Sclose(mspace);
+		H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+		fprintf(stderr, "Ewald table format mismatch error\n");
+		return -9;
+	}
+
+    *table_out = buf;
+    H5Sclose(mspace);
+    H5Sclose(dspace);
+    H5Dclose(dset);
+    H5Gclose(g);
+    H5Fclose(f);
+    return 0;
+}
+
+#elif defined(PERIODIC_Z)
+//Save the S^1 x R^2 Ewald force-correction lookup table to HDF5 format
+int save_s1r2_ewald_lookup_table(const char *filename, int Nrho_grid, int Nz_grid, const REAL *S1R2_EWALD_FORCE_TABLE)
+{
+	hid_t datatype = 0;
+	hid_t headergrp = 0;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+	#endif
+    herr_t status;
+    hid_t ewald_file = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (ewald_file < 0) { fprintf(stderr, "HDF5: cannot create Ewald lookup file %s\n", filename); return -1; }
+
+	//Creating the header group, and write the header into the file
+	headergrp = H5Gcreate(ewald_file, "/Header", 0, H5P_DEFAULT,H5P_DEFAULT);
+    //Creatin the t3_ewald group for storing the dataset
+    hid_t g = H5Gcreate2(ewald_file, "/s1r2_ewald", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (g < 0) { H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald group\n"); return -2; }
+
+    // dataset space: (Ngrid, Ngrid, Ngrid, 3)
+    hsize_t dims[3] = { (hsize_t)Nrho_grid, (hsize_t)Nz_grid, (hsize_t)2 };
+    hid_t dspace = H5Screate_simple(3, dims, NULL);
+
+    // dataset create
+    hid_t dset = H5Dcreate2(g, "S1R2_EWALD_FORCE_TABLE", datatype, dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (dset < 0) { H5Sclose(dspace); H5Gclose(g); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald dataset\n"); return -3; }
+
+
+	// Explicit memory dataspace: same dims as dataset
+    hid_t mspace = H5Screate_simple(3, dims, NULL);
+
+
+    // write raw data
+    status = H5Dwrite(dset, datatype, mspace, dspace, H5P_DEFAULT, S1R2_EWALD_FORCE_TABLE);
+    if (status < 0) { fprintf(stderr, "HDF5: dataset write failed\n"); }
+
+	// Writing header attributes
+	write_header_attributes_in_hdf5(headergrp);
+	//saving the Ewald grid size
+	hid_t hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hid_t hdf5_attribute = H5Acreate(headergrp, "EWALD_GRID_SIZE_RHO", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Nrho_grid);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	//Saving Nz grid size
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_GRID_SIZE_Z", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Nz_grid);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	//saving float/double precision info
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_PRECISION", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	#ifdef USE_SINGLE_PRECISION
+		int precision = 0; //32-bit float
+	#else
+		int precision = 1; //64-bit double
+	#endif
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+    /* clean-up */
+    H5Dclose(dset);
+    H5Sclose(dspace);
+	H5Gclose(headergrp);
+    H5Gclose(g);
+    H5Fclose(ewald_file);
+    return (status < 0) ? -4 : 0;
+}
+
+//Loading the S1xR2 Ewald force-correction lookup table from HDF5 format
+int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_grid, REAL **table_out)
+{
+	hid_t datatype = 0;
+	herr_t status = 0;
+	int precision = 0;
+	int format_mismatch = 0; //0: no mismatch, 1: file=float/program=double, 2: file=double/program=float
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+		double *mismatchbuf; //temporary buffer for conversion if needed
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+		float *mismatchbuf; //temporary buffer for conversion if needed
+	#endif
+
+    hid_t f = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (f < 0)
+	{
+		fprintf(stderr, "HDF5: cannot open file %s\n", filename);
+		return -1;
+	}
+
+	//loading the header and reading the Ewald grid size and float/double precision info
+
+	hid_t headergrp = H5Gopen2(f, "/Header", H5P_DEFAULT);
+	if (headergrp < 0)
+	{
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open header group\n");
+		return -3;
+	}
+	hid_t hdf5_attribute = H5Aopen(headergrp, "EWALD_GRID_SIZE_RHO", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_GRID_SIZE_RHO attribute\n");
+		return -4;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Nrho_grid);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_GRID_SIZE_RHO attribute\n");
+		return -5;
+	}
+	H5Aclose(hdf5_attribute);
+	hdf5_attribute = H5Aopen(headergrp, "EWALD_GRID_SIZE_Z", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_GRID_SIZE_Z attribute\n");
+		return -4;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Nz_grid);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_GRID_SIZE_Z attribute\n");
+		return -5;
+	}
+	H5Aclose(hdf5_attribute);
+	hdf5_attribute = H5Aopen(headergrp, "EWALD_PRECISION", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_PRECISION attribute\n");
+		return -6;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_PRECISION attribute\n");
+		return -6;
+	}
+	H5Aclose(hdf5_attribute);
+	H5Gclose(headergrp);
+
+	#ifdef USE_SINGLE_PRECISION
+		if (precision == 1)
+		{
+			printf("HDF5 warning: Ewald table precision mismatch (file: double, program: float)\n");
+			//Need to read into temporary double buffer and convert to float
+			format_mismatch = 2;
+		}
+	#else
+		if (precision == 0)
+		{
+			printf("HDF5 warning: Ewald table precision mismatch (file: float, program: double)\n");
+			//Need to read into temporary float buffer and convert to double
+			format_mismatch = 1;
+		}
+	#endif
+
+    hid_t g = H5Gopen2(f, "/s1r2_ewald", H5P_DEFAULT);
+    if (g < 0)
+	{
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open group /s1r2_ewald\n");
+		return -2;
+	}
+
+    /* Open dataset */
+    hid_t dset   = H5Dopen2(g, "S1R2_EWALD_FORCE_TABLE", H5P_DEFAULT);
+    if (dset < 0)
+	{
+		H5Gclose(g);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open dataset\n");
+		return -4;
+	}
+
+    hid_t dspace = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_ndims(dspace);
+    if (ndims != 3)
+	{
+        H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "HDF5: dataset rank != 3\n");
+        return -5;
+    }
+    hsize_t dims[3];
+    H5Sget_simple_extent_dims(dspace, dims, NULL);
+    if ((int)dims[0] != *Nrho_grid || (int)dims[1] != *Nz_grid || (int)dims[2] != 2)
+	{
+        H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "HDF5: dimension mismatch (%llu,%llu,%llu)\n", (unsigned long long)dims[0], (unsigned long long)dims[1], (unsigned long long)dims[2]);
+        return -6;
+    }
+
+    // Create matching memory dataspace (explicitly C order)
+    hid_t mspace = H5Screate_simple(3, dims, NULL);
+
+    // Allocate and read
+    size_t n = (size_t)(*Nrho_grid) * (size_t)(*Nz_grid) * 2u;
+    REAL *buf = (REAL*)malloc(n * sizeof(REAL));
+    if (!buf)
+	{
+        H5Sclose(mspace);
+		H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "Ewald table malloc failed\n");
+        return -7;
+    }
+
+	if (format_mismatch == 0)
+	{
+		//No format mismatch, read directly into output buffer}
+		status = H5Dread(dset, datatype, mspace, dspace, H5P_DEFAULT, buf);
+		if (status < 0) {
+			free(buf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+	}
+	else if (format_mismatch == 1)
+	{
+		//File=float, program=double
+		#ifndef USE_SINGLE_PRECISION
+		size_t n = (size_t)(*Nrho_grid) * (size_t)(*Nz_grid) * 2u;
+		mismatchbuf = (float*)malloc(n * sizeof(float));
+		if (!mismatchbuf)
+		{
+			H5Fclose(f);
+			fprintf(stderr, "Ewald table malloc failed\n");
+			return -7;
+		}
+		status = H5Dread(dset, H5T_NATIVE_FLOAT, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) {
+			free(buf);
+			free(mismatchbuf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+		//Convert to double
+		for (size_t i = 0; i < n; i++)
+			buf[i] = (REAL)mismatchbuf[i];
+		free(mismatchbuf);
+		printf("Loaded Ewald lookup table (%i*%i) with float->double conversion.\n", *Nrho_grid, *Nz_grid);
+		#endif
+	}
+	else if (format_mismatch == 2)
+	{
+		//File=double, program=float
+		#ifdef USE_SINGLE_PRECISION
+		size_t n = (size_t)(*Nrho_grid) * (size_t)(*Nz_grid) * 2u;
+		mismatchbuf = (double*)malloc(n * sizeof(double));
+		if (!mismatchbuf)
+		{
+			H5Fclose(f);
+			fprintf(stderr, "Ewald table malloc failed\n");
+			return -7;
+		}
+		status = H5Dread(dset, H5T_NATIVE_DOUBLE, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) {
+			free(buf);
+			free(mismatchbuf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+		//Convert to float
+		for (size_t i = 0; i < n; i++)
+			buf[i] = (REAL)mismatchbuf[i];
+		free(mismatchbuf);
+		printf("Loaded Ewald lookup table (%i*%i) with double->float conversion.\n", *Nrho_grid, *Nz_grid);
+		#endif
+	}
+	else
+	{
+		//Should not happen
+		free(buf);
+		H5Sclose(mspace);
+		H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+		fprintf(stderr, "Ewald table format mismatch error\n");
+		return -9;
+	}
+
+    *table_out = buf;
+    H5Sclose(mspace);
+    H5Sclose(dspace);
+    H5Dclose(dset);
+    H5Gclose(g);
+    H5Fclose(f);
+    return 0;
+}
 #endif
+
+
+
+#endif
+
+
+int load_IC(char *IC_FILE, int IC_FORMAT)
+{
+	//Loading initial conditions from a file
+	// Input parameters:
+	// IC_FILE: the name of the file containing the initial conditions
+	// IC_FORMAT: the format of the initial conditions (0 - ASCII, 1-GADGET, 2 - HDF5)
+	#ifndef HAVE_HDF5
+	if(IC_FORMAT != 0 && IC_FORMAT != 1)
+	{
+		fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+		return (-1);
+	}
+	#else
+	if(IC_FORMAT < 0 || IC_FORMAT > 2)
+			{
+					fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+					return (-1);
+			}
+	#endif
+	if(IC_FORMAT == 0)
+	{
+		printf("\nThe IC file is in ASCII format.\n");
+		if(file_exist(IC_FILE) == 0)
+		{
+			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+			return (-1);
+		}
+		N = measure_N_part_from_ascii_snapshot(IC_FILE);
+		FILE *ic_file = fopen(IC_FILE, "r");
+		read_ascii_ic(ic_file, N, Allocate_memory);
+		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+	}
+	if(IC_FORMAT == 1)
+	{
+		int files;
+		printf("\nThe IC file is in Gadget format.\nThe IC determines the box size.\n");
+		files = 1;      /* number of files per snapshot */
+		if(file_exist(IC_FILE) == 0)
+		{
+			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+			return (-1);
+		}
+		load_snapshot(IC_FILE, files);
+		reordering();
+		gadget_format_conversion(Allocate_memory);
+		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+	}
+	#ifdef HAVE_HDF5
+	if(IC_FORMAT == 2)
+	{
+		printf("\nThe IC is in HDF5 format\n");
+		if(file_exist(IC_FILE) == 0)
+		{
+			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+			return (-1);
+		}
+		read_hdf5_ic(IC_FILE, Allocate_memory);
+		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+	}
+	#endif
+	return 0;//Return 0 if the IC file was loaded successfully
+}

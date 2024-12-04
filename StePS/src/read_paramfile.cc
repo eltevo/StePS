@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2024 Gabor Racz                                        */
+/*    Copyright (C) 2017-2025 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -59,12 +59,23 @@ void BCAST_global_parameters()
 	MPI_Bcast(&TIME_LIMIT_IN_MINS,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&L,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Rsim,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(&L,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Rsim,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+#endif
+#if defined(PERIODIC_Z) && defined(DIRECT_PERIODIC_REALSPACE)
+	MPI_Bcast(&RADIAL_FORCE_ACCURACY,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&RADIAL_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
+#endif
+#ifdef USE_BH
+	MPI_Bcast(&RADIAL_BH_FORCE_CORRECTION,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&RADIAL_BH_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&RADIAL_BH_FORCE_TABLE_ITERATION,1,MPI_INT,0,MPI_COMM_WORLD);
 #endif
 return;
 }
@@ -110,6 +121,25 @@ char str35[] = "wa";
 char str34[] = "EXPANSION_FILE";
 char str35[] = "INTERPOLATION_ORDER";
 #endif
+char str36[] = "R_SIM";
+#if defined(PERIODIC_Z)
+char str37[] = "RADIAL_FORCE_ACCURACY";
+char str38[] = "RADIAL_FORCE_TABLE_SIZE";
+RADIAL_FORCE_ACCURACY = 1000; //number of points used in the integration for the lookup table. (Setting up some default value in the case for older parameter files)
+RADIAL_FORCE_TABLE_SIZE = 1000; //size of the lookup table for the radial force calculation. (Setting up some default value in the case for older parameter files)
+#endif
+#ifdef USE_BH
+char str39[] = "RADIAL_BH_FORCE_CORRECTION";
+char str40[] = "GLASS_FILE_FOR_BH_FORCE_CORRECTION";
+char str41[] = "RADIAL_BH_FORCE_TABLE_SIZE"; //size of the lookup table for the radial BH force correction calculation
+char str42[] = "RADIAL_BH_FORCE_TABLE_ITERATION"; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
+RADIAL_BH_FORCE_CORRECTION = 0; //default value for the radial BH force correction
+//default value for the glass file used in the radial BH force correction is "None":
+strncpy(GLASS_FILE_FOR_BH_FORCE_CORRECTION, "None", sizeof(GLASS_FILE_FOR_BH_FORCE_CORRECTION) - 1);
+GLASS_FILE_FOR_BH_FORCE_CORRECTION[sizeof(GLASS_FILE_FOR_BH_FORCE_CORRECTION) - 1] = '\0'; // Ensure null-termination
+RADIAL_BH_FORCE_TABLE_SIZE = 64; //default value for the radial BH force table size
+RADIAL_BH_FORCE_TABLE_ITERATION = 4; //default value for the radial BH force table iteration
+#endif
 
 printf("Reading parameter file...\n");
 while(!feof(param_file))
@@ -150,11 +180,13 @@ while(!feof(param_file))
 	if(strstr(c, str08) != NULL)
 	{
 		sscanf(c, "%*s\t%i", &IS_PERIODIC);
-		if(IS_PERIODIC > 3)
+		#if !defined(PERIODIC_Z)
+		if(IS_PERIODIC > 4)
 		{
-			printf("Error: IS_PERIODIC > 3: No such boundary condition\n: IS_PERIODIC is set to 3");
-			IS_PERIODIC = 3;
+			printf("Error: IS_PERIODIC > 4: No such boundary condition: IS_PERIODIC is set to 4");
+			IS_PERIODIC = 4;
 		}
+		#endif
 	}
 
 	if(strstr(c, str09) != NULL)
@@ -289,6 +321,63 @@ while(!feof(param_file))
 		sscanf(c, "%*s\t%i", &INTERPOLATION_ORDER);
 	}
 	#endif
+	if(strstr(c, str36) != NULL)
+	{
+		sscanf(c, "%*s\t%f", &Rsim);
+	}
+	#if defined(PERIODIC_Z)
+	if(strstr(c, str37) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_FORCE_ACCURACY);
+		if(RADIAL_FORCE_ACCURACY < 10)
+		{
+			printf("Error: RADIAL_FORCE_ACCURACY < 10. It is set to 10.\n");
+			RADIAL_FORCE_ACCURACY = 10;
+		}
+	}
+	if(strstr(c, str38) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_FORCE_TABLE_SIZE);
+		if(RADIAL_FORCE_TABLE_SIZE < 5)
+		{
+			printf("Error: RADIAL_FORCE_TABLE_SIZE < 5. It is set to 5.\n");
+			RADIAL_FORCE_TABLE_SIZE = 5;
+		}
+	}
+	#endif
+	#ifdef USE_BH
+	if(strstr(c, str39) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_CORRECTION);
+		if(RADIAL_BH_FORCE_CORRECTION != 0 && RADIAL_BH_FORCE_CORRECTION != 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_CORRECTION must be 0 or 1. It is set to 0.\n");
+			RADIAL_BH_FORCE_CORRECTION = 0;
+		}
+	}
+	if(strstr(c, str40) != NULL)
+	{
+		sscanf(c, "%*s\t%s", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+	}
+	if(strstr(c, str41) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_SIZE);
+		if(RADIAL_BH_FORCE_TABLE_SIZE < 5)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_SIZE < 5. It is set to 5.\n");
+			RADIAL_BH_FORCE_TABLE_SIZE = 5;
+		}
+	}
+	if(strstr(c, str42) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_ITERATION);
+		if(RADIAL_BH_FORCE_TABLE_ITERATION < 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_ITERATION < 1. It is set to 1.\n");
+			RADIAL_BH_FORCE_TABLE_ITERATION = 1;
+		}
+	}
+	#endif
 #else
 	fgets(c, BUFF_SIZE, param_file);
   if(strstr(c, str01) != NULL)
@@ -323,12 +412,14 @@ while(!feof(param_file))
   }
   if(strstr(c, str08) != NULL)
   {
-    sscanf(c, "%*s\t%i", &IS_PERIODIC);
-    if(IS_PERIODIC > 3)
-    {
-      printf("Error: IS_PERIODIC > 3: No such boundary condition\n: IS_PERIODIC is set to 3");
-      IS_PERIODIC = 3;
-    }
+		sscanf(c, "%*s\t%i", &IS_PERIODIC);
+		#if !defined(PERIODIC_Z)
+		if(IS_PERIODIC > 4)
+		{
+			printf("Error: IS_PERIODIC > 4: No such boundary condition: IS_PERIODIC is set to 4");
+			IS_PERIODIC = 4;
+		}
+		#endif
   }
 	if(strstr(c, str09) != NULL)
 	{
@@ -460,6 +551,63 @@ while(!feof(param_file))
 		sscanf(c, "%*s\t%i", &INTERPOLATION_ORDER);
 	}
 	#endif
+	if(strstr(c, str36) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &Rsim);
+	}
+	#if defined(PERIODIC_Z)
+	if(strstr(c, str37) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_FORCE_ACCURACY);
+		if(RADIAL_FORCE_ACCURACY < 10)
+		{
+			printf("Error: RADIAL_FORCE_ACCURACY < 10. It is set to 10.\n");
+			RADIAL_FORCE_ACCURACY = 10;
+		}
+	}
+	if(strstr(c, str38) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_FORCE_TABLE_SIZE);
+		if(RADIAL_FORCE_TABLE_SIZE < 5)
+		{
+			printf("Error: RADIAL_FORCE_TABLE_SIZE < 5. It is set to 5.\n");
+			RADIAL_FORCE_TABLE_SIZE = 5;
+		}
+	}
+	#endif
+	#ifdef USE_BH
+	if(strstr(c, str39) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_CORRECTION);
+		if(RADIAL_BH_FORCE_CORRECTION != 0 && RADIAL_BH_FORCE_CORRECTION != 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_CORRECTION must be 0 or 1. It is set to 0.\n");
+			RADIAL_BH_FORCE_CORRECTION = 0;
+		}
+	}
+	if(strstr(c, str40) != NULL)
+	{
+		sscanf(c, "%*s\t%s", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+	}
+	if(strstr(c, str41) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_SIZE);
+		if(RADIAL_BH_FORCE_TABLE_SIZE < 5)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_SIZE < 5. It is set to 5.\n");
+			RADIAL_BH_FORCE_TABLE_SIZE = 5;
+		}
+	}
+	if(strstr(c, str42) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_ITERATION);
+		if(RADIAL_BH_FORCE_TABLE_ITERATION < 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_ITERATION < 1. It is set to 1.\n");
+			RADIAL_BH_FORCE_TABLE_ITERATION = 1;
+		}
+	}
+	#endif
 #endif
 }
 
@@ -497,21 +645,86 @@ if(COSMOLOGY == 1)
 	}
 	if(COMOVING_INTEGRATION==0 && a_max==1.0)
 		printf("\nWarning: The maximal simulation time is set 1.0Gy. Usually, the final scalefactor is set to 1. Are you sure that this is what you want?\n\n\n");
+	printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\n",IS_PERIODIC);
 	if(COMOVING_INTEGRATION==1)
-		printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%f %s\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,dist_unit,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	{
+		if(IS_PERIODIC==0)
+		{
+			printf("Simulation radius\t\t%f %s\n",Rsim,dist_unit);
+		}
+		else
+		{
+			#if defined(PERIODIC)
+			printf("Linear box size\t\t\t%f %s\n",L,dist_unit);
+			#elif defined(PERIODIC_Z)
+			printf("Simulation radius\t\t%f %s\nLinear box size\t\t\t%f %s\n",Rsim,dist_unit,L,dist_unit);
+			#endif
+		}
+		printf("Maximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	}
 	else
-		printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%f %s\nMaximal simulation time\t\t%f Gy\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,dist_unit,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	{
+		if(IS_PERIODIC==0)
+		{
+			printf("Simulation radius\t\t%f %s\n",Rsim,dist_unit);
+		}
+		else
+		{
+			#if defined(PERIODIC)
+			printf("Linear box size\t\t\t%f %s\n",L,dist_unit);
+			#elif defined(PERIODIC_Z)
+			printf("Simulation radius\t\t%f %s\nLinear box size\t\t\t%f %s\n",Rsim,dist_unit,L,dist_unit);
+			#endif
+		}
+		printf("Maximal simulation time\t\t%f Gy\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	}
 }
 else
 {
 	printf("Non-cosmological simulation.\n");
 	printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%f\na_max\t\t\t\t%f\nParticleRadi\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ParticleRadi,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
 }
+#ifdef PERIODIC_Z
+if(IS_PERIODIC >= 2)
+{
+	#if defined(PERIODIC_Z_NOLOOKUP)
+	printf("Radial force accuracy\t\t%i\n",RADIAL_FORCE_ACCURACY);
+	printf("Radial force table size\t\t%i\n",RADIAL_FORCE_TABLE_SIZE);
+	printf("Number of images in z direction\t%i\n",2*IS_PERIODIC+1);
+	#endif
+}
+else
+{
+	printf("Radial force accuracy\t\t%i\n",RADIAL_FORCE_ACCURACY);
+	printf("Radial force table size\t\t%i\n",RADIAL_FORCE_TABLE_SIZE);
+	printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
+}
+#endif
+#if defined(USE_BH) && !defined(PERIODIC)
+	printf("Radial BH force correction\t%i\n",RADIAL_BH_FORCE_CORRECTION);
+	if(RADIAL_BH_FORCE_CORRECTION==1)
+	{
+		printf("Glass file for BH correction\t%s\n",GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+		printf("Radial BH force table size\t%i\n",RADIAL_BH_FORCE_TABLE_SIZE);
+		#if defined(RANDOMIZE_BH)
+			printf("BH force correction iterations\t%i\n",RADIAL_BH_FORCE_TABLE_ITERATION);
+		#endif
+	}
+#endif
 printf("Wall-clock time limit\t\t%.2f h\n", TIME_LIMIT_IN_MINS/60.0);
 if(COSMOLOGY==1)
+{
 	printf("H independent units\t\t%i\n", H0_INDEPENDENT_UNITS);
+	if(H0_INDEPENDENT_UNITS==1)
+	{
+		L /= (H0*UNIT_V/100.0); //Converting the box size to Mpc from Mpc/h
+		ParticleRadi /= (H0*UNIT_V/100.0); //Converting the particle radii to Mpc from Mpc/h
+	}
+}
 else
+{
 	H0_INDEPENDENT_UNITS=0; //Using H0 independent units in non-cosmological simulations makes no sense.
+}
 if(N_snapshot != 0)
 {
 	printf("Initial snapshot ID number:\t%u\n", N_snapshot);

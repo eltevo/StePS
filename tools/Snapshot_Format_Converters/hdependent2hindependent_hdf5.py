@@ -26,7 +26,7 @@ import sys
 sys.path.insert(0, '../../StePS_IC/src/')
 from inputoutput import *
 
-_VERSION="v0.0.0.1dev"
+_VERSION="v0.0.1.0"
 precision = 0 #32bit
 
 #Beginning of the script

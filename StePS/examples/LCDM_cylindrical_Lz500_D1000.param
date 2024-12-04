@@ -1,0 +1,38 @@
+Cosmological parameters:
+------------------------
+Omega_b		0.0
+Omega_lambda	0.6889
+Omega_m		0.3111
+Omega_r		0.0
+HubbleConstant		67.66
+a_start		0.015625
+a_max		1.0
+
+
+Simulation parameters:
+-----------------------
+COSMOLOGY	1
+IS_PERIODIC	15
+COMOVING_INTEGRATION	1
+L_BOX		500.0
+R_SIM		500.0
+IC_FILE 	./examples/ic/IC_LCDM_cylindrical_Lz500_D1000.hdf5
+IC_FORMAT	2
+OUT_DIR		./examples/LCDM_cylindrical_Lz500_D1000/
+OUT_LST		./examples/outredshifts.txt
+OUTPUT_TIME_VARIABLE	1
+OUTPUT_FORMAT	2
+REDSHIFT_CONE	0
+MIN_REDSHIFT	0.0003012504
+ACC_PARAM	0.0125
+RADIAL_FORCE_ACCURACY   7500
+RADIAL_FORCE_TABLE_SIZE 500
+STEP_MIN		0.00002
+STEP_MAX           0.03125
+PARTICLE_RADII  0.108326
+FIRST_T_OUT	1.0
+H_OUT		1.0
+RADIAL_BH_FORCE_CORRECTION  1
+GLASS_FILE_FOR_BH_FORCE_CORRECTION  ../../StePS_IC/examples/Glass_cylindrical_L100_D500.hdf5
+RADIAL_BH_FORCE_TABLE_SIZE 128
+RADIAL_BH_FORCE_TABLE_ITERATION 16

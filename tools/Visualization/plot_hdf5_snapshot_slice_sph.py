@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  plot_hdf5_snapshot_slice_sph.py - A snapshot plotting script for             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2019 Gabor Racz                                              #
+#    Copyright (C) 2019-2025 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -16,6 +16,10 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
+__author__ = "Gabor Racz"
+__version__ = "0.1.0"
+__year__ = "2019-2025"
+
 import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
@@ -27,6 +31,8 @@ import time
 import yaml
 
 #Beginning of the script
+#Welcome message
+print("plot_hdf5_snapshot_slice_sph.py v%s\n Copyright (C) %s %s\n\tAn SPH visualization tool for StePS cosmological simulations.\n" % (__version__, __year__, __author__))
 if len(sys.argv) != 3 and len(sys.argv) != 2:
     print("Error:")
     print("usage:\n\t./plot_hdf5_snapshot_slice_sph.py <input hdf5 snapshot file> <maximal plotted radius in Mpc>\n\tor:\n\t./plot_hdf5_snapshot_slice_sph.py <input yaml file>\nExiting.")
@@ -36,16 +42,19 @@ if len(sys.argv) == 3:
     #Parameters of the plot
     R_plot = np.float64(sys.argv[2]); #Mpc
     infilename      = str(sys.argv[1])
+    topology        = "SPHERICAL"
     outfilename     = "None"
     resolution      = "Auto"
     cmap            = 'inferno'
     figsize         = "Auto"
     title           = "Auto"
     slice_axis      = "Z"
+    slice_z_coord   = 0.0
 else:
     #loading the parameters of the plot from yaml file
     document        = open(str(sys.argv[1]))
     Params          = yaml.safe_load(document)
+    topology        = str(Params["TOPOLOGY"]) # "SPHERICAL" or "CYLINDRICAL"
     infilename      = str(Params["INFILENAME"])
     outfilename     = str(Params["OUTFILENAME"])
     resolution      = Params["RESOLUTION"]
@@ -55,6 +64,7 @@ else:
     figsize         = Params["FIGSIZE"]
     title           = Params["TITLE"]
     slice_axis      = Params["SLICE_AXIS"]
+    slice_z_coord   = Params["SLICE_Z_COORD"] # only used in CYLINDRICAL topology
     if slice_axis != "X" and slice_axis != "Y" and slice_axis != "Z":
         print("WARNING: Unknown Axis. Setting \"Z\".")
         slice_axis = "Z"
@@ -83,19 +93,21 @@ start = time.time()
 alpha = 10 #20Mpc thick slice
 N_StePS_slice=0
 plot_R_limit = np.sqrt(2)*R_plot
-for i in range(0,N_StePS):
-    if StePS_coordinates[i,plot_indexes[2]]>-alpha and StePS_coordinates[i,plot_indexes[2]]<alpha and plot_R_limit>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 +  StePS_coordinates[i,2]**2):
-        N_StePS_slice+=1
+if topology == "SPHERICAL":
+    mask = np.logical_and(np.sqrt(StePS_coordinates[:,0]**2 + StePS_coordinates[:,1]**2 + StePS_coordinates[:,2]**2)<=plot_R_limit, np.abs(StePS_coordinates[:,plot_indexes[2]])<=alpha)
+elif topology == "CYLINDRICAL":
+    mask = np.logical_and(np.sqrt(StePS_coordinates[:,0]**2 + StePS_coordinates[:,1]**2)<=plot_R_limit, np.abs(StePS_coordinates[:,plot_indexes[2]]-slice_z_coord)<=alpha)
+N_StePS_slice = np.sum(np.array(mask, dtype=int))
+print("Number of particles in the slice: %d" % N_StePS_slice)
 
 StePS_slice = np.zeros( (N_StePS_slice,4), dtype=np.float64)
-j=0
-for i in range(0,N_StePS):
-    if StePS_coordinates[i,plot_indexes[2]]>-alpha and StePS_coordinates[i,plot_indexes[2]]<alpha and plot_R_limit>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 + StePS_coordinates[i,2]**2):
-        StePS_slice[j,plot_indexes[0]] = StePS_coordinates[i,0]
-        StePS_slice[j,plot_indexes[1]] = StePS_coordinates[i,1]
-        StePS_slice[j,plot_indexes[2]] = StePS_coordinates[i,2]
-        StePS_slice[j,3] = StePS_coordinates[i,3]
-        j+=1
+StePS_slice[:,plot_indexes[0]] = StePS_coordinates[mask,0]
+StePS_slice[:,plot_indexes[1]] = StePS_coordinates[mask,1]
+if topology == "CYLINDRICAL":
+    StePS_slice[:,plot_indexes[2]] = StePS_coordinates[mask,2] - slice_z_coord
+else:
+    StePS_slice[:,plot_indexes[2]] = StePS_coordinates[mask,2]
+StePS_slice[:,3] = StePS_coordinates[mask,3]
 
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
@@ -125,7 +137,7 @@ elif slice_axis == "Y":
 else:
     ax1.set_xlabel('z[Mpc]', size=10)
     ax1.set_ylabel('y[Mpc]', size=10)
-plt.title(title)
+plt.title(f"%s" % title)
 if outfilename!= "None":
     plt.savefig(outfilename)
 plt.show()

@@ -89,7 +89,7 @@ double friedmann_solver_start(double a0, double t0, double h, double a_start)
 		h_var *= 0.5;
 		i++;
 	}
-	printf("...done. After %i iteration, the calculated initial time is %fy. (h_var=%fy,  err=%fy)\n\n", i, -1.0*t_cosm*UNIT_T*1e9, h_var*2.0*UNIT_T*1e9, (fabs(t_cosm-t_cosm_tmp))*UNIT_T*1e9);
+	printf("...done. After %i iterations, the calculated initial time is %fy. (h_var=%fy,  err=%fy)\n\n", i, -1.0*t_cosm*UNIT_T*1e9, h_var*2.0*UNIT_T*1e9, (fabs(t_cosm-t_cosm_tmp))*UNIT_T*1e9);
 	//Setting t=0 to Big Bang:
 	return -1.0*t_cosm;
 }
@@ -334,39 +334,11 @@ double friedmann_solver_start(double a0, double t0, double h, double a_start)
 	}
 #elif COSMOPARAM==-1
 	//using tabulated expansion history
-	double linear_interpolation(double X, double X1, double Y1, double X2, double Y2)
-	{
-		//helper function for linear interpolation
-		//         Y2
-		//       / |
-		//      ?  |
-		//    / |  |
-		//  Y1  |  |
-		//  |   |  |
-		//--X1--X--X2
-		double A=(Y2-Y1)/(X2-X1);
-		double B=Y1-A*X1;
-		return A*X+B;
-	}
 
-	double quadratic_interpolation(double X, double X1, double Y1, double X2, double Y2, double X3, double Y3)
-	{
-		//helper function for quadratic_interpolation
-		double L1 = (X-X2)*(X-X3)/((X1-X2)*(X1-X3));
-		double L2 = (X-X1)*(X-X3)/((X2-X1)*(X2-X3));
-		double L3 = (X-X1)*(X-X2)/((X3-X1)*(X3-X2));
-		return Y1*L1+Y2*L2+Y3*L3;
-	}
-
-	double cubic_interpolation(double X, double X1, double Y1, double X2, double Y2, double X3, double Y3, double X4, double Y4)
-	{
-		//helper function for cubic interpolation
-		double L1 = (X-X2)*(X-X3)*(X-X4)/((X1-X2)*(X1-X3)*(X1-X4));
-		double L2 = (X-X1)*(X-X3)*(X-X4)/((X2-X1)*(X2-X3)*(X2-X4));
-		double L3 = (X-X1)*(X-X2)*(X-X4)/((X3-X1)*(X3-X2)*(X3-X4));
-		double L4 = (X-X1)*(X-X2)*(X-X3)/((X4-X1)*(X4-X2)*(X4-X3));
-		return Y1*L1+Y2*L2+Y3*L3+Y4*L4;
-	}
+	//the interpolators are defined in the utils.cc file
+	double linear_interpolation(double X, double X1, double Y1, double X2, double Y2);
+	double quadratic_interpolation(double X, double X1, double Y1, double X2, double Y2, double X3, double Y3);
+	double cubic_interpolation(double X, double X1, double Y1, double X2, double Y2, double X3, double Y3, double X4, double Y4);
 
 	double friedmann_solver_step(double a0, double h)
 	{
