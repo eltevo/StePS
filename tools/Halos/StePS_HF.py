@@ -20,7 +20,7 @@
 # Base algorithm:                                                   #
 #   1. Load the snapshot                                            #
 #   2. Reconstruct the density field with                           #
-#      Voronoi tessellation / 10th nearest neighbor method          #
+#      Voronoi tessellation / Nth nearest neighbor method          #
 #       -> every particle will have a local estimated density       #
 #          (rho_i = m_i/V_{i, voronoi})                             #
 #   3. Select the largest (unflagged) density particle              #
@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.0.2"
+_VERSION="v0.2.1.0"
 _YEAR="2024"
 
 # Global variables (constants)
@@ -903,7 +903,7 @@ else:
 
 if rank == 0:
     print("\n")
-    if Params["INITIAL_DENSITY_MODE"] != "Voronoi" and Params["INITIAL_DENSITY_MODE"] != "10th neighbor":
+    if Params["INITIAL_DENSITY_MODE"] != "Voronoi" and Params["INITIAL_DENSITY_MODE"] != "Nth neighbor":
         print("Error: Unknown initial density estimation method %s.\nExiting." % Params["INITIAL_DENSITY_MODE"])
         ERROR = 5
     if Params["CENTERMODE"] != "CENTRALPARTICLE" and Params["CENTERMODE"] != "CENTEROFMASSNPARTMIN":
@@ -942,17 +942,19 @@ if rank == 0:
     if DensMode == "Voronoi":
         # Calculating voronoi volumes:
         p.Density = p.Masses/voronoi_volumes(p.Coordinates)/rho_c
-    elif DensMode == "10th neighbor":
-        # searching for the distance of the 10th nearest neighbor for all particle
-        print("Density reconstruction with 10th nearest neighbor method...")
+    elif DensMode == "Nth neighbor":
+        # searching for the distance of the Nth nearest neighbor for all particle
+        print("Density reconstruction with %ith nearest neighbor method..."%npartmin)
         sys.stdout.flush()
         kd_start = time.time()
         for i in range(0,p.Npart):
-            d,idx = tree.query(p.Coordinates[i,:], k=10, workers=kdworkers)
-            p.Density[i] = (p.Masses[i]/(d[9]**3))
-        p.Density *= 10/(4.0*np.pi/3.0)/rho_c #assuming 10 particles with p.Masses[i] with in r<d spherical volume.
+            d,idx = tree.query(p.Coordinates[i,:], k=npartmin+1, workers=kdworkers)
+            Mtot = np.sum(p.Masses[idx])
+            p.Density[i] = ((Mtot)/(d[npartmin]**3))
+        p.Density *= 1.0/(4.0*np.pi/3.0)/rho_c #the estimated density in units of rho_c
         kd_end = time.time()
         print("...done in %.2f s.\n" % (kd_end-kd_start))
+    print("min(rho) = %g/rho_c\nmax(rho) = %g/rho_c\n" % (np.min(p.Density), np.max(p.Density)))
 
 
 # Bcasting the particle data
@@ -982,7 +984,7 @@ while True:
     #selecting the largest density particle with parentID=-1
     idx = p.IDs[np.logical_and(p.HaloParentIDs == -1, ParentThreadID == rank)][np.argmax(p.Density[np.logical_and(p.HaloParentIDs == -1, ParentThreadID == rank)])]
     maxdens = p.Density[idx]
-    if maxdens>Delta_c:
+    if maxdens>0.5*Delta_c:
         #Query the kd-tree for nearest neighbors.
         search_radius = alpha*np.cbrt(p.Masses[idx]/rho_b) #In StePS simulations, the particles are more density packed at the center. The typical particle separation is proportional to the cubic root of the particle mass.
         halo_particleindexes = tree.query_ball_point(p.Coordinates[idx], search_radius, p=2.0, eps=0, workers=kdworkers, return_sorted=False)
