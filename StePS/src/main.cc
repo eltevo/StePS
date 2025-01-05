@@ -578,14 +578,24 @@ int main(int argc, char *argv[])
 		if(IC_FORMAT == 1)
 		{
 			#if defined(PERIODIC)
+			M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
 			if(rank == 0)
+			{
 				printf("Every particle has the same mass in periodic cosmological simulations, if the input is in GADGET format.\nM=%.10f*10e+11M_sol\n", M_tmp);
-			for(i=0;i<N;i++)//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
+			}
+			//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
+			for(i=0; i<N; i++)
 			{
 				M[i] = M_tmp;
 			}
-			#else
-			//TODO: Implement periodic boundary conditions in the z direction
+			#elif defined(PERIODIC_Z)
+			if(rank == 0)
+			{
+				std::cout << "Particle mass distribution is set during the IC generation! Continuing..." << std::endl;
+			}
+			//TODO: Implement sanity check for the particle masses
+			//      to make sure that the masses are consistent with
+			//      the cosmological parameters
 			#endif
 		}
 		//Calculating the total mean desity of the simulation volume
