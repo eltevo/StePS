@@ -50,8 +50,8 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.1.0"
-_YEAR="2024"
+_VERSION="v0.2.2.0"
+_YEAR="2024-2025"
 
 # Global variables (constants)
 G  = 4.3009172706e-9 # gravitational constant G in Mpc/Msol*(km/s)^2 units
@@ -61,6 +61,12 @@ UNIT_V=20.738652969925447 #Unit velocity in km/s
 UNIT_D=3.0856775814671917e24 #=1Mpc Unit distance in cm
 
 # Defining functions
+def get_periodic_distance_vec(Coords1,Coords2,Lbox):
+    return np.mod(Coords1 - Coords2 + Lbox / 2, Lbox) - Lbox / 2
+
+def get_periodic_distances(Coords1,Coords2,Lbox):
+    return np.sqrt(np.sum(np.power(np.mod(Coords1 - Coords2 + Lbox / 2, Lbox) - Lbox / 2, 2), axis=1))
+
 def voronoi_volumes(points, SILENT=False):
     """
     Function for calculating voronoi volumes
@@ -92,16 +98,28 @@ def voronoi_volumes(points, SILENT=False):
         print("...done in %.2f s.\n" % (v_end-v_start))
     return vol
 
-def get_center_of_mass(r, m):
+def get_center_of_mass(r, m, boundaries="StePS", boxsize=0):
     """
     Function for calculating the center of mass of a particle system
     Input:
         - r: particle coordinates
         - m: particle masses
+        - boundaries: boundary condition. Must be "StePS" or "Periodic"
+        - boxsize: linear box size in the same units as the coorinates
     Returns:
         - Center of mass coordinates
     """
-    return np.sum((r.T*m).T,axis=0)/np.sum(m)
+    if boundaries=="StePS":
+        return np.sum((r.T*m).T,axis=0)/np.sum(m)
+    elif boundaries=="Periodic":
+        #assuming that the box size is significantly larger than the halo size (moving the first particle to the center)
+        dr = boxsize/2 - r[0,:]
+        r =  np.mod(r+dr,boxsize)
+        com = np.sum((r.T*m).T,axis=0)/np.sum(m)
+        return com-dr# shifting the center back to the original position and returning the center of mass
+
+    else:
+        raise Exception("Error: unknown boundary condition %s." % (boundaries))
 
 def get_angular_momentum(r,v,m):
     """
@@ -137,7 +155,7 @@ def cubic_spline_potential(r, h):
     kernel_value[mask] = -1/r[mask]
     return kernel_value
 
-def get_individual_energy(r,v,m,force_res):
+def get_individual_energy(r,v,m,force_res,boundary="STEPS",boxsize=0.0):
     """
     Function for calculating the individual energy of a particle system by using direct summation of the potential.
     Expected input:
@@ -155,12 +173,17 @@ def get_individual_energy(r,v,m,force_res):
     Epot = np.zeros(Nparticle,dtype=np.double)
     for i in range(0,Nparticle):
         idx = np.where(np.arange(0,Nparticle)!=i)
-        dist = np.sqrt(np.sum(np.power( r[idx] - r[i],2.0), axis=1))
+        if boundary == "STEPS":
+            dist = np.sqrt(np.sum(( r[idx] - r[i])**2, axis=1))
+        elif boundary == "PERIODIC":
+            dist = get_periodic_distances(r[idx], r[i], boxsize)
+        else:
+            raise Exception("Error:")
         Epot[i] += m[i]*np.sum(m[idx]*cubic_spline_potential(dist,force_res[idx]+force_res[i]))
     Epot *= G
     return Ekin, Epot
 
-def get_total_energy(r,v,m,force_res):
+def get_total_energy(r,v,m,force_res,boundary="STEPS",boxsize=0.0):
         """
         Function for calculating the total energy of a particle system.
         Expected input:
@@ -173,7 +196,7 @@ def get_total_energy(r,v,m,force_res):
             - TotEkin: Total kinetic energy of the system in (Msol * (km/s)^2 ) units
             - TotEpot: Total potential energy of the system in (Msol * (km/s)^2 ) units
         """
-        Ekin,Epot = get_individual_energy(r,v,m,force_res)
+        Ekin,Epot = get_individual_energy(r,v,m,force_res,boundary=boundary,boxsize=boxsize)
         TotEkin = np.sum(Ekin) #total kinetic energy of the halo
         TotEpot = np.sum(Epot) #total potential energy of the halo
         return TotEkin+TotEpot, TotEkin, TotEpot
@@ -301,8 +324,7 @@ def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
     return r_bin_centers[out_idx], rho_bins[out_idx]
 
 
-
-def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode, boundonly=False, rho_b=0.0):
+def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode, boundonly=False, boundaries="StePS", Lbox=0, rho_b=0.0):
     """
     Function for calculating various halo parameters
     Input:
@@ -323,7 +345,13 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
 
     """
     # Sorting particles by distance from the central particle
-    distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-p.Coordinates[idx]),2),axis=1)) # calculating Euclidian particle distances from the center
+    if boundaries=="STEPS":
+        distances = np.sqrt(np.sum((p.Coordinates[halo_particleindexes]-p.Coordinates[idx])**2,axis=1)) # calculating Euclidian particle distances from the center
+    elif boundaries=="PERIODIC":
+        # using only the nearest periodic images in the distance calculation
+        distances = get_periodic_distances(p.Coordinates[halo_particleindexes],p.Coordinates[idx],Lbox) # calculating Euclidian particle distances from the center in toroidal space
+    else:
+        raise Exception("Error: unkonwn boundary condition %s." % (boundaries))
     sorted_idx = distances.argsort() # sorting
     # Finding the center of the halo
     if centermode == "CENTRALPARTICLE":
@@ -331,8 +359,13 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         Center = p.Coordinates[idx]
     elif centermode == "CENTEROFMASSNPARTMIN":
         # using the innermost npartmin particles to calculate the center of mass
-        Center = get_center_of_mass(p.Coordinates[halo_particleindexes][sorted_idx][:npartmin], p.Masses[halo_particleindexes][sorted_idx][:npartmin])
-        distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-Center),2),axis=1)) #recalculating distances due to the new center
+        Center = get_center_of_mass(p.Coordinates[halo_particleindexes][sorted_idx][:npartmin], p.Masses[halo_particleindexes][sorted_idx][:npartmin], boundaries=boundaries, boxsize=Lbox)
+        if boundaries=="STEPS":
+            distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-Center),2),axis=1)) #recalculating distances due to the new center
+        elif boundaries=="PERIODIC":
+            distances = get_periodic_distances(p.Coordinates[halo_particleindexes], Center, Lbox)
+        else:
+            raise Exception("Error: unkonwn boundary condition %s." % (boundaries))
         sorted_idx = distances.argsort()
     else:
         raise Exception("Error: unkown CENTERMODE parameter %s." % (centermode))
@@ -364,7 +397,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         M_SO = M_enc[:max_radi_idx][-1] #Mass
         V_SO = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
         # Calculating individual energies
-        T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx],p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx])
+        T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx],p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx], boundary=boundaries, boxsize=Lbox)
         bound = (T+U)<0.0 # a bool array. If the particle is bound True; False if not
         # After this, the enclosed density and mass has to be re-calculated
         M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx][bound]) # enclosed (bound) mass
@@ -405,7 +438,12 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
             M[i] = M_enc[:max_radi_idx][-1] #Mass
             V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
             Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx])) # root mean square velocity
-            J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+            if boundaries=="STEPS":
+                J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+            elif boundaries=="PERIODIC":
+                J[i] = get_angular_momentum(get_periodic_distance_vec(p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx],Center,Lbox)*p.a,p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+            else:
+                raise Exception("Error: unkonwn boundary condition %s." % (boundaries))
             Vcirc[i] = np.sqrt(G*1e11*M[i]/(R[i]*p.a))
             if i == 0:
                 p.set_HaloParentIDs(p.IDs[idx],-2) # even if the "central" particle is not bound, this will ensure to not to check this group again.
@@ -414,11 +452,11 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 if boundonly:
                     Ekin = np.sum(T[bound][:max_radi_idx])
                     Epot = np.sum(U[bound][:max_radi_idx])
-                    MSSO = np.sum(p.Masses[halo_particleindexes][distances<=R[i]]) # total mass within Rvir (strict SO)
+                    MSSO = np.sum(p.Masses[halo_particleindexes][distances<=R[i]]) # total mass within Rvir (Strict Spherical Overdensity)
                     MboundPerMtot = M[i] / MSSO #Total bounded mass ratio within Rvir
                     Energy = np.sum(Ekin+Epot)
                 else:
-                    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx]) #Total energy of the halo. Needed for Peebles spin parameter
+                    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx],boundary=boundaries,boxsize=Lbox) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     absJvir = np.sqrt(np.sum(np.power(J[0],2)))
     Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
@@ -802,7 +840,7 @@ r_master = None
 
 #Welcome message
 if rank == 0:
-    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
+    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
     if len(sys.argv) != 2:
         print("Error: missing yaml file!")
         print("usage: ./StePS_HF.py <input yaml file>\nExiting.")
@@ -863,11 +901,23 @@ if rank == 0:
     rho_b = 3.0*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
     print("\u03C1_c (comoving):\t\t%.4e Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
     Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
-    if Params["H_INDEPENDENT_UNITS"]:
-        print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+    if Params["BOUNDARIES"] == "STEPS":
+        if Params["H_INDEPENDENT_UNITS"]:
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+        else:
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+    elif Params["BOUNDARIES"] == "PERIODIC":
+        if Params["H_INDEPENDENT_UNITS"]:
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+        else:
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+        if Params["INITIAL_DENSITY_MODE"] == "Voronoi":
+            print("Error: Voronoi density estimation is not supported with periodic boundaries.\nExiting.")
+            ERROR = 5
     else:
-        print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
-        print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
+        print("Error: Unrecognized boundary conditions %s.\nExiting." % Params["BOUNDARIES"])
+        ERROR = 4
+    print("Halo Finder Parameters:\n-----------------------\nHalo catalog file:\t\t\t%s\nInitial Density Estimation:\t\t%s\nSearch radius alpha parameter:\t\t%.2f\nNumber of KDTree worker threads:\t%i\nMinimal particle number:\t\t%i\nHalo center mode:\t\t\t%s" %(Params["OUTFILE"],Params["INITIAL_DENSITY_MODE"],np.double(Params["SEARCH_RADIUS_ALPHA"]),int(Params["KDWORKERS"]), int(Params["NPARTMIN"]), Params["CENTERMODE"] ))
     if Params["BOUNDONLYMODE"]:
         print("Spherical Overdensity Mode:\t\tBound Only (BO)")
     else:
@@ -917,31 +967,40 @@ sys.stdout.flush()
 if rank == 0:
     # Loading the input particle snapshot
     p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=min_mass_force_res)
-    # Estimating the central region of the simulation. This is the maximal distance of the 2xminimum-mass particles from the origin.
-    r_central = np.max(np.sqrt(np.sum(np.power(p.Coordinates[p.Masses <= 2.0*np.min(p.Masses)],2.0),axis=1)))
-    # Calculating the radius of the master thread's subvolume
-    r_part = np.sqrt(np.sum(np.power(p.Coordinates[:,:],2.0),axis=1))
-    if size==1:
-        r_master = np.max(r_part)
-    else:
-        #sorting all particles in increasing order
-        sorted_idx = r_part.argsort()
-        Ncentral = np.uint64(0.3*(p.Npart / (size-1)))
-        r_master = r_part[sorted_idx][Ncentral]
-    print("Estimated radius of the high-res central region of the simulation: %.2f Mpc/h" % r_central)
-    print("Radius of the subvolume of the master thread: %.2f Mpc/h" % r_master)
-    if size>1:
-        print("Thickness of the overlap region: %.3f Mpc/h" % (d_r))
-    if size>2:
-        print("Angle of the tangential slices of the slave threads: %.2f degrees" % (360.0/(size-1)))
-        print("Thickness of the tangential overlap region: %.2f degrees" % (180.0*delta_theta/np.pi))
-    print("\n")
-    # Building KDTree for a quick nearest-neighbor lookup
-    tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
+    if Params["BOUNDARIES"] == "StePS":
+        # Estimating the central region of the simulation. This is the maximal distance of the 2xminimum-mass particles from the origin.
+        r_central = np.max(np.sqrt(np.sum(np.power(p.Coordinates[p.Masses <= 2.0*np.min(p.Masses)],2.0),axis=1)))
+        # Calculating the radius of the master thread's subvolume
+        r_part = np.sqrt(np.sum(np.power(p.Coordinates[:,:],2.0),axis=1))
+        if size==1:
+            r_master = np.max(r_part)
+        else:
+            #sorting all particles in increasing order
+            sorted_idx = r_part.argsort()
+            Ncentral = np.uint64(0.3*(p.Npart / (size-1)))
+            r_master = r_part[sorted_idx][Ncentral]
+        print("Estimated radius of the high-res central region of the simulation: %.2f Mpc/h" % r_central)
+        print("Radius of the subvolume of the master thread: %.2f Mpc/h" % r_master)
+        if size>1:
+            print("Thickness of the overlap region: %.3f Mpc/h" % (d_r))
+        if size>2:
+            print("Angle of the tangential slices of the slave threads: %.2f degrees" % (360.0/(size-1)))
+            print("Thickness of the tangential overlap region: %.2f degrees" % (180.0*delta_theta/np.pi))
+        print("\n")
+        # Building KDTree for a quick nearest-neighbor lookup
+        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
+    elif Params["BOUNDARIES"] == "PERIODIC":
+        # Building KDTree for a quick nearest-neighbor lookup
+        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=np.double(Params['LBOX']))
     # Density reconstruction on the master thread
     if DensMode == "Voronoi":
-        # Calculating voronoi volumes:
-        p.Density = p.Masses/voronoi_volumes(p.Coordinates)/rho_c
+        if Params["BOUNDARIES"] == "StePS":
+            # Calculating voronoi volumes:
+            p.Density = p.Masses/voronoi_volumes(p.Coordinates)/rho_c
+        elif Params["BOUNDARIES"] == "PERIODIC":
+            print("Error: Voronoi density estimation is not implemented for periodic boundary conditions.\nExiting.")
+            ERROR = 7
+            sys.exit(ERROR)
     elif DensMode == "Nth neighbor":
         # searching for the distance of the Nth nearest neighbor for all particle
         print("Density reconstruction with %ith nearest neighbor method..."%npartmin)
@@ -964,8 +1023,12 @@ p = comm.bcast(p, root=0)
 r_central = comm.bcast(r_central, root=0) # radius of the central region that will be analysed in the master thread
 r_master = comm.bcast(r_master, root=0) # radius of the subvolume of the master thread
 if rank > 0:
-    # Building KDTree for a quick nearest-neighbor lookup for every other thread.
-    tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
+    if Params["BOUNDARIES"] == "StePS":
+        # Building KDTree for a quick nearest-neighbor lookup for every other thread.
+        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
+    elif Params["BOUNDARIES"] == "PERIODIC":
+        # Building KDTree for a quick nearest-neighbor lookup for every other thread.
+        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=np.double(Params['LBOX']))
 
 if size>1:
     #Distributing the halo candidates evenly between the threads
@@ -994,7 +1057,7 @@ while True:
             #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
             #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
             #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
-            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b)
+            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b,boundaies=Params["BOUNDARIES"],Lbox=np.double(Params["LBOX"]))
             if halo_params != None:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
