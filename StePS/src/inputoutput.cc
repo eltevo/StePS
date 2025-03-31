@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2025 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -1073,6 +1073,72 @@ void read_hdf5_ic(char *ic_file)
 	H5Sclose(dataspace_in_file);
 	H5Dclose(dataset);
 	//reading the particle masses
+	// checking if the masses are stored in the file
+	if (H5Lexists(IC, "/PartType1/Masses", H5P_DEFAULT) <= 0)
+	{
+		printf("\tMasses not found in the IC file. Assuming constant mass resolution in the full simulation volume.\n");
+		// the mass resolution is stored in the header as the second value in the attribute: "/Header/MassTable"
+		group = H5Gopen2(IC,"Header", H5P_DEFAULT);
+		attr_id = H5Aopen(group, "MassTable", H5P_DEFAULT);
+		REAL mass_table[6];
+		datatype =  H5Aget_type(attr_id);
+#ifdef USE_SINGLE_PRECISION
+		if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+		{
+			H5Aread(attr_id,  H5T_NATIVE_FLOAT, &mass_table);
+		}
+		else
+		{
+			printf("\t\tData stored in doubles.\n");
+			double* buffer;
+			if(!(buffer = (double*)malloc(6*sizeof(double))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for mass_table_buffer.\n", rank);
+				exit(-2);
+			}
+			H5Aread(attr_id,  H5T_NATIVE_DOUBLE, buffer);
+			for (int i = 0; i < 6; i++)
+			{
+				mass_table[i] = (REAL) buffer[i];
+			}
+			free(buffer);
+		}
+#else
+		if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+		{
+			H5Aread(attr_id,  H5T_NATIVE_DOUBLE, &mass_table);
+		}
+		else
+		{
+			printf("\t\tData stored in floats.\n");
+			float* buffer;
+			if(!(buffer = (float*)malloc(6*sizeof(float))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for mass_table_buffer.\n", rank);
+				exit(-2);
+			}
+			H5Aread(attr_id,  H5T_NATIVE_FLOAT, buffer);
+			for (int i = 0; i < 6; i++)
+			{
+				mass_table[i] = (REAL) buffer[i];
+			}
+			free(buffer);
+		}
+#endif
+		H5Aclose(attr_id);
+		H5Gclose(group);
+		// mass_table[0] is the mass of the first particle type (gas), mass_table[1] is the mass of the second particle type (dark matter)
+		printf("\tThe particle mass is set to %.7f * 10^10 Msol(/h)\n", mass_table[1]);
+		// set the mass of all particles to the mass of the second particle type (dark matter)
+		for(int i = 0; i < N; i++)
+		{
+			M[i] = mass_table[1]/10.0;
+		}
+		H5Fclose(IC);
+		printf("...done\n\n");
+		return;
+	}
+
 	printf("\tReading /PartType1/Masses\n");
 	dataset = H5Dopen2(IC, "/PartType1/Masses", H5P_DEFAULT);
 	dataspace_in_file = H5Dget_space(dataset);
@@ -1126,6 +1192,7 @@ void read_hdf5_ic(char *ic_file)
 
 	H5Fclose(IC);
 	printf("...done\n\n");
+	return;
 }
 
 void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
@@ -1370,7 +1437,15 @@ void write_header_attributes_in_hdf5(hid_t handle)
 
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "BoxSize", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
-	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L); //Linear simulation size
+	if(H0_INDEPENDENT_UNITS == 0)
+	{
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L); //Linear simulation size
+	}
+	else
+	{
+		doublebuf = L*H0*UNIT_V/100.0; //Linear simulation size
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &doublebuf); //Linear simulation size in Mpc/h
+	}
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 

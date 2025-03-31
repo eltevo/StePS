@@ -509,9 +509,18 @@ else
 }
 printf("Wall-clock time limit\t\t%.2f h\n", TIME_LIMIT_IN_MINS/60.0);
 if(COSMOLOGY==1)
+{
 	printf("H independent units\t\t%i\n", H0_INDEPENDENT_UNITS);
+	if(H0_INDEPENDENT_UNITS==1)
+	{
+		L /= (H0*UNIT_V/100.0); //Converting the box size to Mpc from Mpc/h
+		ParticleRadi /= (H0*UNIT_V/100.0); //Converting the particle radii to Mpc from Mpc/h
+	}
+}
 else
+{
 	H0_INDEPENDENT_UNITS=0; //Using H0 independent units in non-cosmological simulations makes no sense.
+}
 if(N_snapshot != 0)
 {
 	printf("Initial snapshot ID number:\t%u\n", N_snapshot);
