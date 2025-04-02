@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.1"
+_VERSION="v0.2.2.2"
 _YEAR="2024-2025"
 
 # Global variables (constants)
@@ -615,7 +615,7 @@ class StePS_Halo_Catalog:
     '''
     A class for storing halo catalogs
     '''
-    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode, Npartmin, RemoveUnBoundParts):
+    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode, Npartmin, RemoveUnBoundParts, HindepUnis=False, Boundaries="STEPS", Rsim=0.0, Lbox=0.0):
         #During initialization we fill the header
         Mdef = [PrimaryMDef]
         Mdef.append(SecondaryMdefList)
@@ -633,8 +633,15 @@ class StePS_Halo_Catalog:
             "CenterMode": Centermode,
             "DensityMode": DensityMode,
             "Npart_min": Npartmin,
-            "RemoveUnBoundParts": RemoveUnBoundParts
+            "RemoveUnBoundParts": RemoveUnBoundParts,
+            "HindependentUnits": HindepUnis,
+            "Boundaries": Boundaries
         }
+        if Boundaries == "PERIODIC":
+            self.Header["Lbox"] = Lbox
+        elif Boundaries == "STEPS":
+            self.Header["Rsim"] = Rsim
+        self.h = H0 / 100.0
         self.Nhalos = 0 # total number of halos in the catalog
         self.DataTable = [] # table containing all calculated halo parameters
         self.DenstyEstimation = [] # table containing all initial halo central density estimation
@@ -714,7 +721,10 @@ class StePS_Halo_Catalog:
                     header += "  | " + key +": %s\n" % self.Header[key]
             header += "  | Ncolumns: %i\n" % fields
             header += "  +---------------------------\n"
-            header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Halo energies in Msol * (km/s)^2 (physical) \n  |\t Angular momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
+            if self.Header["HindependentUnits"]:
+                header += "  | Units:\n  |\t Masses are in Msol/h \n  |\t Positions in Mpc/h (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc/h (comoving)\n  |\t Halo energies in (Msol/h) * (km/s)^2 (physical) \n  |\t Angular momenta in (Msun/h) * (Mpc/h) * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
+            else:
+                header += "  | Units:\n  |\t Masses are in Msol \n  |\t Positions in Mpc (comoving)\n  |\t Velocities in km / s (physical)\n  |\t Halo Radii in kpc (comoving)\n  |\t Halo energies in Msol * (km/s)^2 (physical) \n  |\t Angular momenta in Msun * Mpc * km/s (physical)\n  |\t Spins are dimensionless\n  +---------------------------"
             header += "\n" + columnlist_numbered
             #generating the output array
             outarray = np.zeros((self.Header["Nhalos"],fields), dtype=np.double)
@@ -746,7 +756,19 @@ class StePS_Halo_Catalog:
                     if type(mapdict[key]) == np.array:
                         outarray[i][j[0]:j[2]] = self.DataTable[sorted_idx[i]][key]
                     else:
-                        outarray[i][j] = self.DataTable[sorted_idx[i]][key]
+                        if self.Header["HindependentUnits"]:
+                            if key == "Coordinates":
+                                outarray[i][j] = self.DataTable[sorted_idx[i]][key] * self.h
+                            elif key[0]=="M" or key[0]=="R" or key=="Energy":
+                                #print("Saving parameter in /h independent units: ", key)
+                                outarray[i][j] = self.DataTable[sorted_idx[i]][key] * self.h
+                            elif key[0]=="J":
+                                #print("Saving angular momentum in /h physical units: ", key)
+                                outarray[i][j] = self.DataTable[sorted_idx[i]][key] * (self.h**2)
+                            else:
+                                outarray[i][j] = self.DataTable[sorted_idx[i]][key]
+                        else:
+                            outarray[i][j] = self.DataTable[sorted_idx[i]][key]
             np.savetxt(filename+".dat",outarray,fmt=fmtstring,header=header)
         else:
             print("The halo catalog is empty. No file is saved.");
@@ -910,7 +932,7 @@ if rank == 0:
         L_box = np.double(Params['LBOX'])
         if Params["H_INDEPENDENT_UNITS"]:
             print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
-            L_box /= np.double(Params['H_INDEPENDENT_UNITS'])/100.0
+            L_box /= np.double(Params['H0'])/100.0
         else:
             print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
         if Params["INITIAL_DENSITY_MODE"] == "Voronoi":
@@ -941,6 +963,9 @@ if rank == 0:
         else:
             print("Error: Unrecognized mass definition %s.\nExiting." % Params["MASSDEF"][i])
             ERROR=4
+    if size>1 and Params["BOUNDARIES"] == "PERIODIC":
+        print("Error: periodic boundary conditions are not supported with MPI parallelization yet.\nExiting.")
+        ERROR=5
 ERROR = comm.bcast(ERROR, root=0)
 if ERROR>0:
     sys.exit(ERROR)
@@ -1043,7 +1068,7 @@ else:
 print("MPI Rank %i: Identifying halos and calculating halo parameters..." % rank)
 sys.stdout.flush()
 id_start = time.time()
-halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
+halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"], HindepUnis=Params["H_INDEPENDENT_UNITS"], Boundaries=Params["BOUNDARIES"], Rsim=Params["RSIM"], Lbox=L_box)
 halo_ID = 0
 while True:
     #selecting the largest density particle with parentID=-1
@@ -1077,7 +1102,7 @@ sys.stdout.flush()
 #collecting all catalog into the main thread
 if rank == 0:
     print("MPI Rank %i: Collecting and merging all calculated catalogs to the master thread."%rank)
-    halos_final = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"])
+    halos_final = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"], HindepUnis=Params["H_INDEPENDENT_UNITS"], Boundaries=Params["BOUNDARIES"], Rsim=Params["RSIM"], Lbox=L_box)
     # adding the catalog of the master thread to the final catalog
     if size > 1:
         halos_final.add_catalog(halos,overlaps=True, MPI_parent_thread=0)
