@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.0"
+_VERSION="v0.2.2.1"
 _YEAR="2024-2025"
 
 # Global variables (constants)
@@ -98,20 +98,20 @@ def voronoi_volumes(points, SILENT=False):
         print("...done in %.2f s.\n" % (v_end-v_start))
     return vol
 
-def get_center_of_mass(r, m, boundaries="StePS", boxsize=0):
+def get_center_of_mass(r, m, boundaries="STEPS", boxsize=0):
     """
     Function for calculating the center of mass of a particle system
     Input:
         - r: particle coordinates
         - m: particle masses
-        - boundaries: boundary condition. Must be "StePS" or "Periodic"
+        - boundaries: boundary condition. Must be "STEPS" or "PERIODIC"
         - boxsize: linear box size in the same units as the coorinates
     Returns:
         - Center of mass coordinates
     """
-    if boundaries=="StePS":
+    if boundaries=="STEPS":
         return np.sum((r.T*m).T,axis=0)/np.sum(m)
-    elif boundaries=="Periodic":
+    elif boundaries=="PERIODIC":
         #assuming that the box size is significantly larger than the halo size (moving the first particle to the center)
         dr = boxsize/2 - r[0,:]
         r =  np.mod(r+dr,boxsize)
@@ -907,8 +907,10 @@ if rank == 0:
         else:
             print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
     elif Params["BOUNDARIES"] == "PERIODIC":
+        L_box = np.double(Params['LBOX'])
         if Params["H_INDEPENDENT_UNITS"]:
             print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+            L_box /= np.double(Params['H_INDEPENDENT_UNITS'])/100.0
         else:
             print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
         if Params["INITIAL_DENSITY_MODE"] == "Voronoi":
@@ -991,7 +993,7 @@ if rank == 0:
         tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
     elif Params["BOUNDARIES"] == "PERIODIC":
         # Building KDTree for a quick nearest-neighbor lookup
-        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=np.double(Params['LBOX']))
+        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=L_box)
     # Density reconstruction on the master thread
     if DensMode == "Voronoi":
         if Params["BOUNDARIES"] == "StePS":
@@ -1028,7 +1030,7 @@ if rank > 0:
         tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=None)
     elif Params["BOUNDARIES"] == "PERIODIC":
         # Building KDTree for a quick nearest-neighbor lookup for every other thread.
-        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=np.double(Params['LBOX']))
+        tree = KDTree(p.Coordinates,leafsize=10, compact_nodes=True, balanced_tree=True, boxsize=L_box)
 
 if size>1:
     #Distributing the halo candidates evenly between the threads
@@ -1057,7 +1059,7 @@ while True:
             #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
             #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
             #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
-            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b,boundaies=Params["BOUNDARIES"],Lbox=np.double(Params["LBOX"]))
+            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], rho_b=rho_b,boundaries=Params["BOUNDARIES"],Lbox=L_box)
             if halo_params != None:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
