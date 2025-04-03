@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  hdf52ascii_snapshot.py - A hdf5 to ASCII file converter for StePS            #
 #     (STEreographically Projected cosmological Simulations) snapshots.         #
-#    Copyright (C) 2017-2022 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -20,26 +20,70 @@ import numpy as np
 import h5py
 import sys
 import time
+from os.path import exists
 # %matplotlib inline
 
-#Beginning of the script
-if len(sys.argv) != 3:
+_VERSION = "1.0.0"
+_AUTHOR = "Gabor Racz"
+_DATE = "2017-2025"
+_DESCRIPTION = "HDF5 to ASCII file converter for StePS (STEreographically Projected cosmological Simulations) snapshots."
+
+opt_list=['-steps', '-rockstar']
+opt_desc=['-steps: (Default) StePS compatible output format.\n\tThe stored columns are X Y X VX VY VZ M\n', '-rockstar: Rockstar halo finder compatible output format.\n\tThe stored columns are X Y Z VX VY VZ ID\n']
+
+# Beginning of the script
+
+# Welcome message
+print("\nhdf52ascii_snapshot.py v%s\n\t%s\n\tCopyright (C) %s %s\n" % (_VERSION,_DESCRIPTION,_DATE,_AUTHOR))
+print("\nThis program comes with ABSOLUTELY NO WARRANTY.\nThis is free software, and you are welcome to redistribute it under certain conditions.\nSee the file LICENSE for details.\n\n")
+
+if len(sys.argv) != 3 and len(sys.argv) != 4:
     print("Error:")
     print("usage: ./hdf52ascii_snapshot.py <input HDF5 snapshot> <output ASCII snapshot>\nExiting.")
     sys.exit(2)
+if len(sys.argv) == 4 and str(sys.argv[3]) not in opt_list:
+    print("Error: unkonwn option %s" % sys.argv[3])
+    print("Supported options:")
+    for i in range(len(opt_desc)):
+        print("\t%s" % opt_desc[i])
+    print("usage: ./hdf52ascii_snapshot.py <input HDF5 snapshot> <output ASCII snapshot> <output format (optional)>\nExiting.")
+    sys.exit(2)
+
+fmt="STEPS" # default format
+if len(sys.argv) == 4:
+    if sys.argv[3] == '-steps':
+        fmt="STEPS"
+    elif sys.argv[3] == '-rockstar':
+        fmt="ROCKSTAR"
+        print("\nWarning: in ROCKSTAR compatible output format, the mass of the particles is not saved in the output file. This is because the ROCKSTAR format does not support it.")
+    else:
+        print("Error: unkonwn option %s" % sys.argv[3])
+        print("Supported options:")
+        for i in range(len(opt_desc)):
+            print("\t%s" % opt_desc[i])
+        print("usage: ./hdf52ascii_snapshot.py <input HDF5 snapshot> <output ASCII snapshot> <option>\nExiting.")
+        sys.exit(2)
 
 #reading and converting the HDF5 file
+if not exists(str(sys.argv[1])):
+    print("Error: input file %s does not exist.\nExiting." % str(sys.argv[1]))
+    sys.exit(2)
 print("Reading the input HDF5 file...")
 start = time.time()
 HDF5_snapshot = h5py.File(str(sys.argv[1]), "r")
 N = int(HDF5_snapshot['/Header'].attrs['NumPart_ThisFile'][1])
 M_min = HDF5_snapshot['/Header'].attrs['MassTable'][1]
+if M_min == 0:
+    M_min = np.min(HDF5_snapshot['/PartType1/Masses'])
 R_max = HDF5_snapshot['/Header'].attrs['BoxSize']
-print("Number of particles:\t%i\nMinimal mass:\t%f*10e11M_sol\nLinear size:\t%fMpc" % (N,M_min,R_max))
-ASCII_snapshot = np.zeros((N,7), dtype=np.float64)
+print("Number of particles:\t%i\nMinimal mass:\t%f*10e11 M_sol(/h)\nLinear size:\t%f Mpc(/h)" % (N,M_min,R_max))
+ASCII_snapshot = np.zeros((N,7), dtype=np.double)
 ASCII_snapshot[:,0:3] = HDF5_snapshot['/PartType1/Coordinates']
 ASCII_snapshot[:,3:6] = HDF5_snapshot['/PartType1/Velocities']
-ASCII_snapshot[:,6] = HDF5_snapshot['/PartType1/Masses']
+if fmt == "STEPS":
+   ASCII_snapshot[:,6] = HDF5_snapshot['/PartType1/Masses']
+elif fmt == "ROCKSTAR":
+    ASCII_snapshot[:,6] = np.double(HDF5_snapshot['/PartType1/ParticleIDs'])
 HDF5_snapshot.close()
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
@@ -47,6 +91,6 @@ print("..done in %fs. \n\n" % (end-start))
 outputfilename = str(sys.argv[2])
 print("Saving the %s ASCII file..." % outputfilename)
 start = time.time()
-np.savetxt(outputfilename, ASCII_snapshot, delimiter='\t')
+np.savetxt(outputfilename, ASCII_snapshot, delimiter='\t', fmt='%.9f %.9f %.9f %.9f %.9f %.9f %i')
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
