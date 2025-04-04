@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.2"
+_VERSION="v0.2.2.3"
 _YEAR="2024-2025"
 
 # Global variables (constants)
@@ -430,7 +430,10 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 else:
                     p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][bound][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
                 return None
-            Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][bound][:]*p.a))) # Maximal circular velocity of the halo
+            if centermode == "CENTRALPARTICLE":
+                Vmax = np.max(np.sqrt(G*1e11*M_enc[1:]/(distances[sorted_idx][bound][1:]*p.a))) # Maximal circular velocity of the halo
+            else:
+                Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][bound][:]*p.a))) # Maximal circular velocity of the halo
         if max_radi_idx > 0:
             # if max_radi_idx==0, then this mass definition is not applicable,
             #  because the halo doesn't have high enough density even at the center.
@@ -479,7 +482,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Spin_Peebles": Spin_Peebles,
     "Spin_Bullock": Spin_Bullock,
     "Energy": Energy,
-    "T/|U|": Ekin/np.abs(Epot)
+    "TperAbsU": Ekin/np.abs(Epot)
     }
     if boundonly:
         returndict["MvirSO"] = M_SO * 1.0e11 # the output masses are in Msol
@@ -769,7 +772,7 @@ class StePS_Halo_Catalog:
                                 outarray[i][j] = self.DataTable[sorted_idx[i]][key]
                         else:
                             outarray[i][j] = self.DataTable[sorted_idx[i]][key]
-            np.savetxt(filename+".dat",outarray,fmt=fmtstring,header=header)
+            np.savetxt(filename+".dat",outarray,fmt=fmtstring[:-1],header=header,comments='#')
         else:
             print("The halo catalog is empty. No file is saved.");
         return
@@ -821,8 +824,8 @@ class StePS_Halo_Catalog:
                     dataset[:] = outarray
                 else:
                     #everything else. the data type should be scalar float in this case.
-                    if key == "T/|U|":
-                        dataset = halo_group.create_dataset("Tper|U|", (self.Nhalos,),dtype=HDF5datatype)
+                    if key == "TperAbsU":
+                        dataset = halo_group.create_dataset("TperAbsU", (self.Nhalos,),dtype=HDF5datatype)
                     else:
                         dataset = halo_group.create_dataset(key, (self.Nhalos,),dtype=HDF5datatype)
                     outarray = np.zeros(self.Nhalos,dtype=npdatatype)
