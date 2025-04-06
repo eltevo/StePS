@@ -482,7 +482,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     "Spin_Peebles": Spin_Peebles,
     "Spin_Bullock": Spin_Bullock,
     "Energy": Energy,
-    "TperAbsU": Ekin/np.abs(Epot)
+    "T/|U|": Ekin/np.abs(Epot)
     }
     if boundonly:
         returndict["MvirSO"] = M_SO * 1.0e11 # the output masses are in Msol
@@ -824,7 +824,7 @@ class StePS_Halo_Catalog:
                     dataset[:] = outarray
                 else:
                     #everything else. the data type should be scalar float in this case.
-                    if key == "TperAbsU":
+                    if key == "T/|U|":
                         dataset = halo_group.create_dataset("TperAbsU", (self.Nhalos,),dtype=HDF5datatype)
                     else:
                         dataset = halo_group.create_dataset(key, (self.Nhalos,),dtype=HDF5datatype)
