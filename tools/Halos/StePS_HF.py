@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.3"
+_VERSION="v0.2.2.4"
 _YEAR="2024-2025"
 
 # Global variables (constants)
@@ -853,6 +853,7 @@ rank = comm.Get_rank() #rank of this MPI thread
 #parameters that are used in all threads
 Params = None
 ERROR = 0
+VERBOSE = False
 rho_c = None
 rho_b = None
 Delta_c = None
@@ -865,11 +866,17 @@ r_master = None
 
 #Welcome message
 if rank == 0:
-    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
-    if len(sys.argv) != 2:
+    print("\n+-----------------------------------------------------------------------------------------------+\n|StePS_HF.py %s\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations Halo Finder)\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
+    if len(sys.argv) != 2 and len(sys.argv) != 3:
         print("Error: missing yaml file!")
         print("usage: ./StePS_HF.py <input yaml file>\nExiting.")
         ERROR = 1
+    if len(sys.argv) == 3:
+        if sys.argv[2] == "--verbose":
+            VERBOSE = True
+        else:
+            print("Error: unknown command line argument %s\nExiting." % str(sys.argv[2]))
+            ERROR = 1
     start = time.time()
 ERROR = comm.bcast(ERROR, root=0)
 if ERROR>0:
@@ -997,6 +1004,9 @@ sys.stdout.flush()
 if rank == 0:
     # Loading the input particle snapshot
     p = StePS_Particle_Catalog(Params['INFILE'], np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL']), Params["H_INDEPENDENT_UNITS"],H0,REDSHIFT=np.double(Params['REDSHIFT']),FORCE_RES=min_mass_force_res)
+    # Plotting some basic information about the snapshot
+    if VERBOSE:
+        print("Particle data:\n--------------\nNpart:\t\t\t%i\nMasses:\t\t\tmin: %.7f * 10^11 Msol\tmax: %.7f * 10^11 Msol\nCoordinates:\t\tmin: (%.4f,%.4f,%.4f) Mpc\tmax: (%.4f,%.4f,%.4f) Mpc\nVelocities:\t\tmin: (%.2f,%.2f,%.2f) km/s\tmax: (%.2f,%.2f,%.2f) km/s\n--------------\n" % (p.Npart,np.min(p.Masses), np.max(p.Masses), np.min(p.Coordinates[:,0]), np.min(p.Coordinates[:,1]), np.min(p.Coordinates[:,2]), np.max(p.Coordinates[:,0]), np.max(p.Coordinates[:,1]), np.max(p.Coordinates[:,2]), np.min(p.Velocities[:,0]), np.min(p.Velocities[:,1]), np.min(p.Velocities[:,2]), np.max(p.Velocities[:,0]), np.max(p.Velocities[:,1]), np.max(p.Velocities[:,2])))
     if Params["BOUNDARIES"] == "StePS":
         # Estimating the central region of the simulation. This is the maximal distance of the 2xminimum-mass particles from the origin.
         r_central = np.max(np.sqrt(np.sum(np.power(p.Coordinates[p.Masses <= 2.0*np.min(p.Masses)],2.0),axis=1)))
@@ -1091,6 +1101,8 @@ while True:
             if halo_params != None:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
+                if VERBOSE:
+                    print("MPI Rank %i: Halo #%i added to the catalog. (Npart = %i, Mvir=%e Msol)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"]))
             #else:
             #    print("This candidate didn't had enough partilces.")
     else:
