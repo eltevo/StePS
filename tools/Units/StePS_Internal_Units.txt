@@ -1,0 +1,37 @@
+Welcome to the StePS code unit calculator version 1.0.0
+	Copyright (C) 2018-2025 by Gabor Racz
+	This program comes with ABSOLUTELY NO WARRANTY.
+	This is free software, and you are welcome to redistribute it
+	under certain conditions; see the file LICENSE for details.
+
+This simple script calculates the internal units of the StePS code and prints them.
+The calculation is based on the astropy units package.
+
+Gravitational constant in SI:
+6.6743e-11 m3 / (kg s2)
+
+Mpc in SI:
+3.085677581491367e+22 m
+
+10e11M_sol in SI:
+1.988409870698051e+41 kg
+[T] = sqrt([D]^3/[M]/[G])
+
+We set G=1, [D]=Mpc, [M]=10e11M_sol, so the time unit will be
+[T] =  1.487887176654245e+18 s
+
+
+The internal StePS units are:
+-----------------------------
+Time:		[T]  =  1.487887176654245e+18 s   =  47.148299511187325 Gyr
+Velocity:	[V]  =  20.738652969844207 km / s
+Distance:	[D]  =  3.085677581491367e+24 cm  = 1.0 Mpc
+Mass		[M]  =  1.988409870698051e+41 kg  = 1.000000e+11 solMass
+
+
+The internal StePS_HF constants are:
+------------------------------------
+Gravitational constant (in Mpc/Msol*(km/s)^2 units):	G     = 4.30091727003628e-09 km2 Mpc / (s2 solMass)
+Critical_density at z=0 (in h^2*Msol/Mpc^3 units):	rho_c = 2.77536627245831e+11 (solMass h2) / Mpc3
+
+

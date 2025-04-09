@@ -50,15 +50,16 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.4"
+_VERSION="v0.2.2.5"
 _YEAR="2024-2025"
 
 # Global variables (constants)
-G  = 4.3009172706e-9 # gravitational constant G in Mpc/Msol*(km/s)^2 units
+G  = 4.30091727003628e-09 # gravitational constant G in Mpc/Msol*(km/s)^2 units (In Rockstar: 4.30117902e-9)
+H2RHO_C = 3.0/(G*8.0*np.pi)*1.0e4 / 1.0e11 # Comoving critical density in 1e11 h^2*Msol/Mpc^3 units (here: 2.7753662724583 * 1e11 h^2*Mpc/Msol^3; Rockstar: 2.77519737e11 h^2*Mpc/Msol^3)
 # usual StePS internal units
-UNIT_T=47.14829951063323 #Unit time in Gy
-UNIT_V=20.738652969925447 #Unit velocity in km/s
-UNIT_D=3.0856775814671917e24 #=1Mpc Unit distance in cm
+UNIT_T=47.148299511187325 #Unit time in Gy
+UNIT_V=20.738652969844207 #Unit velocity in km/s
+UNIT_D=3.085677581491367e+24 #=1Mpc Unit distance in cm
 
 # Defining functions
 def get_periodic_distance_vec(Coords1,Coords2,Lbox):
@@ -228,7 +229,7 @@ def get_Rs_Klypin(vmax,v200,R200):
 
 def get_bullock_spin(jvir,mvir,rvir):
     """
-    Function for calculating Bullock spin parameter
+    Function for calculating Bullock spin parameter (https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract)
     Expected input:
         - jvir: length of the total angular momentum vector within a virilized sphere in  Msun * Mpc * km/s
         - mvir: virial mass in Msol
@@ -277,9 +278,9 @@ def Hz(z, H0, Om, Ol, DE_model, DE_params):
         raise Exception("Error: unkown dark energy parametrization!\nExiting.\n")
     return cosmo.H(z).value
 
-def get_Delta_c(z, H0, Om, Ol, DE_model, DE_params):
+def get_Delta_c(z, H0, Om, Ol, DE_model, DE_params, mode="BryanEtAl"):
     """
-    Virial overdensity constant calculation, see eq 6. of https://ui.adsabs.harvard.edu/abs/1998ApJ...495...80B/abstract
+    Virial overdensity constant calculation, see eq 6. of Bryan et al. 1998 ( https://ui.adsabs.harvard.edu/abs/1998ApJ...495...80B/abstract)
     (Assuming Omega_r=0)
     """
     if DE_model == "Lambda":
@@ -290,8 +291,15 @@ def get_Delta_c(z, H0, Om, Ol, DE_model, DE_params):
         cosmo = w0waCDM(H0=H0, Om0=Om, Ode0=Ol,w0=DE_params[0],wa=DE_params[1])
     else:
         raise Exception("Error: unkown dark energy parametrization!\nExiting.\n")
-    x = cosmo.Om(z)-1.0
-    return 18.0*np.pi**2 + 82.0*x + 39.0*x**2
+    x = cosmo.Om0 * (1+z)**3 /(cosmo.H(z).value/H0)**2-1.0
+    if mode=="Rockstar":
+        # The virial overdensity definition as it is implemented in Rockstar
+        return (18.0*np.pi**2 + 82.0*x - 39.0*x**2)/(1.0+x) * cosmo.Om0
+    elif mode=="BryanEtAl":
+        # The original Bryan & Norman (1998) virial overdensity definition
+        return 18.0*np.pi**2 + 82.0*x - 39.0*x**2
+    else:
+        raise Exception("Error: Unknown virial density definition %s!\nExiting.\n" % (mode))
 
 def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
     """
@@ -929,9 +937,9 @@ if ERROR>0:
 
 if rank == 0:
     # Calculating relevant cosmological quantities
-    rho_c = 3.0*Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])**2/(8*np.pi)/UNIT_V/UNIT_V/(redshift+1)**3 #comoving critical density in internal units (G=1)
-    rho_b = 3.0*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
-    print("\u03C1_c (comoving):\t\t%.4e Msol/Mpc^3\n\u03C1_b (comoving):\t\t%.4e Msol/Mpc^3\n" % (rho_c*1e11, rho_b*1e11))
+    rho_c = H2RHO_C*(Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])/100.0)**2/(redshift+1)**3 #comoving critical density in internal units (G=1)
+    rho_b = (Params['H0']/100.0)**2 * H2RHO_C * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
+    print("\u03C1_c (comoving):\t\t%.6e Msol/Mpc^3 (=%.6e Msol*h^2/Mpc^3)\n\u03C1_b (comoving):\t\t%.6e Msol/Mpc^3 (=%.6e Msol*h^2/Mpc^3)\n" % (rho_c*1e11, rho_c*1e11/(H0/100.0)**2, rho_b*1e11, rho_b*1e11/(H0/100.0)**2))
     Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
     if Params["BOUNDARIES"] == "STEPS":
         if Params["H_INDEPENDENT_UNITS"]:
@@ -1102,7 +1110,7 @@ while True:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
                 if VERBOSE:
-                    print("MPI Rank %i: Halo #%i added to the catalog. (Npart = %i, Mvir=%e Msol)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"]))
+                    print("MPI Rank %i: Halo #%i added to the (local) catalog. (Npart = %i, Mvir=%e Msol)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"]))
             #else:
             #    print("This candidate didn't had enough partilces.")
     else:
