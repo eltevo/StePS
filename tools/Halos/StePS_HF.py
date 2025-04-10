@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.6"
+_VERSION="v0.2.2.7"
 _YEAR="2024-2025"
 
 # Global variables (constants)
@@ -377,6 +377,20 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         else:
             raise Exception("Error: unkonwn boundary condition %s." % (boundaries))
         sorted_idx = distances.argsort()
+    elif centermode == "CENTEROFMASS":
+        # using the center of mass of all particles within the estimated quarter-mass radius as center
+        M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx]) # enclosed mass
+        V_enc = 4.0*np.pi/3.0*np.power(distances[sorted_idx],3) # enclosed volume
+        rho_enc = M_enc[1:] / V_enc[1:] # enclosed mass / enclosed volume
+        com_radi_idx = int( np.where( (massdefdenstable[0] <= rho_enc) == False)[0][0] * 0.25 )+1
+        Center = get_center_of_mass(p.Coordinates[halo_particleindexes][sorted_idx][:com_radi_idx], p.Masses[halo_particleindexes][sorted_idx][:com_radi_idx], boundaries=boundaries, boxsize=Lbox)
+        if boundaries=="STEPS":
+            distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-Center),2),axis=1)) #recalculating distances due to the new center
+        elif boundaries=="PERIODIC":
+            # forcing the center to be within the box
+            Center = np.mod(Center, Lbox)
+            distances = get_periodic_distances(p.Coordinates[halo_particleindexes], Center, Lbox)
+
     else:
         raise Exception("Error: unkown CENTERMODE parameter %s." % (centermode))
     Ntota = len(distances)# total number of particles in the analysis (the numbers of the particle within the halo will be smaller)
@@ -1003,8 +1017,8 @@ if rank == 0:
     if Params["INITIAL_DENSITY_MODE"] != "Voronoi" and Params["INITIAL_DENSITY_MODE"] != "Nth neighbor":
         print("Error: Unknown initial density estimation method %s.\nExiting." % Params["INITIAL_DENSITY_MODE"])
         ERROR = 5
-    if Params["CENTERMODE"] != "CENTRALPARTICLE" and Params["CENTERMODE"] != "CENTEROFMASSNPARTMIN":
-        print("Error: unkown CENTERMODE parameter %s.\nExiting." % Params["CENTERMODE"])
+    if Params["CENTERMODE"] != "CENTRALPARTICLE" and Params["CENTERMODE"] != "CENTEROFMASSNPARTMIN" and Params["CENTERMODE"] != "CENTEROFMASS":
+        print("Error: Unkown CENTERMODE parameter %s.\nExiting." % Params["CENTERMODE"])
         ERROR = 6
 ERROR = comm.bcast(ERROR, root=0)
 if ERROR>0:
