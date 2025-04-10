@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.5"
+_VERSION="v0.2.2.6"
 _YEAR="2024-2025"
 
 # Global variables (constants)
@@ -371,6 +371,8 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         if boundaries=="STEPS":
             distances = np.sqrt(np.sum(np.power((p.Coordinates[halo_particleindexes]-Center),2),axis=1)) #recalculating distances due to the new center
         elif boundaries=="PERIODIC":
+            # forcing the center to be within the box
+            Center = np.mod(Center, Lbox)
             distances = get_periodic_distances(p.Coordinates[halo_particleindexes], Center, Lbox)
         else:
             raise Exception("Error: unkonwn boundary condition %s." % (boundaries))
@@ -1110,7 +1112,7 @@ while True:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
                 if VERBOSE:
-                    print("MPI Rank %i: Halo #%i added to the (local) catalog. (Npart = %i, Mvir=%e Msol)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"]))
+                    print("MPI Rank %i: Halo #%i added to the (local) catalog. (Npart = %i, Mvir=%e Msol, Rvir=%.2f kpc)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"], halos.DataTable[halo_ID-1]["Rvir"]))
             #else:
             #    print("This candidate didn't had enough partilces.")
     else:
