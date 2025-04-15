@@ -5,7 +5,7 @@ Welcome to the StePS code unit calculator version 1.0.0
 	under certain conditions; see the file LICENSE for details.
 
 This simple script calculates the internal units of the StePS code and prints them.
-The calculation is based on the astropy units package.
+The calculation is based on the astropy package version 5.0.4
 
 Gravitational constant in SI:
 6.6743e-11 m3 / (kg s2)

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import astropy
 import astropy.units as u
 from astropy.units import cds
 cds.enable()
+
 
 _VERSION = "1.0.0"
 _YEAR = "2018-2025"
@@ -18,7 +20,7 @@ print("\tThis is free software, and you are welcome to redistribute it")
 print("\tunder certain conditions; see the file LICENSE for details.")
 
 print("\nThis simple script calculates the internal units of the StePS code and prints them.")
-print("The calculation is based on the astropy units package.")
+print("The calculation is based on the astropy package version %s" % astropy.__version__)
 
 
 g= 1.0*cds.G

@@ -57,7 +57,7 @@ if len(sys.argv) == 4:
         fmt="ROCKSTAR"
         print("\nWarning: in ROCKSTAR compatible output format, the mass of the particles is not saved in the output file. This is because the ROCKSTAR format does not support it.")
     else:
-        print("Error: unkonwn option %s" % sys.argv[3])
+        print("Error: unkown option %s" % sys.argv[3])
         print("Supported options:")
         for i in range(len(opt_desc)):
             print("\t%s" % opt_desc[i])
@@ -72,11 +72,15 @@ print("Reading the input HDF5 file...")
 start = time.time()
 HDF5_snapshot = h5py.File(str(sys.argv[1]), "r")
 N = int(HDF5_snapshot['/Header'].attrs['NumPart_ThisFile'][1])
+SCALE_FACTOR = HDF5_snapshot['/Header'].attrs['Time']
+if SCALE_FACTOR == 0:
+    print("\n\t!!! Warning: the scale factor is zero. Is this a valid snapshot?")
+    print("\t    Note: In ROCKSTAR format, this will result zero velocities in the output.\n")
 M_min = HDF5_snapshot['/Header'].attrs['MassTable'][1]
 if M_min == 0:
     M_min = np.min(HDF5_snapshot['/PartType1/Masses'])
 R_max = HDF5_snapshot['/Header'].attrs['BoxSize']
-print("Number of particles:\t%i\nMinimal mass:\t%f*10e11 M_sol(/h)\nLinear size:\t%f Mpc(/h)" % (N,M_min,R_max))
+print("Number of particles:\t%i\nMinimal mass:\t%f*10e11 M_sol(/h)\nLinear size:\t%f Mpc(/h)\nScale factor:\t%f" % (N,M_min,R_max,SCALE_FACTOR))
 ASCII_snapshot = np.zeros((N,7), dtype=np.double)
 ASCII_snapshot[:,0:3] = HDF5_snapshot['/PartType1/Coordinates']
 ASCII_snapshot[:,3:6] = HDF5_snapshot['/PartType1/Velocities']
@@ -84,6 +88,7 @@ if fmt == "STEPS":
    ASCII_snapshot[:,6] = HDF5_snapshot['/PartType1/Masses']
 elif fmt == "ROCKSTAR":
     ASCII_snapshot[:,6] = np.double(HDF5_snapshot['/PartType1/ParticleIDs'])
+    ASCII_snapshot[:,3:6] *= np.sqrt(SCALE_FACTOR) # StePS uses the same convention as GADGET, and the output velocities are divided by the scale factor. Rockstar ASCII does not do this.
 HDF5_snapshot.close()
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
