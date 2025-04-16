@@ -88,7 +88,7 @@ if fmt == "STEPS":
    ASCII_snapshot[:,6] = HDF5_snapshot['/PartType1/Masses']
 elif fmt == "ROCKSTAR":
     ASCII_snapshot[:,6] = np.double(HDF5_snapshot['/PartType1/ParticleIDs'])
-    ASCII_snapshot[:,3:6] *= np.sqrt(SCALE_FACTOR) # StePS uses the same convention as GADGET, and the output velocities are divided by the scale factor. Rockstar ASCII does not do this.
+    ASCII_snapshot[:,3:6] *= np.sqrt(SCALE_FACTOR) # StePS uses the same convention as GADGET, and the output velocities are multiplied by the scale factor. Rockstar ASCII does not do this.
 HDF5_snapshot.close()
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
