@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.2.9"
+_VERSION="v0.2.3.0"
 _YEAR="2024-2025"
 _AUTHOR="Gabor Racz"
 
@@ -157,21 +157,26 @@ def cubic_spline_potential(r, h):
     kernel_value[mask] = -1/r[mask]
     return kernel_value
 
-def get_individual_energy(r,v,m,a,force_res,boundary="STEPS",boxsize=0.0):
+def get_individual_energy(r,v,m,a,Hubble,force_res,boundary="STEPS",boxsize=0.0):
     """
     Function for calculating the individual energy of a particle system by using direct summation of the potential.
+    Notes:
+        * Kinetic energy is calculated by using the formula Ekin = \sum_i 0.5*m*v_{i, physical}^2 = 0.5*m*(v_{i, comoving}+v_{i,Hubble})^2
+          calculated from halo center of mass velocity and Hubble expansion.
+        * Potential energy is calculated by using the cubic spline potential (Monaghan & Lattanzio, 1985)
     Expected input:
         - r: CoM coordinates in Mpc.
         - v: velocities in km/s. Assuming that the velocities are using StePS (and GADGET) conventions, i.e. v = vphys/sqrt(a)
         - m: particle masses in Msol.
         - a: scale factor
+        - Hubble: Hubble parameter at "a" scale factor in km/s/Mpc units
         - force_res: softening length of each particle
     Returns:
         - Ekin: Kinetic energy in (Msol * (km/s)^2 ) units
         - Epot: Potential energy in (Msol * (km/s)^2 ) units
     """
     Nparticle = len(m) #number of input particles
-    Ekin = 0.5*m*np.sum(v**2,axis=1)*a # kinetic energy of the individual particles (Ekin = 0.5*m*v^2)
+    Ekin = 0.5*m*np.sum((v*np.sqrt(a) + r*a*Hubble)**2,axis=1) # kinetic energy of the individual particles (Ekin = 0.5*m*v_physical^2)
     #calculating the potential energy
     Epot = np.zeros(Nparticle,dtype=np.double)
     for i in range(0,Nparticle):
@@ -186,7 +191,7 @@ def get_individual_energy(r,v,m,a,force_res,boundary="STEPS",boxsize=0.0):
     Epot *= G/a
     return Ekin, Epot
 
-def get_total_energy(r,v,m,a,force_res,boundary="STEPS",boxsize=0.0):
+def get_total_energy(r,v,m,a,Hubble,force_res,boundary="STEPS",boxsize=0.0):
         """
         Function for calculating the total energy of a particle system.
         Expected input:
@@ -194,6 +199,7 @@ def get_total_energy(r,v,m,a,force_res,boundary="STEPS",boxsize=0.0):
             - v: velocities in km/s.
             - m: particle masses in Msol.
             - a: scale factor
+            - Hubble: Hubble parameter at "a" scale factor in km/s/Mpc units
             - force_res: softening length of each particle
             - boundary: boundary condition. Must be "STEPS" or "PERIODIC"
             - boxsize: linear box size in the same units as the coorinates
@@ -202,7 +208,7 @@ def get_total_energy(r,v,m,a,force_res,boundary="STEPS",boxsize=0.0):
             - TotEkin: Total kinetic energy of the system in (Msol * (km/s)^2 ) units
             - TotEpot: Total potential energy of the system in (Msol * (km/s)^2 ) units
         """
-        Ekin,Epot = get_individual_energy(r,v,m,a,force_res,boundary=boundary,boxsize=boxsize)
+        Ekin,Epot = get_individual_energy(r,v,m,a,Hubble,force_res,boundary=boundary,boxsize=boxsize)
         TotEkin = np.sum(Ekin) #total kinetic energy of the halo
         TotEpot = np.sum(Epot) #total potential energy of the halo
         return TotEkin+TotEpot, TotEkin, TotEpot
@@ -337,7 +343,7 @@ def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
     return r_bin_centers[out_idx], rho_bins[out_idx]
 
 
-def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode, boundonly=False, unbound_threshold=0.0, boundaries="StePS", Lbox=0, rho_b=0.0):
+def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, massdefdenstable, npartmin, centermode, hnow, boundonly=False, unbound_threshold=0.0, boundaries="StePS", Lbox=0, rho_b=0.0):
     """
     Function for calculating various halo parameters
     Input:
@@ -351,6 +357,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         - centermode: method for identifying the center of the halo. Implemented methods:
             -> "CENTRALPARTICLE": the coordinates of the central particle is the halo center (fast)
             -> "CENTEROFMASSNPARTMIN": using center of mass of the most inner npartmin particles as center (more physical)
+        - hnow: Hubble parameter at the current scale factor in km/s/Mpc units
         - boundonly: If True, only bound particles will be considered during the parameter estimation.
         - rho_b: background densiy
     Returns:
@@ -429,7 +436,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         N_SO = len(distances[sorted_idx][:max_radi_idx_so]) #Number of particles
         V_SO = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx_so], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx_so]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
         # Calculating individual energies
-        T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx],p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.a,p.SoftLength[halo_particleindexes][sorted_idx], boundary=boundaries, boxsize=Lbox)
+        T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx]-Center,p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx], boundary=boundaries, boxsize=Lbox)
         bound = (T+U)<0.0 # a bool array. If the particle is bound True; False if not
         bound_ratio = np.sum(bound[:max_radi_idx_so])/len(bound[:max_radi_idx_so]) # bound ratio
         if (bound_ratio < unbound_threshold) or (N_SO < npartmin):
@@ -516,7 +523,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                     MboundPerMtot = M[i] / MSSO #Total bounded mass ratio within Rvir
                     Energy = np.sum(Ekin+Epot)
                 else:
-                    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center),(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i]),p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.a,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx],boundary=boundaries,boxsize=Lbox) #Total energy of the halo. Needed for Peebles spin parameter
+                    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center),(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i]),p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx],boundary=boundaries,boxsize=Lbox) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     absJvir = np.sqrt(np.sum(np.power(J[0],2)))
     Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
@@ -675,13 +682,14 @@ class StePS_Halo_Catalog:
     '''
     A class for storing halo catalogs
     '''
-    def __init__(self, H0, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode, Npartmin, RemoveUnBoundParts, HindepUnis=False, Boundaries="STEPS", Rsim=0.0, Lbox=0.0):
+    def __init__(self, H0, Hnow, Om, Ol, DE_Model, DE_Params, z, rho_c, rho_b, PrimaryMDef, SecondaryMdefList, Centermode, DensityMode, Npartmin, RemoveUnBoundParts, HindepUnis=False, Boundaries="STEPS", Rsim=0.0, Lbox=0.0):
         #During initialization we fill the header
         Mdef = [PrimaryMDef]
         Mdef.append(SecondaryMdefList)
         self.Header = {
             "Redshift": z,
             "H0": H0,
+            "H(z)": Hnow,
             "OmegaM": Om,
             "OmegaL": Ol,
             "DE_Model": DE_Model,
@@ -986,22 +994,23 @@ if ERROR>0:
 
 if rank == 0:
     # Calculating relevant cosmological quantities
-    rho_c = H2RHO_C*(Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])/100.0)**2/(redshift+1)**3 #comoving critical density in internal units (G=1)
+    Hubble_now = Hz(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"])
+    rho_c = H2RHO_C*(Hubble_now/100.0)**2/(redshift+1)**3 #comoving critical density in internal units (G=1)
     rho_b = (Params['H0']/100.0)**2 * H2RHO_C * Omega_m #background density in internal units (G=1) [the comoving background density is redshift independent]
     print("\u03C1_c (comoving):\t\t%.6e Msol/Mpc^3 (=%.6e Msol*h^2/Mpc^3)\n\u03C1_b (comoving):\t\t%.6e Msol/Mpc^3 (=%.6e Msol*h^2/Mpc^3)\n" % (rho_c*1e11, rho_c*1e11/(H0/100.0)**2, rho_b*1e11, rho_b*1e11/(H0/100.0)**2))
     Delta_c = get_Delta_c(redshift, H0, Omega_m, Omega_l, Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"]) #Virial overdensity constant
     if Params["BOUNDARIES"] == "STEPS":
         if Params["H_INDEPENDENT_UNITS"]:
-            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nH(z):\t\t\t%.4f km/s/Mpc\nRadius:\t\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift, Hubble_now,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
         else:
-            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nH(z):\t\t\t%.4f km/s/Mpc\nRadius:\t\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift, Hubble_now,np.double(Params['RSIM']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
     elif Params["BOUNDARIES"] == "PERIODIC":
         L_box = np.double(Params['LBOX'])
         if Params["H_INDEPENDENT_UNITS"]:
-            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nH(z):\t\t\t%.4f km/s/Mpc\nBoxsize:\t\t%.6g Mpc/h\nSoftening length:\t%.4g Mpc/h\nDistance units:\t\t%.2g Mpc/h\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol/h\n" % (redshift,Hubble_now,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
             L_box /= np.double(Params['H0'])/100.0
         else:
-            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nBoxsize:\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
+            print("Snapshot Parameters:\n--------------------\nRedshift:\t\t%.4f\nH(z):\t\t\t%.4f km/s/Mpc\nBoxsize:\t\t%.6g Mpc\nSoftening length:\t%.4g Mpc\nDistance units:\t\t%.2g Mpc\nVelocity units:\t\t%.2g km/s\nMass units:\t\t%.2g Msol\n" % (redshift,Hubble_now,np.double(Params['LBOX']),min_mass_force_res,np.double(Params['UNIT_D_IN_MPC']), np.double(Params['UNIT_V_IN_KMPS']), np.double(Params['UNIT_M_IN_MSOL'])))
         if Params["INITIAL_DENSITY_MODE"] == "Voronoi":
             print("Error: Voronoi density estimation is not supported with periodic boundaries.\nExiting.")
             ERROR = 5
@@ -1147,7 +1156,7 @@ else:
 print("MPI Rank %i: Identifying halos and calculating halo parameters..." % rank)
 sys.stdout.flush()
 id_start = time.time()
-halos = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"], HindepUnis=Params["H_INDEPENDENT_UNITS"], Boundaries=Params["BOUNDARIES"], Rsim=Params["RSIM"], Lbox=L_box)
+halos = StePS_Halo_Catalog(np.double(Params["H0"]),np.double(Hubble_now), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"], HindepUnis=Params["H_INDEPENDENT_UNITS"], Boundaries=Params["BOUNDARIES"], Rsim=Params["RSIM"], Lbox=L_box)
 halo_ID = 0
 while True:
     #selecting the largest density particle with parentID=-1
@@ -1163,7 +1172,7 @@ while True:
             #print("\tID of the central particle of halo #%i: %i" % (halo_ID,idx))
             #print("\tSearch radius for halo #%i: %.2fMpc/h" % (halo_ID, search_radius))
             #print("\tNumber of particles in the search radius of halo #%i:" % (halo_ID),len(halo_particleindexes))
-            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],boundonly=Params["BOUNDONLYMODE"], unbound_threshold=UnboudThreshold, rho_b=rho_b,boundaries=Params["BOUNDARIES"],Lbox=L_box)
+            halo_params = calculate_halo_params(p, idx, halo_particleindexes, halo_ID, Params["MASSDEF"], massdefdenstable, npartmin, Params["CENTERMODE"],np.double(Hubble_now),boundonly=Params["BOUNDONLYMODE"], unbound_threshold=UnboudThreshold, rho_b=rho_b,boundaries=Params["BOUNDARIES"],Lbox=L_box)
             if halo_params != None:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
@@ -1183,7 +1192,7 @@ sys.stdout.flush()
 #collecting all catalog into the main thread
 if rank == 0:
     print("MPI Rank %i: Collecting and merging all calculated catalogs to the master thread."%rank)
-    halos_final = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"], HindepUnis=Params["H_INDEPENDENT_UNITS"], Boundaries=Params["BOUNDARIES"], Rsim=Params["RSIM"], Lbox=L_box)
+    halos_final = StePS_Halo_Catalog(np.double(Params["H0"]), np.double(Hubble_now), np.double(Params["OMEGAM"]), np.double(Params["OMEGAL"]), Params["DARKENERGYMODEL"], Params["DARKENERGYPARAMS"], redshift, rho_c, rho_b, "Vir", Params["MASSDEF"], Params["CENTERMODE"], Params["INITIAL_DENSITY_MODE"], Params["NPARTMIN"], Params["BOUNDONLYMODE"], HindepUnis=Params["H_INDEPENDENT_UNITS"], Boundaries=Params["BOUNDARIES"], Rsim=Params["RSIM"], Lbox=L_box)
     # adding the catalog of the master thread to the final catalog
     if size > 1:
         halos_final.add_catalog(halos,overlaps=True, MPI_parent_thread=0)
