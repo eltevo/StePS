@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.3.0"
+_VERSION="v0.2.3.1"
 _YEAR="2024-2025"
 _AUTHOR="Gabor Racz"
 
@@ -186,7 +186,7 @@ def get_individual_energy(r,v,m,a,Hubble,force_res,boundary="STEPS",boxsize=0.0)
         elif boundary == "PERIODIC":
             dist = get_periodic_distances(r[idx], r[i], boxsize)
         else:
-            raise Exception("Error:")
+            raise Exception("Error: Unknown boundary condition %s." % (boundary))
         Epot[i] += m[i]*np.sum(m[idx]*cubic_spline_potential(dist,force_res[idx]+force_res[i]))
     Epot *= G/a
     return Ekin, Epot
@@ -436,7 +436,14 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         N_SO = len(distances[sorted_idx][:max_radi_idx_so]) #Number of particles
         V_SO = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx_so], p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx_so]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
         # Calculating individual energies
-        T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx]-Center,p.Velocities[halo_particleindexes][sorted_idx]-V_SO,p.Masses[halo_particleindexes][sorted_idx]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx], boundary=boundaries, boxsize=Lbox)
+        if np.min(massdefdenstable) == massdefdenstable[0]:
+            T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx_so]-Center,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx_so]-V_SO,p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx_so]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx_so], boundary=boundaries, boxsize=Lbox)
+        else:
+            # if the default mass definition has not have the minimal density threshold, then we have to use the minimal one to calculate the total energy
+            # this is not the best solution, but it is fast and works
+            radius_minrho_idx = np.min(massdefdenstable) <= rho_enc
+            max_radi_minrho_idx_so = np.where(radius_minrho_idx == False)[0][0] # apply cut when the density first fall below the limit
+            T,U = get_individual_energy(p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_minrho_idx_so]-Center,p.Velocities[halo_particleindexes][sorted_idx][:max_radi_minrho_idx_so]-V_SO,p.Masses[halo_particleindexes][sorted_idx][:max_radi_minrho_idx_so]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_minrho_idx_so], boundary=boundaries, boxsize=Lbox)
         bound = (T+U)<0.0 # a bool array. If the particle is bound True; False if not
         bound_ratio = np.sum(bound[:max_radi_idx_so])/len(bound[:max_radi_idx_so]) # bound ratio
         if (bound_ratio < unbound_threshold) or (N_SO < npartmin):
@@ -448,8 +455,9 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                 p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx_so],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
             return None
         # After this, the enclosed density and mass has to be re-calculated
-        M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx][bound]) # enclosed (bound) mass
-        V_enc = 4.0*np.pi/3.0*np.power(distances[sorted_idx][bound],3) # enclosed (bound) volume
+        bound = np.pad(bound, (0, len(distances)-len(bound)), 'constant', constant_values=(False, False)) # padding the bound array to the same length as the distances
+        M_enc = np.cumsum(p.Masses[halo_particleindexes][sorted_idx]*np.double(bound)) # enclosed (bound) mass
+        V_enc = 4.0*np.pi/3.0*np.power(distances[sorted_idx],3) # enclosed (bound) volume
         if centermode == "CENTRALPARTICLE":
             # In this mode, the first bin have zero volume, so we have to do this
             rho_enc = np.zeros(len(V_enc))
@@ -491,15 +499,17 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                         p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][bound][:max_radi_idx],-2) # setting the HaloParentIDs to -2, since this group has too less patricles
                     return None
             if centermode == "CENTRALPARTICLE":
-                Vmax = np.max(np.sqrt(G*1e11*M_enc[1:]/(distances[sorted_idx][bound][1:]*p.a))) # Maximal circular velocity of the halo
+                Vmax = np.max(np.sqrt(G*1e11*M_enc[1:]/(distances[sorted_idx][1:]*p.a))) # Maximal circular velocity of the halo
             else:
-                Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][bound][:]*p.a))) # Maximal circular velocity of the halo
+                Vmax = np.max(np.sqrt(G*1e11*M_enc[:]/(distances[sorted_idx][:]*p.a))) # Maximal circular velocity of the halo
         if max_radi_idx > 0:
             # if max_radi_idx==0, then this mass definition is not applicable,
             #  because the halo doesn't have high enough density even at the center.
             M[i] = M_enc[max_radi_idx-1] #Mass
-            #R[i] = np.cbrt((3.0/(np.pi*4))*M[i]/massdefdenstable[i])#Or alternatively, we can use the coordinate of the last particle:
-            R[i] = distances[sorted_idx][bound][max_radi_idx-1] #Radii
+            # The halo radius can be directly calculated from the mass and density treshold
+            R[i] = np.cbrt((3.0/(np.pi*4))*M[i]/massdefdenstable[i])
+            # Or alternatively, we can use the coordinate of the last particle:
+            #R[i] = distances[sorted_idx][bound][max_radi_idx-1] #Radii
             V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
             Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx])) # root mean square velocity
             if boundaries=="STEPS":
@@ -517,16 +527,22 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
                     p.set_HaloParentIDs(p.IDs[halo_particleindexes][sorted_idx][:max_radi_idx],HaloID) # setting the HaloParentIDs of the particles that are in this halo (within Rvir)
                 c_klypin, Rs_klypin = get_Rs_Klypin(Vmax,Vcirc[0],R[0])
                 if boundonly:
-                    Ekin = np.sum(T[bound][:max_radi_idx])
-                    Epot = np.sum(U[bound][:max_radi_idx])
+                    Ekin = np.sum(T)
+                    Epot = np.sum(U)
                     MSSO = np.sum(p.Masses[halo_particleindexes][distances<=R[i]]) # total mass within Rvir (Strict Spherical Overdensity)
                     MboundPerMtot = M[i] / MSSO #Total bounded mass ratio within Rvir
-                    Energy = np.sum(Ekin+Epot)
-                else:
-                    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center),(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i]),p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx],boundary=boundaries,boxsize=Lbox) #Total energy of the halo. Needed for Peebles spin parameter
+                    Energy = Ekin+Epot
+                #else:
+                #    Energy, Ekin, Epot = get_total_energy((p.Coordinates[halo_particleindexes][sorted_idx][:max_radi_idx]-Center),(p.Velocities[halo_particleindexes][sorted_idx][:max_radi_idx] - V[i]),p.Masses[halo_particleindexes][sorted_idx][:max_radi_idx]*1e11,p.a,hnow,p.SoftLength[halo_particleindexes][sorted_idx][:max_radi_idx],boundary=boundaries,boxsize=Lbox) #Total energy of the halo. Needed for Peebles spin parameter
     #Spin parameters. Spins are dimensionless. Overview: https://arxiv.org/abs/1501.03280 (definitions: eq.1 and eq.4)
     absJvir = np.sqrt(np.sum(np.power(J[0],2)))
-    Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
+    if boundonly:
+        Spin_Peebles = absJvir*1e11*np.sqrt(np.abs(Energy))/(G*np.power(M[0]*1e11,2.5)) # Peebles Spin Parameter (1969) https://ui.adsabs.harvard.edu/abs/1969ApJ...155..393P/abstract
+    else:
+        Spin_Peebles = 0.0
+        Energy = 0.0
+        Ekin = 0.0
+        Epot = 1.0
     Spin_Bullock = get_bullock_spin(absJvir*1e11,M[0]*1e11,R[0]*p.a) # Bullock Spin Parameter (2001) https://ui.adsabs.harvard.edu/abs/2001ApJ...555..240B/abstract
     #generating output dictionary containing all calculated quantities
     returndict = {
@@ -555,6 +571,9 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
     else:
         del returndict["MvirSO"]
         del returndict["RvirSO"]
+        del returndict["Energy"]
+        del returndict["T/|U|"]
+        del returndict["Spin_Peebles"]
     #saving all other quantities
     for i in range(0,len(massdefnames)):
         returndict["M"+massdefnames[i]] = M[i+1] * 1.0e11 # the output masses are in Msol

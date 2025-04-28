@@ -28,7 +28,7 @@ SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be 
 KDWORKERS: 4 # number of worker threads in the KDTree search
 NPARTMIN: 10 # minimal particle number (should be at least 10)
 BOUNDONLYMODE: False #If True, particles with Etot>=0 with Ekin/|Epot|>=UNBOUND_THRESHOLD will removed from the halo
-UNBOUND_THRESHOLD: 0.5 # In bound only mode, if more than this fraction of the partivles are unbound, the halo will be discarded
+UNBOUND_THRESHOLD: 0.5 # In bound only mode, if more than this fraction of the particles are unbound, the halo will be discarded
 CENTERMODE: "CENTEROFMASSNPARTMIN" # Method for identifying the halo centers. Possible values: "CENTRALPARTICLE", "CENTEROFMASSNPARTMIN"
 MASSDEF:
   - "200b"
