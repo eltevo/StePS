@@ -50,7 +50,7 @@ import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 from inputoutput import *
 
-_VERSION="v0.2.3.1"
+_VERSION="v0.2.4.0"
 _YEAR="2024-2025"
 _AUTHOR="Gabor Racz"
 
@@ -123,18 +123,20 @@ def get_center_of_mass(r, m, boundaries="STEPS", boxsize=0):
     else:
         raise Exception("Error: unknown boundary condition %s." % (boundaries))
 
-def get_angular_momentum(r,v,m):
+def get_angular_momentum(r,v,m,a,hubblenow):
     """
     Function for calculating the angular momentum of a particle system.
     Assumed input:
-        - r: CoM (physical) coordinates.
-        - v: (physical) velocities.
+        - r: CoM comoving coordinates.
+        - v: comoving velocities.
         - m: particle masses.
+        - a: scale factor
+        - hubblenow: Hubble parameter at the current scale factor in km/s/Mpc units
     Returns:
-        - J: angular momentum vector
+        - J: angular momentum vector in physical units
     """
-    p = m.reshape((len(m),1))*v #Individual linear momenta: mass x position
-    J = np.cross(r,p)# Individual orbital angular momenta" (position vector) x (linear momentum)
+    p = m.reshape((len(m),1))*(v+hubblenow*a*r) #Individual linear momenta: mass x (comoving) velocity
+    J = np.cross(r*a,p)# Individual orbital angular momenta" (comoving position vector) x (linear momentum)
     return np.sum(J,axis=0) #returning the total angular momentum vector
 
 def cubic_spline_potential(r, h):
@@ -166,7 +168,7 @@ def get_individual_energy(r,v,m,a,Hubble,force_res,boundary="STEPS",boxsize=0.0)
         * Potential energy is calculated by using the cubic spline potential (Monaghan & Lattanzio, 1985)
     Expected input:
         - r: CoM coordinates in Mpc.
-        - v: velocities in km/s. Assuming that the velocities are using StePS (and GADGET) conventions, i.e. v = vphys/sqrt(a)
+        - v: velocities in km/s.
         - m: particle masses in Msol.
         - a: scale factor
         - Hubble: Hubble parameter at "a" scale factor in km/s/Mpc units
@@ -176,7 +178,7 @@ def get_individual_energy(r,v,m,a,Hubble,force_res,boundary="STEPS",boxsize=0.0)
         - Epot: Potential energy in (Msol * (km/s)^2 ) units
     """
     Nparticle = len(m) #number of input particles
-    Ekin = 0.5*m*np.sum((v*np.sqrt(a) + r*a*Hubble)**2,axis=1) # kinetic energy of the individual particles (Ekin = 0.5*m*v_physical^2)
+    Ekin = 0.5*m*np.sum((v + r*a*Hubble)**2,axis=1) # kinetic energy of the individual particles (Ekin = 0.5*m*v_physical^2)
     #calculating the potential energy
     Epot = np.zeros(Nparticle,dtype=np.double)
     for i in range(0,Nparticle):
@@ -423,7 +425,7 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
         # For this, we have a first estimate on the bulk velocity of the halo. Using SO Mvir definition for this:
         radius_idx = massdefdenstable[0] <= rho_enc
         max_radi_idx_so = np.where(radius_idx == False)[0][0] # apply cut when the density first fall below the limit
-        if max_radi_idx_so<npartmin:
+        if (max_radi_idx_so+1)<npartmin:
             # In this case, the SO definition has smaller number of particles then npartmin. This also means that the BO halo definition will not have enough particles.
             p.set_HaloParentIDs(p.IDs[idx],-2) # since this group doesn't have enough patricles, the "central" particle IDs had to be set to -2
             if max_radi_idx_so == 0:
@@ -513,9 +515,9 @@ def calculate_halo_params(p, idx, halo_particleindexes, HaloID, massdefnames, ma
             V[i] = get_center_of_mass(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx], p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #Velocity; the formula for calculating the mean velocity is the same as for the CoM
             Vrms[i] = np.sqrt(np.sum(np.power(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],2))/len(p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx])) # root mean square velocity
             if boundaries=="STEPS":
-                J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx]-Center)*p.a,p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+                J[i] = get_angular_momentum((p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx]-Center),p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx],p.a,hnow) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
             elif boundaries=="PERIODIC":
-                J[i] = get_angular_momentum(get_periodic_distance_vec(p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx],Center,Lbox)*p.a,p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx]) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
+                J[i] = get_angular_momentum(get_periodic_distance_vec(p.Coordinates[halo_particleindexes][sorted_idx][bound][:max_radi_idx],Center,Lbox),p.Velocities[halo_particleindexes][sorted_idx][bound][:max_radi_idx] - V[i],p.Masses[halo_particleindexes][sorted_idx][bound][:max_radi_idx],p.a,hnow) #angular momentum in (Msun/h) * (Mpc/h) * km/s physical (non-comoving) units
             else:
                 raise Exception("Error: unkonwn boundary condition %s." % (boundaries))
             Vcirc[i] = np.sqrt(G*1e11*M[i]/(R[i]*p.a))
@@ -675,7 +677,7 @@ class StePS_Particle_Catalog:
             self.Coordinates *= D_UNITS
             self.Masses *= (M_UNITS / 1e11) # 1e11msol(/h) units
         self.Velocities *= V_UNITS
-        self.Velocities *= np.sqrt(self.a) # km/s physical velocities, assuming Gadget convention
+        self.Velocities *= np.sqrt(self.a) # km/s physical velocities, assuming StePS (and Gadget) convention
         if FILENAME[-4:] != 'hdf5':
             self.Npart = len(self.Masses)
         # setting softening lengths
@@ -1196,7 +1198,7 @@ while True:
                 halos.add_halo(halo_params, maxdens) #adding the identified halo to the catalog
                 halo_ID +=1
                 if VERBOSE:
-                    print("MPI Rank %i: Halo #%i added to the (local) catalog. (Npart = %i, Mvir=%e Msol, Rvir=%.2f kpc, rho(r<Rvir)=%.7e Msol/Mpc^3)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"], halos.DataTable[halo_ID-1]["Rvir"], 3*halos.DataTable[halo_ID-1]["Mvir"] /( 4 * np.pi * (halos.DataTable[halo_ID-1]["Rvir"]/1000.0)**3)))
+                    print("MPI Rank %i: Halo #%i added to the (local) catalog. (Npart = %i, Mvir=%e Msol, Rvir=%.2f kpc)" % (rank, halo_ID-1, halos.DataTable[halo_ID-1]["Npart"], halos.DataTable[halo_ID-1]["Mvir"], halos.DataTable[halo_ID-1]["Rvir"]))
             #else:
             #    print("This candidate didn't had enough partilces.")
     else:
