@@ -113,6 +113,7 @@ void read_param(FILE *param_file);
 void step(REAL* x, REAL* v, REAL* F);
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
+void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max);
 double friedmann_solver_start(double a0, double t0, double h, double a_start);
 double friedmann_solver_step(double a0, double h);
 int ewald_space(REAL R, int ewald_index[2102][4]);
@@ -187,9 +188,12 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 		printf("\tDouble precision (64bit) force calculation.\n");
 	#endif
-	#ifdef PERIODIC
+	#if defined(PERIODIC)
 	if(rank == 0)
 		printf("\tPeriodic boundary conditions.\n");
+	#elif defined(PERIODIC_Z)
+	if(rank == 0)
+		printf("\tPeriodic boundary conditions in the z direction.\n");
 	#else
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions.\n");
@@ -300,6 +304,14 @@ int main(int argc, char *argv[])
 			i=0;
 			j=0;
 		}
+	#elif defined(PERIODIC_Z)
+		if(IS_PERIODIC < 1 || IS_PERIODIC > 3)
+		{
+			if(rank == 0)
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic simulations only.\nExiting.\n");
+			return (-2);
+		}
+			//TODO: Implement periodic boundary conditions in the z direction
 
 	#else
 		if(IS_PERIODIC  != 0)
@@ -562,15 +574,29 @@ int main(int argc, char *argv[])
 		rho_crit = 3.0*H0*H0/(8.0*pi);
 		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
-		#ifdef PERIODIC
+		#if defined(PERIODIC) || defined(PERIODIC_Z)
 		if(IC_FORMAT == 1)
 		{
+			#if defined(PERIODIC)
+			M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
 			if(rank == 0)
+			{
 				printf("Every particle has the same mass in periodic cosmological simulations, if the input is in GADGET format.\nM=%.10f*10e+11M_sol\n", M_tmp);
-			for(i=0;i<N;i++)//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
+			}
+			//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
+			for(i=0; i<N; i++)
 			{
 				M[i] = M_tmp;
 			}
+			#elif defined(PERIODIC_Z)
+			if(rank == 0)
+			{
+				std::cout << "Particle mass distribution is set during the IC generation! Continuing..." << std::endl;
+			}
+			//TODO: Implement sanity check for the particle masses
+			//      to make sure that the masses are consistent with
+			//      the cosmological parameters
+			#endif
 		}
 		//Calculating the total mean desity of the simulation volume
 		//in here we sum the total particle mass with Kahan summation
@@ -839,20 +865,24 @@ int main(int argc, char *argv[])
 	{
 		ID_MPI_min = 0;
 		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-		#ifndef PERIODIC
-			forces(x, F, ID_MPI_min, ID_MPI_max);
-		#else
+		#if defined(PERIODIC)
 			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+		#elif defined(PERIODIC_Z)
+			forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+		#else
+			forces(x, F, ID_MPI_min, ID_MPI_max);
 		#endif
 	}
 	else
 	{
 		ID_MPI_min = (N%numtasks) + (rank)*(N/numtasks);
 		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-		#ifndef PERIODIC
-			forces(x, F, ID_MPI_min, ID_MPI_max);
-		#else
+		#if defined(PERIODIC)
 			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+		#elif defined(PERIODIC_Z)
+			forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+		#else
+			forces(x, F, ID_MPI_min, ID_MPI_max);
 		#endif
 	}
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix

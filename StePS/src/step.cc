@@ -26,6 +26,7 @@
 
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL* x, REAL*F, int ID_min, int ID_max);
+void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max);
 
 double calculate_init_h()
 {
@@ -47,6 +48,19 @@ double calculate_init_h()
 			{
 				x[3*i+k] = x[3*i+k] - L;
 			}
+		}
+	}
+	#elif defined(PERIODIC_Z)
+	//Periodic boundary conditions in the z direction
+	for(i=0;i<N;i++)
+	{
+		if(x[3*i+2]<0)
+		{
+			x[3*i+2] = x[3*i+2] + L;
+		}
+		if(x[3*i+2]>=L)
+		{
+			x[3*i+2] = x[3*i+2] - L;
 		}
 	}
 	#endif
@@ -136,6 +150,19 @@ void step(REAL* x, REAL* v, REAL* F)
 				}
 			}
 		}
+		#elif defined(PERIODIC_Z)
+		//Periodic boundary conditions in the z direction
+		for(i=0; i<N; i++)
+		{
+			if(x[3*i+2]<0)
+			{
+				x[3*i+2] = x[3*i+2] + L;
+			}
+			else if(x[3*i+2]>=L)
+			{
+				x[3*i+2] = x[3*i+2] - L;
+			}
+		}
 		#endif
 	}
 	//Bcasting the particle coordinates
@@ -147,10 +174,12 @@ void step(REAL* x, REAL* v, REAL* F)
 	//Force calculation
 	if(rank == 0)
 		printf("Calculating Forces...\n");
-	#ifndef PERIODIC
-		forces(x, F, ID_MPI_min, ID_MPI_max);
-	#else
+	#if defined(PERIODIC)
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+	#elif defined(PERIODIC_Z)
+		forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+	#else
+		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
 	if(rank !=0)
