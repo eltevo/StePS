@@ -1,6 +1,18 @@
 # Change Log
 All notable changes to the StePS simulation code will be documented in this file.
 
+## [TBD] - TBD
+
+### Added
+- Cylindrically symmetric boundary conditions
+
+### Changed
+- Updated makefile templates
+
+### Fixed
+- Fixed constant-resolution periodic initial condition reading from HDF5 format.
+- Fixed H0 independent unit bugs
+
 ## [v1.0.2.2] - 2024-10-25
 
 ### Added
