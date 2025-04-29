@@ -368,11 +368,11 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i];
                         F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];
                     }
-                    else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+                    /*else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
                     {
                         F[3*(i-ID_min)] +=  DE * x[3*i];
                         F[3*(i-ID_min)+1] += DE * x[3*i+1];
-                    }
+                    }*/ //non-comoving integration is not implemented for periodic_z (yet?)
                 }
     }
     else {
@@ -429,11 +429,11 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i];
                         F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];
                     }
-                    else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+                    /*else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
                     {
                         F[3*(i-ID_min)] +=  DE * x[3*i];
                         F[3*(i-ID_min)+1] += DE * x[3*i+1];
-                    }
+                    }*/ //non-comoving integration is not implemented for periodic_z (yet?)
                 }
     }
     //timing

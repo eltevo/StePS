@@ -193,7 +193,7 @@ int main(int argc, char *argv[])
 		printf("\tPeriodic boundary conditions.\n");
 	#elif defined(PERIODIC_Z)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions in the z direction.\n");
+		printf("\tPeriodic boundary conditions in the z direction. (Cylindrically symmetric simulations)\n");
 	#else
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions.\n");
@@ -572,7 +572,13 @@ int main(int argc, char *argv[])
 		Omega_dm = Omega_m-Omega_b;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3.0*H0*H0/(8.0*pi);
-		mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
+		#if defined(PERIODIC_Z)
+			// in cylindrical simmetrical simulations, the radial force is proportional to the mass in a unit cylinder
+			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+		#else
+			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
+			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
+		#endif
 		M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
 		#if defined(PERIODIC) || defined(PERIODIC_Z)
 		if(IC_FORMAT == 1)
