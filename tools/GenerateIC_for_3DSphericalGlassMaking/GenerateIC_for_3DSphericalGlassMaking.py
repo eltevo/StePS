@@ -430,7 +430,6 @@ if Params['BIN_MODE'] == 0:
             #Calculating the cutoff radius
             r_cutoff = np.cbrt(V_cutoff*r_to_z_ratio/np.pi)
             z_cutoff = r_cutoff/r_to_z_ratio
-            print("L=%f\tV_cutoff=%f\tz_cutoff=%f\tRcutoff=%f" % (L,V_cutoff,z_cutoff,r_cutoff))
             #Shifting the glass to the center
             periodic_glass[:,:2] = periodic_glass[:,:2]-L/2
             #Calculating r for every particle
@@ -470,7 +469,7 @@ if Params['BIN_MODE'] == 0:
             particle_data[0:N_part_inside,6] = Mass_res_inside
             del(generated_sphere)
         elif Params['BOUNDARY'] == "CYLINDRICAL":
-            generated_cylinder = Generate_random_cylindrical_shell(N_part_inside,r_to_z_ratio,Shell=False)*Params['RCRIT']
+            generated_cylinder = Generate_random_cylindrical_shell(N_part_inside,r_to_z_ratio,Shell=False)*Calculate_rlimits_i(i_crit-0.25, Params['D_S'], Params['NRBINS'], last_cell_size)
             particle_data[0:N_part_inside,0:3] = generated_cylinder
             particle_data[0:N_part_inside,6] = Mass_res_inside
             del(generated_cylinder)
