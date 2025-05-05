@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2025 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -33,6 +33,7 @@ extern int IS_PERIODIC; //periodic boundary conditions, 0=none, 1=nearest images
 extern int COSMOLOGY; //Cosmological Simulation, 0=no, 1=yes
 extern int COMOVING_INTEGRATION; //Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 extern REAL L; //Size of the simulation box
+extern REAL Rsim; //Radius of the simulation volume
 extern char IC_FILE[1024]; //input file
 extern char OUT_DIR[1024]; //output directory
 extern char OUT_LST[1024]; //output redshift list file. only used when OUTPUT_TIME_VARIABLE=1

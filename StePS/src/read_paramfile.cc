@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2024 Gabor Racz                                        */
+/*    Copyright (C) 2017-2025 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -59,10 +59,12 @@ void BCAST_global_parameters()
 	MPI_Bcast(&TIME_LIMIT_IN_MINS,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&L,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Rsim,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(&L,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&Rsim,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
@@ -110,6 +112,7 @@ char str35[] = "wa";
 char str34[] = "EXPANSION_FILE";
 char str35[] = "INTERPOLATION_ORDER";
 #endif
+char str36[] = "R_SIM";
 
 printf("Reading parameter file...\n");
 while(!feof(param_file))
@@ -289,6 +292,10 @@ while(!feof(param_file))
 		sscanf(c, "%*s\t%i", &INTERPOLATION_ORDER);
 	}
 	#endif
+	if(strstr(c, str36) != NULL)
+	{
+		sscanf(c, "%*s\t%f", &Rsim);
+	}
 #else
 	fgets(c, BUFF_SIZE, param_file);
   if(strstr(c, str01) != NULL)
@@ -460,6 +467,10 @@ while(!feof(param_file))
 		sscanf(c, "%*s\t%i", &INTERPOLATION_ORDER);
 	}
 	#endif
+	if(strstr(c, str36) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &Rsim);
+	}
 #endif
 }
 
@@ -497,10 +508,39 @@ if(COSMOLOGY == 1)
 	}
 	if(COMOVING_INTEGRATION==0 && a_max==1.0)
 		printf("\nWarning: The maximal simulation time is set 1.0Gy. Usually, the final scalefactor is set to 1. Are you sure that this is what you want?\n\n\n");
+	printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\n",IS_PERIODIC);
 	if(COMOVING_INTEGRATION==1)
-		printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%f %s\nMaximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,dist_unit,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	{
+		if(IS_PERIODIC==0)
+		{
+			printf("Simulation radius\t\t%f %s\n",Rsim,dist_unit);
+		}
+		else
+		{
+			#if defined(PERIODIC)
+			printf("Linear box size\t\t\t%f %s\n",L,dist_unit);
+			#elif defined(PERIODIC_Z)
+			printf("Simulation radius\t\t%f %s\nLinear box size\t\t\t%f %s\n",Rsim,dist_unit,L,dist_unit);
+			#endif
+		}
+		printf("Maximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	}
 	else
-		printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nLinear size\t\t\t%f %s\nMaximal simulation time\t\t%f Gy\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",IS_PERIODIC,L,dist_unit,a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	{
+		if(IS_PERIODIC==0)
+		{
+			printf("Simulation radius\t\t%f %s\n",Rsim,dist_unit);
+		}
+		else
+		{
+			#if defined(PERIODIC)
+			printf("Linear box size\t\t\t%f %s\n",L,dist_unit);
+			#elif defined(PERIODIC_Z)
+			printf("Simulation radius\t\t%f %s\nLinear box size\t\t\t%f %s\n",Rsim,dist_unit,L,dist_unit);
+			#endif
+		}
+		printf("Maximal simulation time\t\t%f Gy\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
+	}
 }
 else
 {

@@ -62,7 +62,7 @@ REAL beta, ParticleRadi, rho_part, M_min;
 
 int IS_PERIODIC, COSMOLOGY;
 int COMOVING_INTEGRATION; //Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
-REAL L;
+REAL L, Rsim; //linear size of the simulation volume
 char IC_FILE[1024];
 char OUT_DIR[1024];
 char OUT_LST[1024]; //output redshift list file. only used when OUTPUT_TIME_VARIABLE=1
@@ -594,14 +594,6 @@ int main(int argc, char *argv[])
 			{
 				M[i] = M_tmp;
 			}
-			#elif defined(PERIODIC_Z)
-			if(rank == 0)
-			{
-				std::cout << "Particle mass distribution is set during the IC generation! Continuing..." << std::endl;
-			}
-			//TODO: Implement sanity check for the particle masses
-			//      to make sure that the masses are consistent with
-			//      the cosmological parameters
 			#endif
 		}
 		//Calculating the total mean desity of the simulation volume
@@ -616,7 +608,11 @@ int main(int argc, char *argv[])
 			Kahan_compensation = (Kahan_t - rho_mean_full_box) - Kahan_y;
 			rho_mean_full_box = Kahan_t;
 		}
-		rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
+		#if defined(PERIODIC)
+			rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
+		#elif defined(PERIODIC_Z)
+			rho_mean_full_box /= (pi*Rsim*Rsim*L); //dividing the total mass by the simulation volume
+		#endif
 		if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-5)
 		{
 			 #if COSMOPARAM>=0 || !defined(COSMOPARAM)
