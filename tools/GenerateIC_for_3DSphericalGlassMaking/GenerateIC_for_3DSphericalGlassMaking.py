@@ -510,11 +510,17 @@ Tot_mass = np.sum(particle_data[:,6])
 #the simulation volume is:
 if Params['BOUNDARY'] == "SPHERICAL":
     Tot_V = 4*np.pi/3*Params['RSIM']**3
+    if Params['BIN_MODE'] == 0:
+        V_central = 4*np.pi/3*Params['RCRIT']**3
 elif Params['BOUNDARY'] == "CYLINDRICAL":
     Tot_V = np.pi*Params['RSIM']**2*Params['LZSIM']
+    if Params['BIN_MODE'] == 0:
+        V_central = np.pi*Params['RCRIT']**2*Params['LZSIM']
 #the average density (in Omega_m)
 Avg_dens = (Tot_mass/Tot_V)/rho_mean
-print("The total Mass = %e 10e11M_sol\nThe volume = %eMpc^3\nThe mean density = %f" % (Tot_mass, Tot_V, Avg_dens))
+print("The total Mass = %e 10e11M_sol\nThe volume = %e Mpc^3\nThe mean density = %f rho_b" % (Tot_mass, Tot_V, Avg_dens))
+if Params['BIN_MODE'] == 0:
+    print("The mean particle separation in the constant resolution region = %f Mpc\nThe recommended softening length is %f Mpc\n" % (np.cbrt(V_central/N_part_inside), np.cbrt(V_central/N_part_inside)/40.0))
 print("Saving...")
 writeHDF5snapshot(particle_data,str(Params['BASEOUT']),Params['RSIM']*2, 0.0, Params['OMEGA_M'], Params['OMEGA_L'], Params['HUBBLE_CONSTANT'], 0)
 end = time.time()
