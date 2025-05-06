@@ -305,14 +305,12 @@ int main(int argc, char *argv[])
 			j=0;
 		}
 	#elif defined(PERIODIC_Z)
-		if(IS_PERIODIC < 1 || IS_PERIODIC > 3)
+		if(IS_PERIODIC < 1)
 		{
 			if(rank == 0)
-				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic simulations only.\nExiting.\n");
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic and periodic simulations in z direction only.\nExiting.\n");
 			return (-2);
 		}
-			//TODO: Implement periodic boundary conditions in the z direction
-
 	#else
 		if(IS_PERIODIC  != 0)
 		{

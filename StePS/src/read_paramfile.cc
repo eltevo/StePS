@@ -153,11 +153,18 @@ while(!feof(param_file))
 	if(strstr(c, str08) != NULL)
 	{
 		sscanf(c, "%*s\t%i", &IS_PERIODIC);
+		#ifdef PERIODIC_Z
+		if IS_PERIODIC>= 2
+		{
+			printf("Ewald summation is on in z direction. Using %i images.\n", 2*IS_PERIODIC+1);
+		}
+		#else
 		if(IS_PERIODIC > 3)
 		{
-			printf("Error: IS_PERIODIC > 3: No such boundary condition\n: IS_PERIODIC is set to 3");
+			printf("Error: IS_PERIODIC > 3: No such boundary condition: IS_PERIODIC is set to 3");
 			IS_PERIODIC = 3;
 		}
+		#endif
 	}
 
 	if(strstr(c, str09) != NULL)
@@ -330,12 +337,19 @@ while(!feof(param_file))
   }
   if(strstr(c, str08) != NULL)
   {
-    sscanf(c, "%*s\t%i", &IS_PERIODIC);
-    if(IS_PERIODIC > 3)
-    {
-      printf("Error: IS_PERIODIC > 3: No such boundary condition\n: IS_PERIODIC is set to 3");
-      IS_PERIODIC = 3;
-    }
+		sscanf(c, "%*s\t%i", &IS_PERIODIC);
+		#ifdef PERIODIC_Z
+		if(IS_PERIODIC>= 2)
+		{
+			printf("Ewald summation is on in z direction. Using %i periodic images along the z axis.\n", 2*(IS_PERIODIC+1)+1);
+		}
+		#else
+		if(IS_PERIODIC > 3)
+		{
+			printf("Error: IS_PERIODIC > 3: No such boundary condition: IS_PERIODIC is set to 3");
+			IS_PERIODIC = 3;
+		}
+		#endif
   }
 	if(strstr(c, str09) != NULL)
 	{

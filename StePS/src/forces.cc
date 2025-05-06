@@ -301,14 +301,16 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
             F[3*i+k] = 0;
         }
     }
-    REAL r, dx, dy, dz, wij;
+    REAL r, dx, dy, dz, wij, dz_ewald;
     chunk = (ID_max-ID_min)/(omp_get_max_threads());
     if(chunk < 1)
     {
         chunk = 1;
     }
     if(IS_PERIODIC>=2) {
-        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+		int ewald_max = IS_PERIODIC+1;
+		REAL ewald_cut = ((REAL) ewald_max)-0.4;
+        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2,dz_ewald)
             #pragma omp for schedule(dynamic,chunk)
                 for(i=ID_min; i<ID_max+1; i++) {
                     for(j=0; j<N; j++) {
@@ -317,17 +319,21 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         Fz_tmp = 0;
                         beta_priv = (SOFT_LENGTH[i] + SOFT_LENGTH[j]);
                         beta_privp2 = beta_priv*0.5; 
-                        //calculating particle distances inside the simulation box
+                        //calculating particle distances inside the simulation volume
                         dx = x[3*j] - x[3*i];
                         dy = x[3*j+1] - x[3*i+1];
                         dz = x[3*j+2] - x[3*i+2];
-                        //In here we use multiple images, but only in the z direction
-                        for(m=0; m<el; m++)
+                        //In here, we use multiple images but only in the z direction.
+						//Summing over 2*ewald_max+1 images (7=3+1+3, if IS_PERIODIC==2) in the z direction
+                        for(m=-ewald_max; m<ewald_max+1; m++)
                         {
-                            r = sqrt(pow(dx, 2) + pow(dy, 2) + pow((dz-((REAL) e[m][2])*L), 2));
+							//calculating the distance in the z direction
+							dz_ewald = dz+((REAL) m)*L;
+                            r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz_ewald, 2));
                             wij = 0;
-                            if(r >= beta_priv && r < 2.6*L)
+                            if(r >= beta_priv && fabs(dz_ewald) <= ewald_cut*L)
                             {
+								//applying a cutoff at ewald_cut*L (2.6*L, if IS_PERIODIC==2)
                                 wij = M[j]/(pow(r, 3));
                             }
                             else if(r > beta_privp2 && r < beta_priv)
@@ -350,7 +356,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                             {
                                 Fx_tmp += wij*(dx);
                                 Fy_tmp += wij*(dy);
-                                Fz_tmp += wij*(dz-((REAL) e[m][2])*L);
+                                Fz_tmp += wij*(dz_ewald);
                             }
                         }
                         #pragma omp atomic
