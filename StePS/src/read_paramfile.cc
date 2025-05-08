@@ -154,7 +154,7 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%i", &IS_PERIODIC);
 		#ifdef PERIODIC_Z
-		if IS_PERIODIC>= 2
+		if(IS_PERIODIC>= 2)
 		{
 			printf("Ewald summation is on in z direction. Using %i images.\n", 2*IS_PERIODIC+1);
 		}
