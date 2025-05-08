@@ -158,6 +158,10 @@ while(!feof(param_file))
 		{
 			printf("Ewald summation is on in z direction. Using %i images.\n", 2*IS_PERIODIC+1);
 		}
+		else
+		{
+			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
+		}
 		#else
 		if(IS_PERIODIC > 3)
 		{
@@ -342,6 +346,10 @@ while(!feof(param_file))
 		if(IS_PERIODIC>= 2)
 		{
 			printf("Ewald summation is on in z direction. Using %i periodic images along the z axis.\n", 2*(IS_PERIODIC+1)+1);
+		}
+		else
+		{
+			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
 		}
 		#else
 		if(IS_PERIODIC > 3)

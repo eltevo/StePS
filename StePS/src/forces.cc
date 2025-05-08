@@ -234,8 +234,8 @@ REAL SOFT_CONST[5];
 					dy=x[3*j+1]-x[3*i+1];
 					dz=x[3*j+2]-x[3*i+2];
 					//in this case we use only the nearest image
-                                	if(fabs(dx)>0.5*L)
-                                        	dx = dx-L*dx/fabs(dx);
+                    if(fabs(dx)>0.5*L)
+                        dx = dx-L*dx/fabs(dx);
 					if(fabs(dy)>0.5*L)
 						dy = dy-L*dy/fabs(dy);
 					if(fabs(dz)>0.5*L)
