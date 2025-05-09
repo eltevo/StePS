@@ -27,7 +27,7 @@ sys.path.insert(0, '../../StePS_IC/src/')
 from inputoutput import *
 import time
 
-_VERSION = "v0.4.0.0dev"
+_VERSION = "v0.4.0.1dev"
 _YEAR    = "2018-2025"
 _NAME    = "GenerateIC_for_3DSphericalGlassMaking"
 _AUTHORS = "Gabor Racz"
@@ -188,18 +188,33 @@ def Generate_random_shell(Nshell):
 
 def Generate_random_cylindrical_shell(Nshell,RtoZ, Shell=True):
     #Generating a cylindrical shell with random Nshell particles, and with 1 radius
+    ZtoR = 1.0/RtoZ
     shell = np.zeros((Nshell,3))
-    for i in range(0, Nshell):
-        while True:
-            shell[i,:2] = np.random.rand(2)-0.5
-            radius = np.sqrt(shell[i,0]**2 + shell[i,1]**2)
-            if radius <= 0.5 and np.abs(shell[i,2]) <= 0.5*RtoZ:
-                if Shell:
-                    shell[i,:2] /= radius
-                else:
-                    shell[i,:2] *= 2
+    if ZtoR < 2.0:
+        for i in range(0, Nshell):
+            while True:
+                shell[i,:2] = np.random.rand(2)-0.5
                 shell[i,2] = np.random.rand()
-                break
+                radius = np.sqrt(shell[i,0]**2 + shell[i,1]**2)
+                if radius <= 0.5 and shell[i,2] <= 0.5*ZtoR:
+                    if Shell:
+                        shell[i,:2] /= radius
+                        shell[i,2] *= 2
+                    else:
+                        shell[i,:] *= 2
+                    break
+    else:
+        for i in range(0, Nshell):
+            while True:
+                shell[i,:2] = np.random.rand(2)-0.5
+                shell[i,2] = np.random.rand()
+                radius = np.sqrt(shell[i,0]**2 + shell[i,1]**2)
+                if radius <= RtoZ:
+                    if Shell:
+                        shell[i,:2] /= radius
+                    else:
+                        shell[i,:] *= ZtoR
+                    break
     return shell;
 
 #Begininng of the script
@@ -432,7 +447,7 @@ if Params['BIN_MODE'] == 0:
             z_cutoff = r_cutoff/r_to_z_ratio
             #Shifting the glass to the center
             periodic_glass[:,:2] = periodic_glass[:,:2]-L/2
-            #Calculating r for every particle
+            #Calculating r for every particle (stored in the 4th column)
             periodic_glass[:,3] = np.sqrt(periodic_glass[:,0]**2 + periodic_glass[:,1]**2)
             #Cutting out the particles we only need
             cutoff_mask = np.logical_and(periodic_glass[:,3]<r_cutoff, periodic_glass[:,2]<z_cutoff)
@@ -440,7 +455,7 @@ if Params['BIN_MODE'] == 0:
             if len(periodic_glass)<N_part_inside:
                 # adding random particles to the glass to have exactly N_part_inside particles
                 #Generating a random shell
-                extra_particles = Generate_random_cylindrical_shell(N_part_inside-len(periodic_glass),r_to_z_ratio)*r_cutoff
+                extra_particles = np.append(Generate_random_cylindrical_shell(N_part_inside-len(periodic_glass),r_to_z_ratio)*r_cutoff,r_cutoff*np.ones((N_part_inside-len(periodic_glass),1)),axis=1)
                 # adding the random particles to the glass
                 periodic_glass = np.append(periodic_glass,extra_particles,axis=0)
             elif len(periodic_glass)>N_part_inside:
@@ -469,6 +484,8 @@ if Params['BIN_MODE'] == 0:
             particle_data[0:N_part_inside,6] = Mass_res_inside
             del(generated_sphere)
         elif Params['BOUNDARY'] == "CYLINDRICAL":
+            print("Generating the particles in the constant resolution region...")
+            print("R/Lz ratio = %f" % r_to_z_ratio)
             generated_cylinder = Generate_random_cylindrical_shell(N_part_inside,r_to_z_ratio,Shell=False)*Calculate_rlimits_i(i_crit-0.25, Params['D_S'], Params['NRBINS'], last_cell_size)
             particle_data[0:N_part_inside,0:3] = generated_cylinder
             particle_data[0:N_part_inside,6] = Mass_res_inside
