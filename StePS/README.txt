@@ -7,12 +7,21 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v1.0.2.2
-Copyright (C) 2017-2024 Gábor Rácz
+v1.3.0.0
+Copyright (C) 2017-2025 Gábor Rácz - gabor.racz@helsinki.fi
+  Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland
   Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
   Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
   Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218
-gabor.racz@jpl.nasa.gov
+
+Contributors:
+  2025 Viola Varga - viola.varga@helsinki.fi
+    Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland 
+  2025 Balázs Pál - pal.balazs@ttk.elte.hu
+    Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
+    Institute for Particle and Nuclear Physics, HUN-REN Wigner Research Centre for Physics | Pf. 49, H-1525 Budapest, Hungary.
+
+
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,13 +33,14 @@ gabor.racz@jpl.nasa.gov
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
-A direct N-body code for compactified cosmological simulations.
+An N-body code for compactified cosmological simulations.
 
 Main features:
 - Optimized to run dark matter only N-body simulations in LambdaCDM, wCDM or w0waCDM cosmology.
-- Running simulations with different models are possible by using external tabulated expansion histories.
-- Able to run standard periodic and non-periodic spherical cosmological simulations.
-- Can be used to make periodic, quasi-periodic or spherical glass.
+- Running simulations with other models are possible by using external tabulated expansion histories.
+- Able to run standard periodic, cylindrical, and non-periodic spherical cosmological simulations.
+- Direct [CPU & GPU], Octree (a.k.a. Barnes-Hut)[CPU only], and randomized Octree [CPU only] force calculation.
+- Can be used to make periodic, quasi-periodic, cylindrical or spherical glass.
 - Available for GNU/Linux and Darwin (macOS).
 - Written in C++ with MPI, OpenMP and CUDA parallelization.
 - Able to use multiple GPUs simultaneously in a large computing cluster.
@@ -177,7 +187,7 @@ a_max           1.0				%The final scalefactor (if COMOVING_INTEGRATION=1) or the
 Simulation parameters:
 -----------------------
 COSMOLOGY       1			%1=cosmological simulation 0=traditional n-body sim.
-IS_PERIODIC     0						%Boundary condition 0=none, 1=nearest images, 2=Ewald forces, 3=high precision Ewald forces
+IS_PERIODIC     0						%Boundary condition 0=vacuum boundaries, 1=nearest images (a.k.a. quasi-periodic), 2=Ewald forces, 3>=high precision Ewald forces
 COMOVING_INTEGRATION    1					%Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 L_BOX           1860.0531					%Linear size of the simulation volume
 IC_FILE 	./examples/ic/IC_LCDM_SP_1860Mpc_Nr224_Nhp32_ds105_z63_VOI100_notcomoving.hdf5	%ic file
@@ -214,3 +224,4 @@ Acknowledgement
   GR would like to thank the Department of Physics & Astronomy, JHU for supporting this work.
   GR acknowledges sponsorship of a NASA Postdoctoral Program Fellowship. GR was supported by JPL, which is run under contract by California Institute of Technology for NASA.
   The developer acknowledges support from the National Science Foundation (NSF) award 1616974.
+  GR acknowledges the support of the Research Council of Finland grant 354905 and the support by the European Research Council via ERC Consolidator grant KETJU (no. 818930).

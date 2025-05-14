@@ -29,7 +29,11 @@ typedef float REAL;
 typedef double REAL;
 #endif
 
-extern int IS_PERIODIC; //periodic boundary conditions, 0=none, 1=nearest images, 2=ewald forces
+#ifdef USE_BH
+extern REAL THETA;//default value for the opening angle (used in BH forces)
+#endif
+
+extern int IS_PERIODIC; //periodic boundary conditions, 0=none, 1=nearest images, 2=ewald forces, 3>=ewald forces with increased cut-off radius
 extern int COSMOLOGY; //Cosmological Simulation, 0=no, 1=yes
 extern int COMOVING_INTEGRATION; //Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 extern REAL L; //Size of the simulation box

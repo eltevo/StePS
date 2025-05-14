@@ -1,12 +1,12 @@
 
 #-----------------------------------------------------------------------------------------------#
 # StePS Makefile
-# Copyright (C) 2017-2025 Gabor Racz et al.
+# Copyright (C) 2017-2025 Gabor Racz
 #		Department of Physics, University of Helsinki | Helsinki, Finland
-#	Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
-# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
-# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.0.3.2-dev"'
+#		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
+# 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+# 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+VERSION='"v1.3.0.0-dev"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -23,14 +23,18 @@ VERSION='"v1.0.3.2-dev"'
 USING_CUDA = YES
 OPT += -DUSE_SINGLE_PRECISION
 
+#------------------------------- Options for the force calculation method (if everthing is commented out, direct summation is used)
+#OPT += -DUSE_BH=0.25 # Use the Barnes-Hut (OctTree) method for force calculation with an opening angle of 0.25. (Recommended value is 0.25)
+#OPT += -DRANDOMIZE_BH=123456 # Randomize the BH tree to avoid artifacts. Only works with the BH method, and it is highly recommended to use it.
+
 #------------------------------- Options for boundary conditions (only uncomment one of them)
 #OPT += -DPERIODIC # Periodic boundary conditions
 #OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only
 
-#------------------------------- Option of HDF5
+#------------------------------- Option for enabling HDF5 I/O
 OPT += -DHAVE_HDF5
 
-#------------------------------- Glass making option
+#------------------------------- Option for turning on glass making mode
 #OPT += -DGLASS_MAKING
 
 #------------------------------- Parametrization of the background cosmology
