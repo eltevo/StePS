@@ -93,7 +93,11 @@ int expansion_index; //index of the current value in the expansion history
 double** expansion_tab; //expansion history tab (columns: t, a, H)
 int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
 #endif
-
+#if defined(PERIODIC_Z)
+//Variables only used in cylindrical simmetrical simulations
+int ewald_max;
+REAL ewald_cut;
+#endif
 double epsilon=1;
 double sigma=1;
 REAL* M;//Particle mass
@@ -573,6 +577,8 @@ int main(int argc, char *argv[])
 		#if defined(PERIODIC_Z)
 			// in cylindrical simmetrical simulations, the radial force is proportional to the mass in a unit cylinder
 			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+			ewald_max = IS_PERIODIC+1;
+			ewald_cut = ((REAL) ewald_max)-0.4;
 		#else
 			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
 			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);

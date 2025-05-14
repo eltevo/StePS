@@ -105,7 +105,11 @@ extern int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
 extern double rho_crit; //Critical density
 extern double a, a_start, a_prev, a_tmp; //Scalefactor, scalefactor at the starting time, previous scalefactor
 extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, effectve Omega_m
-
+#if defined(PERIODIC_Z)
+//Variables only used in cylindrical simmetrical simulations
+extern int ewald_max;
+extern REAL ewald_cut;
+#endif
 //Functions
 //Initial timestep length calculation
 double calculate_init_h();
