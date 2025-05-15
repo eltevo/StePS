@@ -579,6 +579,10 @@ int main(int argc, char *argv[])
 			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
 			ewald_max = IS_PERIODIC+1;
 			ewald_cut = ((REAL) ewald_max)-0.4;
+			//printf("Mass in unit sphere: %e\n",mass_in_unit_sphere);
+			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m) * ewald_max*L / (sqrt(Rsim*Rsim + ewald_max*ewald_max*L*L));
+			//printf("Ewald_max*L = %e\n", ewald_max*L);
+			//printf("Force correction: %e\n", ewald_max*L / (sqrt(Rsim*Rsim + ewald_max*ewald_max*L*L)));
 		#else
 			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
 			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);

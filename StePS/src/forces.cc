@@ -302,14 +302,14 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
             F[3*i+k] = 0;
         }
     }
-    REAL r, dx, dy, dz, wij, dz_ewald, r_xy;
+    REAL r, dx, dy, dz, wij, dz_ewald;
     chunk = (ID_max-ID_min)/(omp_get_max_threads());
     if(chunk < 1)
     {
         chunk = 1;
     }
     if(IS_PERIODIC>=2) {
-        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2,dz_ewald,r_xy)
+        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2,dz_ewald)
             #pragma omp for schedule(dynamic,chunk)
                 for(i=ID_min; i<ID_max+1; i++) {
                     for(j=0; j<N; j++) {
@@ -370,9 +370,9 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                     //only include this in the X and Y directions
                     if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
                     {
-						r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
-                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
-                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
+						//r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
+                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
+                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
                     }
                     else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
                     {
@@ -382,7 +382,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                 }
     }
     else {
-        #pragma omp parallel default(shared) private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2, r_xy)
+        #pragma omp parallel default(shared) private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
             #pragma omp for schedule(dynamic,chunk)
                 for(i=ID_min; i<ID_max+1; i++) {
                     for(j=0; j<N; j++)
@@ -432,9 +432,9 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                     //only include this in the X and Y directions
                     if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
                     {
-						r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
-                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
-                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
+						//r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
+                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
+                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
                     }
                     else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
                     {

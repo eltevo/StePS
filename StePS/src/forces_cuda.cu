@@ -250,7 +250,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
     REAL Fx_tmp, Fy_tmp, Fz_tmp;
-    REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, beta_privp2, ewald_cut, r_xy;
+    REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, beta_privp2, ewald_cut;
     REAL SOFT_CONST[5];
     int i, j, m, id, ewald_max;
     id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -308,9 +308,9 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
-                Fx_tmp += mass_in_unit_sphere * xx[i] * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
-                Fy_tmp += mass_in_unit_sphere * xy[i] * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
+				//r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+                Fx_tmp += mass_in_unit_sphere * xx[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
+                Fy_tmp += mass_in_unit_sphere * xy[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
             }
             else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
             {
@@ -387,9 +387,9 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
-                F[3*(i-ID_min)] += mass_in_unit_sphere * xx[i] * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
-                F[3*(i-ID_min)+1] += mass_in_unit_sphere * xy[i] * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
+				//r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+                F[3*(i-ID_min)] += mass_in_unit_sphere * xx[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
+                F[3*(i-ID_min)+1] += mass_in_unit_sphere * xy[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
             }
             else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
             {
