@@ -107,8 +107,11 @@ extern double a, a_start, a_prev, a_tmp; //Scalefactor, scalefactor at the start
 extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, effectve Omega_m
 #if defined(PERIODIC_Z)
 //Variables only used in cylindrical simmetrical simulations
-extern int ewald_max;
-extern REAL ewald_cut;
+extern int ewald_max; //number of images in the z direction
+extern REAL ewald_cut; //cutoff radius for the ewald summation
+extern int RADIAL_FORCE_TABLE_SIZE; //size of the lookup table for the radial force calculation
+extern int RADIAL_FORCE_ACCURACY; //number of points used in the integration for the lookup table
+extern REAL *RADIAL_FORCE_TABLE; //lookup table for the radial force calculation
 #endif
 //Functions
 //Initial timestep length calculation

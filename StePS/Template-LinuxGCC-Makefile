@@ -62,9 +62,9 @@ MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
 
 CPPSTD = gnu++17
 
-SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc
+SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc
 DEPS = $(SRC_DIR)/global_variables.h
-OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o
+OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o $(BUILD_DIR)/utils.o
 
 COMPILERVERSION=$(shell $(CXX) --version | head -1)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')

@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                            */
+/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal, Viola Varga               */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -37,6 +37,37 @@ int ewald_space(REAL R, int ewald_index[2102][4]);
 cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
 #elif defined(PERIODIC_Z)
 cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
+
+__device__ REAL cuda_linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2)
+{
+
+    //helper function for linear interpolation
+	//         Y2
+	//       / |
+	//      ?  |
+	//    / |  |
+	//  Y1  |  |
+	//  |   |  |
+	//--X1--X--X2
+	REAL A=(Y2-Y1)/(X2-X1);
+	REAL B=Y1-A*X1;
+	return A*X+B;
+}
+
+
+//Function to interpolate a force for a given r, based on the values stored in the force table
+__device__ REAL get_cylindrical_force_correction(REAL r, REAL R, const REAL *FORCE_TABLE, int TABLE_SIZE)
+{
+	//only linear interpolation is on GPUs, because it is faster than the CPU version
+    REAL step = R / (REAL) TABLE_SIZE;
+    int i = (int) floor(r / R * (TABLE_SIZE - 1)); 
+    REAL correction = FORCE_TABLE[TABLE_SIZE - 1];
+	if (i < TABLE_SIZE - 1)
+	{
+		correction = cuda_linear_interpolation(r, step * i, FORCE_TABLE[i], step * (i + 1), FORCE_TABLE[i + 1]);
+	}
+    return correction;
+}
 #endif
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
@@ -247,10 +278,10 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 #endif
 
 #ifdef PERIODIC_Z
-__global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
+__global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const REAL RADIAL_FORCE_TABLE_SIZE, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
     REAL Fx_tmp, Fy_tmp, Fz_tmp;
-    REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, beta_privp2, ewald_cut;
+    REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, beta_privp2, ewald_cut, r_xy, cylindrical_force_correction;
     REAL SOFT_CONST[5];
     int i, j, m, id, ewald_max;
     id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -308,9 +339,10 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				//r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
-                Fx_tmp += mass_in_unit_sphere * xx[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
-                Fy_tmp += mass_in_unit_sphere * xy[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
+				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+				cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
+                Fx_tmp += mass_in_unit_sphere * xx[i] * cylindrical_force_correction;
+                Fy_tmp += mass_in_unit_sphere * xy[i] * cylindrical_force_correction;
             }
             else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
             {
@@ -387,9 +419,10 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				//r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
-                F[3*(i-ID_min)] += mass_in_unit_sphere * xx[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
-                F[3*(i-ID_min)+1] += mass_in_unit_sphere * xy[i];// * ewald_cut/sqrt(pow(r_xy, 2) + pow(ewald_cut, 2));
+				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+				cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
+                F[3*(i-ID_min)] += mass_in_unit_sphere * xx[i] * cylindrical_force_correction;
+                F[3*(i-ID_min)+1] += mass_in_unit_sphere * xy[i] * cylindrical_force_correction;
             }
             else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
             {
@@ -931,6 +964,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
     REAL *dev_xz= 0;
     REAL *dev_M = 0;
     REAL *dev_SOFT_LENGTH = 0;
+	REAL *dev_RADIAL_FORCE_TABLE = 0;
     REAL *dev_F = 0;
 
     // Get the number of CUDA devices
@@ -1065,6 +1099,14 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
             ForceError = true;
             goto Error;
         }
+
+		// Allocate GPU buffers for the force table
+        cudaStatus = cudaMalloc((void**)&dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE * sizeof(REAL));
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "MPI rank %i: GPU%i: SOFT_LENGTH cudaMalloc failed!\n", rank, GPU_ID);
+            ForceError = true;
+            goto Error;
+        }
         
         // Allocate GPU buffers for force vectors
         cudaStatus = cudaMalloc((void**)&dev_F, 3 * N_GPU * sizeof(REAL));
@@ -1109,6 +1151,13 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
             ForceError = true;
             goto Error;
         }
+
+		cudaStatus = cudaMemcpy(dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE * sizeof(REAL), cudaMemcpyHostToDevice);
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "MPI rank %i: GPU%i: cudaMemcpy SOFT_LENGTH in failed!\n", rank, GPU_ID);
+            ForceError = true;
+            goto Error;
+        }
         
         cudaStatus = cudaMemcpy(dev_F, F_tmp, 3 * N_GPU * sizeof(REAL), cudaMemcpyHostToDevice);
         if (cudaStatus != cudaSuccess) {
@@ -1121,8 +1170,8 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         
         // Launch a kernel on the GPU
         ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(32*mprocessors*BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, 
-                                                            IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, 
-                                                            mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION,
+                                                            IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
+                                                            mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, DE, COSMOLOGY, COMOVING_INTEGRATION,
                                                             GPU_index_min, GPU_index_min+N_GPU-1);
         
         // Check for any errors launching the kernel
@@ -1181,6 +1230,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         cudaFree(dev_M);
         cudaFree(dev_F);
         cudaFree(dev_SOFT_LENGTH);
+		cudaFree(dev_RADIAL_FORCE_TABLE);
         cudaDeviceReset();
     }
     
