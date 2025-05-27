@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                            */
+/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal, Viola Varga               */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -39,6 +39,56 @@ void recalculate_softening()
 		rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
 	}
 }
+
+#if defined(PERIODIC_Z)
+
+//These interpolators are defined in the utils.cc file
+REAL linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2);
+REAL quadratic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3);
+REAL cubic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3, REAL X4, REAL Y4);
+//This function calculates the force table for cylindrical simulations, and it is defined in the utils.cc file
+void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_SIZE, int RADIAL_FORCE_ACCURACY);
+
+//Function to interpolate a force for a given r, based on the values stored in the force table
+REAL get_cylindrical_force_correction(REAL r, REAL R, REAL *FORCE_TABLE, int TABLE_SIZE, int ORDER)
+{
+    REAL step = R / (REAL) TABLE_SIZE;
+    int i = (int) floor(r / R * (TABLE_SIZE - 1)); 
+    REAL correction = FORCE_TABLE[TABLE_SIZE - 1];
+
+    //Interpolate given the order
+    if(ORDER == 1)
+    {
+        if (i < TABLE_SIZE - 1)
+        {
+            correction = linear_interpolation(r, step * i, FORCE_TABLE[i], step * (i + 1), FORCE_TABLE[i + 1]);
+        }
+    }
+    else if(ORDER == 2)
+    {
+        if (i < TABLE_SIZE - 2)
+        {
+            correction = quadratic_interpolation(r, step * i, FORCE_TABLE[i], step * (i + 1), FORCE_TABLE[i + 1], step * (i + 2), FORCE_TABLE[i + 2]);
+        }
+        else if (i == TABLE_SIZE - 2)
+        {
+            correction = quadratic_interpolation(r, step * (i - 1), FORCE_TABLE[i - 1], step * i, FORCE_TABLE[i], step * (i + 1), FORCE_TABLE[i + 1]);
+        }
+    }  
+    else if(ORDER == 3)
+    {
+        if (i < TABLE_SIZE - 3)
+        {
+            correction = cubic_interpolation(r, step * i, FORCE_TABLE[i], step * (i + 1), FORCE_TABLE[i + 1], step * (i + 2), FORCE_TABLE[i + 2], step * (i + 3), FORCE_TABLE[i + 3]);
+        }
+        else if (i == TABLE_SIZE - 3)
+        {
+            correction = cubic_interpolation(r, step * (i - 1), FORCE_TABLE[i - 1], step * i, FORCE_TABLE[i], step * (i + 1), FORCE_TABLE[i + 1], step * (i + 2), FORCE_TABLE[i + 2]);
+        }
+    }  
+    return correction;
+}
+#endif
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
 void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
@@ -290,7 +340,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     double omp_start_time = omp_get_wtime();
     //timing
-    REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2;
+    REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2, r_xy, cylindrical_force_correction;
     REAL SOFT_CONST[5];
 	REAL DE = (REAL) H0*H0*Omega_lambda;
     
@@ -370,9 +420,10 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                     //only include this in the X and Y directions
                     if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
                     {
-						//r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
-                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
-                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
+						r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
+                        cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
+                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
+                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
                     }
                     else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
                     {
@@ -432,9 +483,10 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                     //only include this in the X and Y directions
                     if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
                     {
-						//r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
-                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
-                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1]; //* (ewald_cut*L/sqrt(pow(r_xy, 2) + pow(ewald_cut*L, 2)));
+						r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
+                        cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
+                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
+                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
                     }
                     else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
                     {
