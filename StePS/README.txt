@@ -189,6 +189,8 @@ OUTPUT_FORMAT   2						%Output format 0: ASCII 2: (Gadget-)HDF5
 REDSHIFT_CONE   0						%0: standard output files 1: one output redshift cone file
 MIN_REDSHIFT    0.02477117					%The minimal output redshift. Lower redshifts considered 0. Only used in redshift cone simulations.
 ACC_PARAM	0.005						%Accuracy parameter (using 0.012 results ~1% accuracy in the power spectrum)
+RADIAL_FORCE_ACCURACY   1000    %Sets the number of integration steps when calculating the force lookup table, only used in cylindrical simulations
+RADIAL_FORCE_TABLE_SIZE 1000    %Sets the size of the force lookup table, only used in cylindrical simulations
 STEP_MIN           0.00025						%Minimal timestep length (in Gy)
 STEP_MAX           0.03125						%Maximal timestep length (in Gy)
 PARTICLE_RADII   0.134226516867827				%Softening length of particle with minimal mass (in comoving units, if COMOVING_INTEGRATION=1, otherwise in physical units)
