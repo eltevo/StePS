@@ -101,9 +101,17 @@ void step(REAL* x, REAL* v, REAL* F)
 	int i, j, k;
 	REAL disp;
 	#ifdef GLASS_MAKING
-	REAL dmax,dmean;
-	dmax = 0.0;
-	dmean = 0.0;
+	//Variables used for glass making
+	REAL dmax,dmean,Force_abs,Fmax, A_max, A_abs, V_max, V_abs, V_mean;
+	dmax = 0.0; //maximal displacement
+	dmean = 0.0; //mean displacement
+	Force_abs = 0.0; //absolute force
+	Fmax = 0.0; //maximal force
+	A_max = 0.0; //maximal acceleration
+	A_abs = 0.0; //absolute acceleration
+	V_max = 0.0; //maximal velocity
+	V_abs = 0.0; //absolute velocity
+	V_mean = 0.0; //mean velocity
 	#endif
 	#ifdef USE_CUDA
 		omp_set_dynamic(0);		// Explicitly disable dynamic teams
@@ -252,14 +260,33 @@ void step(REAL* x, REAL* v, REAL* F)
 			{
 				errmax = err;
 			}
+			#ifdef GLASS_MAKING
+			Force_abs = sqrt(pow(F[3*i],2) + pow(F[3*i+1],2) + pow(F[3*i+2],2));
+			if(Force_abs > Fmax)
+			{
+				Fmax = Force_abs; //maximal force between particles (at a=1, without Hubble drag).
+			}
+			A_abs = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2]);
+			if(A_abs > A_max)
+			{
+				A_max = A_abs; //maximal acceleration what a particle can get. Contains cosmological effects (scaling, Hubble drag, etc.).
+			}
+			V_abs = sqrt(pow(v[3*i],2) + pow(v[3*i+1],2) + pow(v[3*i+2],2));
+			V_mean += V_abs; //mean velocity of a particle
+			if(V_abs > V_max)
+			{
+				V_max = V_abs; //maximal velocity of a particle
+			}
+			#endif
 		}
 		printf("KDK Leapfrog integration...done.\n");
 		#ifdef GLASS_MAKING
-		dmean = dmean/((REAL) N);
+		dmean /= ((REAL) N);
+		V_mean /= ((REAL) N);
 		if(dmax>1.0)
-			printf("Glass making: A_max = %e\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n", errmax/pow(a, 2.0),dmean,dmax);
+			printf("Glass making:\tF_max=%e\tA_max = %e\n\t\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n\t\tV_mean = %e\tV_max = %e\n", Fmax, A_max,dmean,dmax,V_mean,V_max);
 		else
-			printf("Glass making: A_max = %e\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n", errmax/pow(a, 2.0),dmean*1000,dmax*1000);
+			printf("Glass making:\tF_max=%e\tA_max = %e\n\t\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n\t\tV_mean = %e\tV_max = %e\n", Fmax, A_max,dmean*1000,dmax*1000,V_mean,V_max);
 		#endif
 	}
 	//Timing
