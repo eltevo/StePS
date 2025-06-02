@@ -69,7 +69,14 @@ void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_S
     //Loop to iterate through each r, and get an integral (for the force) of accuracy RADIAL_FORCE_ACCURACY for each
     for (int i = 1; i < TABLE_SIZE; i++)
     {
-        a = int_R / (double) (TABLE_SIZE - 1) * i;
+        if(i==TABLE_SIZE-1)
+        {
+            a = int_R; //For the last element, we want to set a = R
+        }
+        else
+        {
+            a = int_R / (double) (TABLE_SIZE - 1) * i; //Calculate the current r value
+        }
         total = 0;
 
         //Integrator loop using the trapezoidal method
