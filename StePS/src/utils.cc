@@ -59,38 +59,48 @@ double cubic_interpolation(double X, double X1, double Y1, double X2, double Y2,
 //Force table calculation for cylindrical simulations
 void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_SIZE, int RADIAL_FORCE_ACCURACY)
 {
-    REAL step = R / (REAL) RADIAL_FORCE_ACCURACY;
-    REAL Y, f1, f2, integrand_prev, integrand, total, a;
+    double int_R = (double) R;
+    double int_Lz = (double) Lz;
+
+    double step = int_R / (double) RADIAL_FORCE_ACCURACY;
+    double Y, f1, f2, integrand_prev, integrand, total, a;
     FORCE_TABLE[0] = 0.0; //Set default value so that even if we cannot interpolate, the table doesn't have an empty value
 
     //Loop to iterate through each r, and get an integral (for the force) of accuracy RADIAL_FORCE_ACCURACY for each
     for (int i = 1; i < TABLE_SIZE; i++)
     {
-        a = R / (REAL) (TABLE_SIZE - 1) * i;
+        if(i==TABLE_SIZE-1)
+        {
+            a = int_R; //For the last element, we want to set a = R
+        }
+        else
+        {
+            a = int_R / (double) (TABLE_SIZE - 1) * i; //Calculate the current r value
+        }
         total = 0;
 
         //Integrator loop using the trapezoidal method
         for (int j = 1; j <= RADIAL_FORCE_ACCURACY; j++)
         {
-            if (a >= R)
+            if (a >= int_R)
             {
-                a = R; //in case a > R, since we want the force a > R to be that of a = R
+                a = int_R; //in case a > R, since we want the force for a > R to be that of a = R
                 Y = (j - 1) * step;
-                integrand_prev = -2 * log((pow((pow(Lz,2) + 2 * pow(R,2) + 2 * R * pow((pow(R,2) - pow(Y,2)), 0.5)), 0.5) + Lz) / (pow((pow(Lz,2) + 2 * pow(R,2) - 2 * R * pow((pow(R,2) - pow(Y,2)), 0.5)), 0.5) + Lz));
+                integrand_prev = -2 * log((pow((pow(int_Lz,2) + 2 * pow(int_R,2) + 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz) / (pow((pow(int_Lz,2) + 2 * pow(int_R,2) - 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz));
                 
                 Y = j * step;
-                integrand = -2 * log((pow((pow(Lz,2) + 2 * pow(R,2) + 2 * R * pow((pow(R,2) - pow(Y,2)), 0.5)), 0.5) + Lz) / (pow((pow(Lz,2) + 2 * pow(R,2) - 2 * R * pow((pow(R,2) - pow(Y,2)), 0.5)), 0.5) + Lz));
+                integrand = -2 * log((pow((pow(int_Lz,2) + 2 * pow(int_R,2) + 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz) / (pow((pow(int_Lz,2) + 2 * pow(int_R,2) - 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz));
             }
             else
             {
                 Y = (j - 1) * step;
-                f1 = -2 * log((pow((pow(Lz,2) + pow(R,2) + pow(a,2) + 2*a*pow((pow(R,2) - pow(Y,2)), 0.5)),0.5)+Lz) / (pow((pow(Lz,2) + pow(R,2) + pow(a,2) - 2*a*pow((pow(R,2) - pow(Y,2)), 0.5)),0.5)+Lz));
-                f2 = log((pow(R,2) + pow(a,2) + 2*a*pow((pow(R,2) - pow(Y,2)),0.5))/(pow(R,2) + pow(a,2) - 2*a*pow((pow(R,2) - pow(Y,2)),0.5)));
+                f1 = -2 * log((pow((pow(int_Lz,2) + pow(int_R,2) + pow(a,2) + 2*a*pow((pow(int_R,2) - pow(Y,2)), 0.5)),0.5)+int_Lz) / (pow((pow(int_Lz,2) + pow(int_R,2) + pow(a,2) - 2*a*pow((pow(int_R,2) - pow(Y,2)), 0.5)),0.5)+int_Lz));
+                f2 = log((pow(int_R,2) + pow(a,2) + 2*a*pow((pow(int_R,2) - pow(Y,2)),0.5))/(pow(int_R,2) + pow(a,2) - 2*a*pow((pow(int_R,2) - pow(Y,2)),0.5)));
                 integrand_prev = f1 + f2;
 
                 Y = j * step;
-                f1 = -2 * log((pow((pow(Lz,2) + pow(R,2) + pow(a,2) + 2*a*pow((pow(R,2) - pow(Y,2)), 0.5)),0.5)+Lz) / (pow((pow(Lz,2) + pow(R,2) + pow(a,2) - 2*a*pow((pow(R,2) - pow(Y,2)), 0.5)),0.5)+Lz));
-                f2 = log((pow(R,2) + pow(a,2) + 2*a*pow((pow(R,2) - pow(Y,2)),0.5))/(pow(R,2) + pow(a,2) - 2*a*pow((pow(R,2) - pow(Y,2)),0.5)));
+                f1 = -2 * log((pow((pow(int_Lz,2) + pow(int_R,2) + pow(a,2) + 2*a*pow((pow(int_R,2) - pow(Y,2)), 0.5)),0.5)+int_Lz) / (pow((pow(int_Lz,2) + pow(int_R,2) + pow(a,2) - 2*a*pow((pow(int_R,2) - pow(Y,2)), 0.5)),0.5) + int_Lz));
+                f2 = log((pow(int_R,2) + pow(a,2) + 2*a*pow((pow(int_R,2) - pow(Y,2)),0.5))/(pow(int_R,2) + pow(a,2) - 2*a*pow((pow(int_R,2) - pow(Y,2)),0.5)));
                 integrand = f1 + f2;
             }
 
@@ -98,20 +108,20 @@ void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_S
         }
 
         //For each a, calculate the force and add them to the table
-        if(a >= R)
+        if(a >= int_R)
         {
-            FORCE_TABLE[i] = 2 * (total + M_PI * R) / (2 * M_PI * R); //In the last parantheses a = R because we want it to be constant after R
+            FORCE_TABLE[i] = (REAL) (2 * (total + pi * int_R) / (2 * pi * int_R)); //In the last parantheses a = R because we want it to be constant after R
         }
         else
         {
-            FORCE_TABLE[i] = 2 * total / (2 * M_PI * a);
+            FORCE_TABLE[i] = (REAL) (2 * total / (2 * pi * a));
         }
     }
 
     //For the case a = 0, we interpolate
     if(TABLE_SIZE >= 3)
     {
-        FORCE_TABLE[0] = linear_interpolation(0, 2 * R / (REAL) TABLE_SIZE, FORCE_TABLE[1], 4 * R / (REAL) TABLE_SIZE, FORCE_TABLE[2]);
+        FORCE_TABLE[0] = (REAL) (linear_interpolation(0, 2 * int_R / (double) TABLE_SIZE, FORCE_TABLE[1], 4 * int_R / (double) TABLE_SIZE, FORCE_TABLE[2]));
     }
 }
 #endif

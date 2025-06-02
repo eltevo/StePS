@@ -587,18 +587,19 @@ int main(int argc, char *argv[])
 			ewald_max = IS_PERIODIC+1;
 			ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the ewald summation
 			// Calculating the lookup table for the radial force calculation
+			printf("Calculating the lookup table for the radial force calculation...\n");
 			RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
 			if(IS_PERIODIC==1)
 			{
 				get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
 				if(rank==0)
-					printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.6f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+					printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
 			}
 			else
 			{
 				get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim, L*ewald_cut,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
 				if(rank==0)
-					printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=%.1fLsim)|/|F(Lz=inf)| = %.6f \n\n", Rsim, 2*ewald_cut, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+					printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=%.1fLsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, 2*ewald_cut, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
 			}
 		#else
 			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
