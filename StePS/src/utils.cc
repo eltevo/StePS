@@ -86,10 +86,10 @@ void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_S
             {
                 a = int_R; //in case a > R, since we want the force for a > R to be that of a = R
                 Y = (j - 1) * step;
-                integrand_prev = -2 * log((pow((pow(int_Lz,2) + 2 * pow(int_R,2) + 2 * int_R * pow(abs(pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz) / (pow((pow(int_Lz,2) + 2 * pow(int_R,2) - 2 * int_R * pow(abs(pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz));
+                integrand_prev = -2 * log((pow((pow(int_Lz,2) + 2 * pow(int_R,2) + 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz) / (pow((pow(int_Lz,2) + 2 * pow(int_R,2) - 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz));
                 
                 Y = j * step;
-                integrand = -2 * log((pow((pow(int_Lz,2) + 2 * pow(int_R,2) + 2 * int_R * pow(abs(pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz) / (pow((pow(int_Lz,2) + 2 * pow(int_R,2) - 2 * int_R * pow(abs(pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz));
+                integrand = -2 * log((pow((pow(int_Lz,2) + 2 * pow(int_R,2) + 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz) / (pow((pow(int_Lz,2) + 2 * pow(int_R,2) - 2 * int_R * pow((pow(int_R,2) - pow(Y,2)), 0.5)), 0.5) + int_Lz));
             }
             else
             {
