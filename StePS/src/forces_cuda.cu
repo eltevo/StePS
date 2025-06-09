@@ -1011,7 +1011,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
     omp_set_dynamic(0);             // Explicitly disable dynamic teams
     omp_set_num_threads(n_GPU);     // Use n_GPU threads
     
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, dev_RADIAL_FORCE_TABLE)
     {
         #pragma omp critical
         {
