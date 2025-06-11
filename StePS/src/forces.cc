@@ -287,6 +287,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
     REAL DE = (REAL) H0*H0*Omega_lambda;
     int i, k, chunk;
 	REAL domain_center[3];
+	REAL ROOTNODESIZE;
     //Building the octree
 	// Identifying the most outer particle radius
 	REAL radius_tmp, Max_radius = 0.0;
@@ -304,8 +305,9 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
     //generating the random shift vector (10% of the maximum radius)
 	for(i=0; i<3; i++)
 	{
-		domain_center[i] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*0.2*Max_radius;
+		domain_center[i] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*2.0*Max_radius;
 	}
+	ROOTNODESIZE = 4.00001 * Max_radius; //size of the root node
 	rotation_angle = (REAL)rand()/(REAL)RAND_MAX * pi;
 	random_unit_vector(rotation_axis);
 	printf("MPI task %i: Octree force calculation started with random %.3f RAD rotation along the\n\t    (%.3f, %.3f, %.3f) axis vector, and with random domain center (%.3f, %.3f, %.3f).\n", rank, rotation_angle, rotation_axis[0], rotation_axis[1], rotation_axis[2], domain_center[0], domain_center[1], domain_center[2]);
@@ -313,8 +315,9 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	rotate_vectors(x, rotation_axis, rotation_angle, 0, N-1);
 	#else
 	domain_center[0] = domain_center[1] = domain_center[2] = 0.0;
+	ROOTNODESIZE = 2.00002 * Max_radius; //size of the root node (Dsim+epsilon)
 	#endif
-    OctreeNode *rootnode = create_node(domain_center[0], domain_center[1], domain_center[2], 2*(Max_radius*1.1)); //centered at the origin, size 2.2*Rsim
+    OctreeNode *rootnode = create_node(domain_center[0], domain_center[1], domain_center[2], ROOTNODESIZE); //centered at domain_center, size ROOTNODESIZE
     for (int i = 0; i < N; i++)
     {
         // Insert particles into the octree
