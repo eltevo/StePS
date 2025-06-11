@@ -24,16 +24,16 @@ VERSION='"v1.3.0.0-dev"'
 
 #------------------------------- Options for the force calculation method (if everthing is commented out, direct summation is used)
 #OPT += -DUSE_BH=0.25 # Use the Barnes-Hut (OctTree) method for force calculation with an opening angle of 0.25. (Recommended value is 0.25)
-OPT += -DRANDOMIZE_BH=123456 # Randomize the BH tree to avoid artifacts. Only works with the BH method, and it is highly recommended to use it.
+#OPT += -DRANDOMIZE_BH=123456 # Randomize the BH tree to avoid artifacts. Only works with the BH method, and it is highly recommended to use it.
 
 #------------------------------- Options for boundary conditions (only uncomment one of them)
 #OPT += -DPERIODIC # Periodic boundary conditions
 #OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only
 
-#------------------------------- Option of HDF5
+#------------------------------- Option for enabling HDF5 I/O
 OPT += -DHAVE_HDF5
 
-#------------------------------- Glass making option
+#------------------------------- Option for turning on glass making mode
 #OPT += -DGLASS_MAKING
 
 #------------------------------- Parametrization of the background cosmology
