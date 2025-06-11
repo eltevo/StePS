@@ -302,12 +302,12 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	#ifdef RANDOMIZE_BH
 	REAL rotation_axis[3];
 	REAL rotation_angle;
-    //generating the random shift vector (10% of the maximum radius)
+    //generating the random shift vector (100% of the maximum radius)
 	for(i=0; i<3; i++)
 	{
 		domain_center[i] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*2.0*Max_radius;
 	}
-	ROOTNODESIZE = 4.00001 * Max_radius; //size of the root node
+	ROOTNODESIZE = 4.00004 * Max_radius; //size of the root node (2Dsim+epsilon)
 	rotation_angle = (REAL)rand()/(REAL)RAND_MAX * pi;
 	random_unit_vector(rotation_axis);
 	printf("MPI task %i: Octree force calculation started with random %.3f RAD rotation along the\n\t    (%.3f, %.3f, %.3f) axis vector, and with random domain center (%.3f, %.3f, %.3f).\n", rank, rotation_angle, rotation_axis[0], rotation_axis[1], rotation_axis[2], domain_center[0], domain_center[1], domain_center[2]);
