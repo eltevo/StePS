@@ -207,13 +207,13 @@ int main(int argc, char *argv[])
 	#endif
 	#if defined(PERIODIC)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions.\n");
+		printf("\tPeriodic boundary conditions. (Periodic 3-torus topology)\n");
 	#elif defined(PERIODIC_Z)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions in the z direction. (Cylindrically symmetric simulations)\n");
+		printf("\tPeriodic boundary conditions in the z direction. (Cylindrically symmetric topology)\n");
 	#else
 	if(rank == 0)
-		printf("\tNon-periodic boundary conditions.\n");
+		printf("\tNon-periodic boundary conditions. (Spherically symmetric topology)\n");
 	#endif
 	#if defined(USE_BH)
 	THETA = (REAL) USE_BH; //Opening angle for the octree

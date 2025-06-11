@@ -287,7 +287,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
     REAL DE = (REAL) H0*H0*Omega_lambda;
     int i, k, chunk;
 	REAL domain_center[3];
-	REAL ROOTNODESIZE;
+	REAL RootNodeSize;
     //Building the octree
 	// Identifying the most outer particle radius
 	REAL radius_tmp, Max_radius = 0.0;
@@ -307,7 +307,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	{
 		domain_center[i] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*2.0*Max_radius;
 	}
-	ROOTNODESIZE = 4.00004 * Max_radius; //size of the root node (2Dsim+epsilon)
+	RootNodeSize = 4.00004 * Max_radius; //size of the root node (2Dsim+epsilon)
 	rotation_angle = (REAL)rand()/(REAL)RAND_MAX * pi;
 	random_unit_vector(rotation_axis);
 	printf("MPI task %i: Octree force calculation started with random %.3f RAD rotation along the\n\t    (%.3f, %.3f, %.3f) axis vector, and with random domain center (%.3f, %.3f, %.3f).\n", rank, rotation_angle, rotation_axis[0], rotation_axis[1], rotation_axis[2], domain_center[0], domain_center[1], domain_center[2]);
@@ -315,9 +315,9 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	rotate_vectors(x, rotation_axis, rotation_angle, 0, N-1);
 	#else
 	domain_center[0] = domain_center[1] = domain_center[2] = 0.0;
-	ROOTNODESIZE = 2.00002 * Max_radius; //size of the root node (Dsim+epsilon)
+	RootNodeSize = 2.00002 * Max_radius; //size of the root node (Dsim+epsilon)
 	#endif
-    OctreeNode *rootnode = create_node(domain_center[0], domain_center[1], domain_center[2], ROOTNODESIZE); //centered at domain_center, size ROOTNODESIZE
+    OctreeNode *rootnode = create_node(domain_center[0], domain_center[1], domain_center[2], RootNodeSize); //centered at domain_center, size RootNodeSize
     for (int i = 0; i < N; i++)
     {
         // Insert particles into the octree
@@ -987,6 +987,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     REAL Fx_tmp, Fy_tmp, Fz_tmp, r_xy, cylindrical_force_correction, RootNodeSize, Zscaling, EwaldCut;
 	REAL* x_tmp;
+	REAL random_shift[3];
 	x_tmp = (REAL*) malloc(N*sizeof(REAL));
 	REAL DE = (REAL) H0*H0*Omega_lambda;
     int i, k, m, chunk;
@@ -1008,21 +1009,25 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 			Max_radius = radius_tmp;
 		}
 	}
-	// scaling the simulation box in the z direction to have a cubical volume for the octree
-	RootNodeSize = 2.0*Max_radius*1.10; // 10% larger than the maximum radius
-	Zscaling = RootNodeSize/L;
 	#ifdef RANDOMIZE_BH
 	//randomly shifting the domain center and rotating the simulation volume
-	REAL random_shift[3];
 	REAL rotation_angle;
-	rotation_angle = ((REAL)rand()/(REAL)RAND_MAX)*2.0*M_PI; //random rotation angle between 0 and 2*pi
-	random_shift[0] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*0.1*Max_radius; //shift in the x direction between -0.05*Rsim and 0.05*Rsim
-	random_shift[1] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*0.1*Max_radius; //shift in the y direction between -0.05*Rsim and 0.05*Rsim
+	rotation_angle = ((REAL)rand()/(REAL)RAND_MAX)*2.0*pi; //random rotation angle between 0 and 2*pi
+	random_shift[0] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*2*Max_radius; //shift in the x direction between -Rsim and Rsim
+	random_shift[1] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*2*Max_radius; //shift in the y direction between -Rsim and Rsim
 	random_shift[2] = ((REAL)rand()/(REAL)RAND_MAX-0.5)*L; //shift in the z direction between -0.5*Lz and 0.5*Lz
 	printf("MPI task %i: Octree force calculation started with random shift vector (%.3f %.3f %.3f)\n\t    and rotation angle %.3f RAD around the z axis.\n", rank, random_shift[0], random_shift[1], random_shift[2], rotation_angle);
 	//First, we rotate the particles around the z axis by the random angle
 	rotate_vectors_2d(x, rotation_angle, 0, N-1);
+	RootNodeSize = 4.00004*Max_radius; // 2x+epsilon larger than the maximum diameter
+	#else
+	random_shift[0] = 0.0; //no shift in the x direction
+	random_shift[1] = 0.0; //no shift in the y direction
+	random_shift[2] = 0.0; //no shift in the z direction
+	RootNodeSize = 2.00002*Max_radius; // 2+epsilon times of the maximal diameter
 	#endif
+	// scaling the simulation box in the z direction to have a cubical volume for the octree
+	Zscaling = RootNodeSize/L;
 	OctreeNode *rootnode = create_node(random_shift[0], random_shift[1], 0.50*RootNodeSize, RootNodeSize); //center of the simulation box, size 2*(Rsim+epsilon)
 	for (int i = 0; i < N; i++)
     {
