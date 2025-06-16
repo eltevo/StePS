@@ -317,6 +317,8 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	domain_center[0] = domain_center[1] = domain_center[2] = 0.0;
 	RootNodeSize = 2.00002 * Max_radius; //size of the root node (Dsim+epsilon)
 	#endif
+	if(rank==0)
+		printf("\t    Root node size: %.6g Mpc.\n", RootNodeSize);
     OctreeNode *rootnode = create_node(domain_center[0], domain_center[1], domain_center[2], RootNodeSize); //centered at domain_center, size RootNodeSize
     for (int i = 0; i < N; i++)
     {
@@ -614,6 +616,8 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	}
 	#endif
 	//Building the octree
+	if(rank==0)
+		printf("\t    Root node size: %.6g Mpc.\n", L);
     OctreeNode *rootnode = create_node(0.50*L, 0.50*L, 0.50*L, L); //center of the simulation box, size L
     for (int i = 0; i < N; i++)
     {
@@ -879,7 +883,7 @@ void rotate_vectors_2d(REAL* CoordArray, REAL ROT_RAD, int idmin, int idmax)
 }
 #endif
 
-void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL COORD_X, REAL COORD_Y, REAL COORD_Z, REAL ewald_cut, REAL zscale, REAL *fx, REAL *fy, REAL *fz)
+void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL COORD_X, REAL COORD_Y, REAL COORD_Z, REAL ewald_cut, REAL *fx, REAL *fy, REAL *fz)
 {
 	if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
@@ -888,9 +892,9 @@ void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REA
 
 	REAL dx = node->com_x - COORD_X;
 	REAL dy = node->com_y - COORD_Y;
-	REAL dz = (node->com_z - COORD_Z)/zscale; // Scale the z-coordinate to have physical distances
+	REAL dz = (node->com_z - COORD_Z);
 	REAL dist = sqrt(dx*dx + dy*dy + dz*dz);
-	if (node->particle_index != -1 || (node->nodesize)/cbrt(zscale) / dist < THETA)
+	if (node->particle_index != -1 || (node->nodesize) / dist < THETA)
 	{
 		if (fabs(dz) > ewald_cut) return;
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
@@ -923,12 +927,12 @@ void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REA
 	{
 		for (int j = 0; j < 8; j++)
 		{
-			compute_BH_force_z(node->children[j], X, i, SOFT_LENGTH, COORD_X, COORD_Y, COORD_Z, ewald_cut, zscale, fx, fy, fz);
+			compute_BH_force_z(node->children[j], X, i, SOFT_LENGTH, COORD_X, COORD_Y, COORD_Z, ewald_cut, fx, fy, fz);
 		}
 	}
 }
 
-void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL boxsize, REAL zscale, REAL *fx, REAL *fy, REAL *fz)
+void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL boxsize, REAL *fx, REAL *fy, REAL *fz)
 {
 	//quasi-periodic force calculation in the z direction only
 	if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
@@ -938,12 +942,12 @@ void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, 
 
 	REAL dx = node->com_x - X[3*i];
 	REAL dy = node->com_y - X[3*i+1];
-	REAL dz = (node->com_z - X[3*i+2]) / zscale; // Scale the z-coordinate to have physical distances
+	REAL dz = (node->com_z - X[3*i+2]);
 	//in this case we use only the nearest image of the node
 	if(fabs(dz)>0.5*boxsize)
 		dz = dz-boxsize*dz/fabs(dz);
 	REAL dist = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
-	if (node->particle_index != -1 || (node->nodesize)/cbrt(zscale) / dist < THETA)
+	if (node->particle_index != -1 || (node->nodesize) / dist < THETA)
 	{
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
 		betap2 = beta*0.5;
@@ -975,7 +979,7 @@ void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, 
 	{
 		for (int j = 0; j < 8; j++)
 		{
-			compute_BH_QP_force_z(node->children[j], X, i, SOFT_LENGTH, boxsize, zscale, fx, fy, fz);
+			compute_BH_QP_force_z(node->children[j], X, i, SOFT_LENGTH, boxsize, fx, fy, fz);
 		}
 	}
 }
@@ -985,10 +989,8 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     double omp_start_time = omp_get_wtime();
     //timing
-    REAL Fx_tmp, Fy_tmp, Fz_tmp, r_xy, cylindrical_force_correction, RootNodeSize, Zscaling, EwaldCut;
-	REAL* x_tmp;
+    REAL Fx_tmp, Fy_tmp, Fz_tmp, r_xy, cylindrical_force_correction, RootNodeSize, EwaldCut;
 	REAL random_shift[3];
-	x_tmp = (REAL*) malloc(N*sizeof(REAL));
 	REAL DE = (REAL) H0*H0*Omega_lambda;
     int i, k, m, chunk;
     for(i=0; i<N_mpi_thread; i++)
@@ -1019,15 +1021,33 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 	printf("MPI task %i: Octree force calculation started with random shift vector (%.3f %.3f %.3f)\n\t    and rotation angle %.3f RAD around the z axis.\n", rank, random_shift[0], random_shift[1], random_shift[2], rotation_angle);
 	//First, we rotate the particles around the z axis by the random angle
 	rotate_vectors_2d(x, rotation_angle, 0, N-1);
-	RootNodeSize = 4.00004*Max_radius; // 2x+epsilon larger than the maximum diameter
+	if (4*Max_radius < L)
+	{
+		//if the maximum diameter is smaller than half of the box size, we use the periodicity length as the root node size
+		RootNodeSize = L;
+	}
+	else
+	{
+		//if the maximum diameter is larger than half of the box size, we use the double of maximum diameter as the root node size
+		RootNodeSize = 4.0*Max_radius; // 2+epsilon times of the maximal diameter
+	}
 	#else
 	random_shift[0] = 0.0; //no shift in the x direction
 	random_shift[1] = 0.0; //no shift in the y direction
 	random_shift[2] = 0.0; //no shift in the z direction
-	RootNodeSize = 2.00002*Max_radius; // 2+epsilon times of the maximal diameter
+	if(2*Max_radius < L)
+	{
+		//if the maximum diameter is smaller than half of the box size, we use the periodicity length as the root node size
+		RootNodeSize = L;
+	}
+	else
+	{
+		//if the maximum diameter is larger than half of the box size, we use the double of maximum diameter as the root node size
+		RootNodeSize = 2.0*Max_radius; // 2+epsilon times of the maximal diameter
+	}
 	#endif
-	// scaling the simulation box in the z direction to have a cubical volume for the octree
-	Zscaling = RootNodeSize/L;
+	if(rank==0)
+		printf("\t    Root node size: %.6g Mpc.\n", RootNodeSize);
 	OctreeNode *rootnode = create_node(random_shift[0], random_shift[1], 0.50*RootNodeSize, RootNodeSize); //center of the simulation box, size 2*(Rsim+epsilon)
 	for (int i = 0; i < N; i++)
     {
@@ -1045,9 +1065,6 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 		}
 		#endif
         // Insert particles into the octree
-		//the x and y coordinates of the particles are not changed, but the z coordinate must be scaled
-		x_tmp[i] = x[3*i+2]; // storing the original z coordinates
-		x[3*i+2] *= Zscaling;
         insert_particle(rootnode, x, M, i);
 	}
     for(i=0; i<N_mpi_thread; i++)
@@ -1073,7 +1090,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 				for(m=-ewald_max; m<ewald_max+1; m++)
 				{
 					Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
-					compute_BH_force_z(rootnode, x, i, SOFT_LENGTH, x[3*i], x[3*i+1], x[3*i+2]+((REAL) m)*RootNodeSize, EwaldCut, Zscaling, &Fx_tmp, &Fy_tmp, &Fz_tmp);
+					compute_BH_force_z(rootnode, x, i, SOFT_LENGTH, x[3*i], x[3*i+1], x[3*i+2]+((REAL) m)*L, EwaldCut, &Fx_tmp, &Fy_tmp, &Fz_tmp);
 					#pragma omp atomic
 						F[3*(i-ID_min)] += Fx_tmp;
 					#pragma omp atomic
@@ -1105,7 +1122,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 			{
 				Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
 				//using the nearest image in the z direction
-				compute_BH_QP_force_z(rootnode, x, i, SOFT_LENGTH, L, Zscaling, &Fx_tmp, &Fy_tmp, &Fz_tmp);
+				compute_BH_QP_force_z(rootnode, x, i, SOFT_LENGTH, L, &Fx_tmp, &Fy_tmp, &Fz_tmp);
 				#pragma omp atomic
 					F[3*(i-ID_min)] += Fx_tmp;
 				#pragma omp atomic
@@ -1137,9 +1154,9 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 			}
     }
 	free_node(rootnode);
+	#ifdef RANDOMIZE_BH
 	for (int i = 0; i < N; i++)
 	{
-		x[3*i+2] = x_tmp[i]; //restoring the original z coordinates
 		x[3*i+2] -= random_shift[2]; //shifting back to the original position with periodic boundary conditions
 		//Checking the periodic boundaries along the z axis
 		if(x[3*i+2]<0)
@@ -1151,8 +1168,6 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 			x[3*i+2] = x[3*i+2] - L;
 		}
     }
-	free(x_tmp); //freeing the temporary array
-	#ifdef RANDOMIZE_BH
 	//rotating back the the simulation volume to its original orientation
 	rotate_vectors_2d(x, -rotation_angle, 0, N-1);
 	rotate_vectors_2d(F, -rotation_angle, ID_min, ID_max);
