@@ -60,6 +60,10 @@ REAL* F_buffer;
 REAL x4, err, errmax;
 REAL beta, ParticleRadi, rho_part, M_min;
 
+#ifdef USE_BH
+REAL THETA;//default value for the opening angle (used in BH forces)
+#endif
+
 int IS_PERIODIC, COSMOLOGY;
 int COMOVING_INTEGRATION; //Comoving integration 0=no, 1=yes, used only when  COSMOLOGY=1
 REAL L, Rsim; //linear size of the simulation volume
@@ -161,12 +165,14 @@ int main(int argc, char *argv[])
 	MPI_Comm_size(MPI_COMM_WORLD,&numtasks);
 	// get my rank
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+	#ifndef USE_CUDA
 	// get number of OMP threads
 	int omp_threads;
 	#pragma omp parallel
 	{
 			omp_threads = omp_get_num_threads();
 	}
+	#endif
 	if(rank == 0)
 	{
 		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2025 Gabor Racz et al.\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
@@ -201,13 +207,27 @@ int main(int argc, char *argv[])
 	#endif
 	#if defined(PERIODIC)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions.\n");
+		printf("\tPeriodic boundary conditions. (Periodic 3-torus topology)\n");
 	#elif defined(PERIODIC_Z)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions in the z direction. (Cylindrically symmetric simulations)\n");
+		printf("\tPeriodic boundary conditions in the z direction. (Cylindrically symmetric topology)\n");
 	#else
 	if(rank == 0)
-		printf("\tNon-periodic boundary conditions.\n");
+		printf("\tNon-periodic boundary conditions. (Spherically symmetric topology)\n");
+	#endif
+	#if defined(USE_BH)
+	THETA = (REAL) USE_BH; //Opening angle for the octree
+	#if !defined(RANDOMIZE_BH)
+	if(rank == 0)
+		printf("\tForce calculation method: Barnes-Hut tree (Octree) algorithm with opening angle (theta) %.2f.\n", THETA);
+	#else 
+	if(rank == 0)
+		printf("\tForce calculation method: Randomized Barnes-Hut tree (Octree) algorithm.\n\t\tOctree opening angle (theta): %.2f\n\t\tRandom seed: %i\n", THETA, RANDOMIZE_BH);
+	srand(RANDOMIZE_BH);
+	#endif
+	#else
+	if(rank == 0)
+		printf("\tForce calculation method: Direct summation.\n");
 	#endif
 	#if COSMOPARAM==0 || !defined(COSMOPARAM)
 	if(rank == 0)
@@ -292,12 +312,14 @@ int main(int argc, char *argv[])
 		{
 			if(IS_PERIODIC==2)
 			{
+				if(rank == 0)
+					printf("Ewald force calculation is on. (Ewald cut is 2.6*L)\n");
 				el = ewald_space(3.6,e);
 			}
  			else
 			{
 				if(rank == 0)
-					printf("High precision Ewald force calculation is on.\n");
+					printf("High precision Ewald force calculation is on. (Ewald cut is 4.8*L)\n");
 				el = ewald_space(5.8,e);
 			}
 		}

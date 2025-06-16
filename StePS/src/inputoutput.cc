@@ -1379,6 +1379,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	hsize_t adim[1] = { 6 };
 	hid_t hdf5_dataspace, hdf5_attribute;
 
+	//NumPart_ThisFile
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	hdf5_attribute = H5Acreate(handle, "NumPart_ThisFile", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
@@ -1390,6 +1391,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//NumPart_Total
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	hdf5_attribute = H5Acreate(handle, "NumPart_Total", H5T_NATIVE_UINT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
@@ -1397,6 +1399,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//NumPart_Total_HighWord
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	for(i=0; i<6; i++)
@@ -1406,7 +1409,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
-
+	//MassTable
 	hdf5_dataspace = H5Screate(H5S_SIMPLE);
 	H5Sset_extent_simple(hdf5_dataspace, 1, adim, NULL);
 	double mass[6];
@@ -1418,6 +1421,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Time (or scale factor)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Time", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT,  H5P_DEFAULT);
 	if(COSMOLOGY == 0 || (OUTPUT_TIME_VARIABLE==0 && COMOVING_INTEGRATION==0))
@@ -1428,6 +1432,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Redshift
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Redshift", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	double redshift=(1.0/a-1.0);
@@ -1435,6 +1440,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//BoxSize
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "BoxSize", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	if(H0_INDEPENDENT_UNITS == 0)
@@ -1449,6 +1455,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//NumFilesPerSnapshot
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "NumFilesPerSnapshot", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	int numfiles = 1;
@@ -1456,18 +1463,21 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Omega0 (Omega_matter)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Omega0", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Omega_m);
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//OmegaLambda (Omega_dark_energy)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "OmegaLambda", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Omega_lambda);
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//HubbleParam (H0 in 100km/s/Mpc units)
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "HubbleParam", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	redshift = H0*UNIT_V/100.0;
@@ -1475,6 +1485,24 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
+	//Parameters of cosmological models beyond LCDM (if applicable)
+	#if COSMOPARAM==1 || COSMOPARAM==2
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "DE_w0", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &w0);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	#endif
+
+	#if COSMOPARAM==2
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "DE_wa", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &wa);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	#endif
+
+	//Flags for GADGET compatibility
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Flag_Sfr", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	int zero = 0;
