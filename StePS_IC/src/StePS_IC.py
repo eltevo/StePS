@@ -29,7 +29,7 @@ from powerspec import *
 from subprocess import call
 from pynverse import inversefunc
 
-_VERSION="v1.1.0.2"
+_VERSION="v1.2.0.0"
 _YEAR="2018-2025"
 
 #some basic function for the stereographic projection
@@ -87,6 +87,7 @@ print("+---------------------------------------------------------------+\n" \
 "| This is free software, and you are welcome to redistribute it |\n" \
 "| under certain conditions. See the LICENSE file for details.   |\n" \
 "+---------------------------------------------------------------+\n\n")
+print("Warning: This script is the old initial condition generator for StePS simulations, and got replaced by stepsic2 (https://github.com/eltevo/stepsic).\nPlease consider using stepsic2 for generating initial conditions for StePS simulations.\n")
 if len(sys.argv) != 2:
     print("Error: missing yaml file!")
     print("usage: ./StePS_IC.py <input yaml file>\nExiting.")
@@ -549,14 +550,26 @@ if Params['LOCAL_EXECUTION'] > 0:
             if Params['MPITASKS'] == 1:
                 if Params['ICGENERATORTYPE'] == 2:
                     call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".0")])
-                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                    # keeping the last inputspec file
+                    if i == len(Nsample_tab) - 1:
+                        call(["mv", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt"), (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                    else:
+                        call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
                 else:
                     call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i)])
-                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                    # keeping the last inputspec file
+                    if i == len(Nsample_tab) - 1:
+                        call(["mv", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt"), (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                    else:
+                        call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
             else:
                 for j in range(0,Params['MPITASKS']):
                     call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_%i" % i + ".%i" % j)])
-                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
+                    # keeping the last inputspec file
+                    if i == len(Nsample_tab) - 1 and j==0:
+                        call(["mv", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt"))])
+                    else:
+                        call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + "_%i" % i + ".txt")])
     else:
         call(["rm", "-f", paramfile_name])
         if Params['MPITASKS'] == 1:
@@ -565,11 +578,14 @@ if Params['LOCAL_EXECUTION'] > 0:
                 call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
             else:
                 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'])])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                # keeping the last inputspec file
+                #call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
         else:
            for j in range(0,Params['MPITASKS']):
                 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + ".%i" % j)])
-                call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
+                # keeping the last inputspec file
+                if j!=0:
+                    call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS")])
 print("...done.\n")
 end = time.time()

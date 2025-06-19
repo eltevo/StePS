@@ -21,10 +21,11 @@ DARKENERGYPARAMS:
 # Output parameters
 OUTFILE: "./Halos_snapshot_0012_10th_CoMC" # basename of the generated halo catalog. If the output format is "ASCII", then the file extension will be ".dat". For "HDF5" catalogs, the output extension will be ".hdf5"
 OUTFORMAT: "BOTH" # output format of the generated catalog. Possible values: "ASCII", "HDF5", or "BOTH"
-SAVEPARTICLES: False # if True, then particle data will be stored for each halo (only for HDF5 format)
+SAVEPARTICLES: True # if True, then particle data will be stored for each halo (only for HDF5 format)
+PARTICLE_SAVE_RADIUS: 1.5 # in Rvir units. Around each halo center, particles within this radius will be saved if SAVEPARTICLES is True.
 # Halo Finder parameters
 INITIAL_DENSITY_MODE: "Nth neighbor" # initial density estimation method. Possible values: "Voronoi" "Nth neighbor". If "Voronoi" is selected, the density field will be estimated by a parameter-free Voronoi tessellation method. If "Nth neighbor" is selected, the density field will be estimated by the Nth nearest neighbor method, where N is the value of the parameter NPARTMIN.
-SEARCH_RADIUS_ALPHA: 2.5 # around each halo r<alpha*dp spherical volume will be investigated,  where dp is the typical particle separation
+SEARCH_RADIUS: 5.0 # Search radius in Mpc(/h) units. Around each halo candidate r<SEARCH_RADIUS spherical volume will be investigated, to find the total mass and radius of the halo. This parameter should be larger than the maximal virial radius of the halos in the simulation.
 KDWORKERS: 4 # number of worker threads in the KDTree search
 NPARTMIN: 10 # minimal particle number (should be at least 10)
 BOUNDONLYMODE: False #If True, particles with Etot>=0 with Ekin/|Epot|>=UNBOUND_THRESHOLD will removed from the halo
@@ -37,5 +38,5 @@ MASSDEF:
   - "1000c"
   - "2500c"
 # Parallelization parameters. Note that parallelization is only available for the "STEPS" boundary conditions
-DELTA_R: 5.25 # in Mpc(/h) units. Only used if more than one MPI thread is used
+DELTA_R: 5.25 # in Mpc(/h) units. Used if more than one MPI thread is used, or if the boundary conditions are "CYLINDRICAL".
 DELTA_THETA: 5.5 # in degrees. Only used if more than two MPI thread is used

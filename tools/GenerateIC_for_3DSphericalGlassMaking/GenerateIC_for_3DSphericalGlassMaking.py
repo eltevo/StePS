@@ -27,8 +27,8 @@ sys.path.insert(0, '../../StePS_IC/src/')
 from inputoutput import *
 import time
 
-_VERSION = "v0.4.0.1dev"
-_YEAR    = "2018-2025"
+_VERSION = "v0.5.0.0"
+_YEAR    = "2018-2026"
 _NAME    = "GenerateIC_for_3DSphericalGlassMaking"
 _AUTHORS = "Gabor Racz"
 
@@ -219,7 +219,7 @@ def Generate_random_cylindrical_shell(Nshell,RtoZ, Shell=True):
 
 #Begininng of the script
 # Welcome message
-print("+-----------------------------------------------------------------------------------------------+\n|%s %s\t\t\t\t\t\t|\n| (An initial condition generator for 3D spherical and cylindrical glass making.)\t\t|\n+-----------------------------------------------------------------------------------------------+\n|\n| %s, %s\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\n+-----------------------------------------------------------------------------------------------+\n\n" % (_NAME,_VERSION,_AUTHORS,_YEAR))
+print("+-------------------------------------------------------------------------------------------------------+\n|%s %s\t\t\t\t\t\t\t|\n| (An initial condition generator for 3D spherical (R^3) and cylindrical (S^1xR^2) glass making.)\t|\n+-------------------------------------------------------------------------------------------------------+\n|\t\t\t\t\t\t\t\t\t\t\t\t\t|\n| %s, %s\t\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t\t|\n+-------------------------------------------------------------------------------------------------------+\n\n" % (_NAME,_VERSION,_AUTHORS,_YEAR))
 
 #read the input parameters (from the first argument)
 if len(sys.argv) != 2:
@@ -337,20 +337,27 @@ elif Params['BOUNDARY'] == "CYLINDRICAL":
 
 particle_data = np.zeros((N_part,7)) #x, y, z, vx, vy, vz, Mass
 if Params['MAKEPLOTS'] == True:
-    Mill_res = 0.86/(73.0/100.0)/100 + 0*i
-    plt.figure(figsize=(10, 8))
-    plt.xlabel(r'$r[Mpc]$')
-    plt.ylabel(r'$M[10^{11} M_{\odot}]$')
+    #Mill_res = 0.86/(73.0/100.0)/100 + 0*i
+    figscale = 0.75
+    plt.figure(figsize=(7*figscale,4.25*figscale))
+    if Params['BOUNDARY'] == "SPHERICAL":
+        plt.xlabel(r'$r[\mathrm{Mpc}]$')
+    elif Params['BOUNDARY'] == "CYLINDRICAL":
+        plt.xlabel(r'$\varrho[\mathrm{Mpc}]$')
+    plt.ylabel(r'$M[\mathrm{M}_{\odot}]$')
     axes = plt.gca()
     axes.set_xlim([0.0,Params['RSIM']])
     plt.grid()
-    plt.semilogy(r,Mass, c='b', label="StePS Resolution")
-    if Params['BIN_MODE'] == 0:
-        Mass_R5 = Mass_res_inside*(r/Params['RCRIT'])**5
-        plt.semilogy(r[r>Params['RCRIT']],Mass_R5[r>Params['RCRIT']], '--', c='b', label=r'$M(R)=M_p(R_c)\cdot\left(\frac{R}{R_c}\right)^5$')
-    plt.semilogy(r,Mill_res, c='r', label="Millennium Resolution")
-    plt.legend()
-    plt.title("Resolution, as a function of radius")
+    plt.semilogy(r,Mass*1e11, c='b', label="StePS Resolution")
+    #if Params['BIN_MODE'] == 0:
+    #    Mass_R5 = Mass_res_inside*(r/Params['RCRIT'])**5
+    #    plt.semilogy(r[r>Params['RCRIT']],Mass_R5[r>Params['RCRIT']], '--', c='b', label=r'$M(R)=M_p(R_c)\cdot\left(\frac{R}{R_c}\right)^5$')
+    #plt.semilogy(r,Mill_res, c='r', label="Millennium Resolution")
+    #plt.legend()
+    plt.title(r"Initial glass mass resolution")
+    plt.tight_layout()
+    if Params['SAVEPLOTS'] == True:
+        plt.savefig(Params['BASEOUT'][:-5]+"_MassResolution_vs_Radius.eps", format='eps')
     plt.show()
 if Params['BOUNDARY'] == "SPHERICAL":
     if Params['BIN_MODE'] == 0:
@@ -391,7 +398,10 @@ elif Params['BOUNDARY'] == "CYLINDRICAL":
             for i in range(0,Params['NSHELL']):
                 #setting the radii of the shells with a small random noise
                 particle_data[(N_part_inside+(j-i_crit)*Params['NSHELL']+i),0:2] = (radii+D*(np.random.rand()-0.5))*cylindrical_glass[i,0:2]
-                particle_data[(N_part_inside+(j-i_crit)*Params['NSHELL']+i),2] = cylindrical_glass[i,2]*Params['LZSIM']
+                if r_to_z_ratio > 0.5:
+                    particle_data[(N_part_inside+(j-i_crit)*Params['NSHELL']+i),2] = cylindrical_glass[i,2]*r_to_z_ratio*Params['LZSIM']
+                else:
+                    particle_data[(N_part_inside+(j-i_crit)*Params['NSHELL']+i),2] = cylindrical_glass[i,2]*Params['LZSIM']
             particle_data[(N_part_inside+(j-i_crit)*Params['NSHELL']):(N_part_inside+(j-i_crit+1)*Params['NSHELL']),6] = Mass[j]
         del(cylindrical_glass)
     if Params['BIN_MODE'] == 1:

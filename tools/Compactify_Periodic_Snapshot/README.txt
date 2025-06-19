@@ -1,5 +1,7 @@
 Compactify Periodic Snapshot - A C++ code for compactifing periodic snapshots
 
+Note: This project was abandoned in 2018, and got replaced by StePS_IC.py
+
 v0.3.1.1
 
 Gábor Rácz, 2017-2018

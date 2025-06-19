@@ -352,6 +352,12 @@ int main(int argc, char *argv[])
 		omp_set_num_threads( atoi( argv[2] ) );
 		printf("Numer of OpenMP threads per MPI tasks set to %i.\n", atoi( argv[2] ));
 	}
+	#else
+		#ifdef USE_BH
+		if(rank == 0)
+			printf("\nError: You have compiled the code with Barnes-Hut tree (Octree) force calculation with GPUs.\nThis algorithm is not implemented yet on GPUs. Please recompile the code without GPU support.\nExiting.\n");
+		return (-1);
+		#endif
 	#endif
 	int i,j;
 	bool F_buffer_allocated = false; //F_buffer is not allocated yet

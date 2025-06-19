@@ -12,6 +12,8 @@ If you plan to publish an academic paper using this software, please consider ci
 
 G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulations of the Infinite Universe": MNRAS, Volume 477, Issue 2, p.1949-1957
 
+![alt text](Images/CylindricalExampleCenter.gif "StePS simulation of structure formation in cylindrical topology with standard LCDM cosmology.")
+
 ![alt text](Images/Example_simulation1_R480Mpc_slice.png "A slice from the density field in the StePS example simulation #1")
 
 [![StePS example simulation #1, slice](Images/Example1_R480_slice_youtube.png)](https://youtu.be/INuRIqUu0IA "StePS example simulation #1, slice")
@@ -30,3 +32,4 @@ G. Rácz, I. Szapudi, I. Csabai, L. Dobos, "Compactified Cosmological Simulation
   *The development of this code has been supported by Department of Physics of Complex Systems, ELTE.*
   *GR would like to thank the Department of Physics & Astronomy, JHU for supporting this work.*
   *GR acknowledges sponsorship of a NASA Postdoctoral Program Fellowship. GR was supported by JPL, which is run under contract by California Institute of Technology for NASA.*
+  *GR acknowledges the support of the Research Council of Finland grant 354905*
