@@ -30,6 +30,12 @@
 void write_header_attributes_in_hdf5(hid_t handle);
 #endif
 
+//Functions for reading GADGET2 format IC
+int gadget_format_conversion(bool allocate_memory);
+int load_snapshot(char *fname, int files);
+int allocate_memory(void);
+int reordering(void);
+
 int file_exist(char *file_name)
 {
 	struct stat file_stat;
@@ -91,41 +97,47 @@ void read_expansion_history(char* filename)
 }
 #endif
 
-void read_ascii_ic(FILE *ic_file, int N)
+void read_ascii_ic(FILE *ic_file, int N, bool allocate_memory)
 {
+	// This function reads the initial conditions from an ASCII file.
+	// Input parameters:
+	// ic_file: pointer to the input file
+	// N: number of particles
+	// allocate_memory: if true, allocates memory for the particle data arrays. if false, assumes that the memory is already allocated.
 	int i,j;
-
-	//Allocating memory for the coordinates
-	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+	if(allocate_memory)
 	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
-		exit(-2);
+		//Allocating memory for the coordinates
+		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the velocities
+		if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the forces
+		if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the masses
+		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the softening lengths
+		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			exit(-2);
+		}
 	}
-	//Allocating memory for the velocities
-	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the forces
-	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the masses
-	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the softening lengths
-	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
-		exit(-2);
-	}
-
 	printf("\nReading IC from the %s file...\n", IC_FILE);
 	for(i=0; i<N; i++) //reading
 	{
@@ -920,8 +932,12 @@ void Log_write() //Writing logfile
 
 #ifdef HAVE_HDF5
 
-void read_hdf5_ic(char *ic_file)
+void read_hdf5_ic(char *ic_file, bool allocate_memory)
 {
+	//Reading initial conditions from an HDF5 file
+	// Input parameters:
+	// ic_file: the name of the HDF5 file containing the initial conditions
+	// allocate_memory: if true, memory will be allocated for the particle data arrays. if false, the function will assume that the memory is already allocated.
 	hid_t attr_id = 0;
 	hid_t group = 0;
 	hid_t dataset = 0;
@@ -939,36 +955,40 @@ void read_hdf5_ic(char *ic_file)
 	printf("\tThe number of particles:\t%i\n", N);
 	H5Aclose(attr_id);
 	H5Gclose(group);
-	//Allocating memory
-	//Allocating memory for the coordinates
-	if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+	if(allocate_memory)
 	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the velocities
-	if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the forces
-	if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the masses
-	if(!(M = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
-		exit(-2);
-	}
-	//Allocating memory for the softening lengths
-	if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
-	{
-		fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
-		exit(-2);
+		//Allocating memory
+		printf("\tAllocating memory for the particle data arrays...\n");
+		//Allocating memory for the coordinates
+		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the velocities
+		if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the forces
+		if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the masses
+		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the softening lengths
+		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			exit(-2);
+		}
 	}
 	//reading the particle coordinates
 	printf("\tReading /PartType1/Coordinates\n");
@@ -1542,3 +1562,67 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Sclose(hdf5_dataspace);
 }
 #endif
+
+
+int load_IC(char *IC_FILE, int IC_FORMAT)
+{
+	//Loading initial conditions from a file
+	// Input parameters:
+	// IC_FILE: the name of the file containing the initial conditions
+	// IC_FORMAT: the format of the initial conditions (0 - ASCII, 1-GADGET, 2 - HDF5)
+	#ifndef HAVE_HDF5
+	if(IC_FORMAT != 0 && IC_FORMAT != 1)
+	{
+		fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+		return (-1);
+	}
+	#else
+	if(IC_FORMAT < 0 || IC_FORMAT > 2)
+			{
+					fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+					return (-1);
+			}
+	#endif
+	if(IC_FORMAT == 0)
+	{
+		printf("\nThe IC file is in ASCII format.\n");
+		if(file_exist(IC_FILE) == 0)
+		{
+			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+			return (-1);
+		}
+		N = measure_N_part_from_ascii_snapshot(IC_FILE);
+		FILE *ic_file = fopen(IC_FILE, "r");
+		read_ascii_ic(ic_file, N, Allocate_memory);
+		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+	}
+	if(IC_FORMAT == 1)
+	{
+		int files;
+		printf("\nThe IC file is in Gadget format.\nThe IC determines the box size.\n");
+		files = 1;      /* number of files per snapshot */
+		if(file_exist(IC_FILE) == 0)
+		{
+			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+			return (-1);
+		}
+		load_snapshot(IC_FILE, files);
+		reordering();
+		gadget_format_conversion(Allocate_memory);
+		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+	}
+	#ifdef HAVE_HDF5
+	if(IC_FORMAT == 2)
+	{
+		printf("\nThe IC is in HDF5 format\n");
+		if(file_exist(IC_FILE) == 0)
+		{
+			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+			return (-1);
+		}
+		read_hdf5_ic(IC_FILE, Allocate_memory);
+		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+	}
+	#endif
+	return 0;//Return 0 if the IC file was loaded successfully
+}

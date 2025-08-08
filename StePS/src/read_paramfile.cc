@@ -72,6 +72,11 @@ void BCAST_global_parameters()
 	MPI_Bcast(&RADIAL_FORCE_ACCURACY,1,MPI_INT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&RADIAL_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
 #endif
+#ifdef USE_BH
+	MPI_Bcast(&RADIAL_BH_FORCE_CORRECTION,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&RADIAL_BH_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&RADIAL_BH_FORCE_TABLE_ITERATION,1,MPI_INT,0,MPI_COMM_WORLD);
+#endif
 return;
 }
 
@@ -123,6 +128,18 @@ char str38[] = "RADIAL_FORCE_TABLE_SIZE";
 RADIAL_FORCE_ACCURACY = 1000; //number of points used in the integration for the lookup table. (Setting up some default value in the case for older parameter files)
 RADIAL_FORCE_TABLE_SIZE = 1000; //size of the lookup table for the radial force calculation. (Setting up some default value in the case for older parameter files)
 #endif
+#ifdef USE_BH
+char str39[] = "RADIAL_BH_FORCE_CORRECTION";
+char str40[] = "GLASS_FILE_FOR_BH_FORCE_CORRECTION";
+char str41[] = "RADIAL_BH_FORCE_TABLE_SIZE"; //size of the lookup table for the radial BH force correction calculation
+char str42[] = "RADIAL_BH_FORCE_TABLE_ITERATION"; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
+RADIAL_BH_FORCE_CORRECTION = 0; //default value for the radial BH force correction
+//default value for the glass file used in the radial BH force correction is "None":
+strncpy(GLASS_FILE_FOR_BH_FORCE_CORRECTION, "None", sizeof(GLASS_FILE_FOR_BH_FORCE_CORRECTION) - 1);
+GLASS_FILE_FOR_BH_FORCE_CORRECTION[sizeof(GLASS_FILE_FOR_BH_FORCE_CORRECTION) - 1] = '\0'; // Ensure null-termination
+RADIAL_BH_FORCE_TABLE_SIZE = 64; //default value for the radial BH force table size
+RADIAL_BH_FORCE_TABLE_ITERATION = 4; //default value for the radial BH force table iteration
+#endif
 
 printf("Reading parameter file...\n");
 while(!feof(param_file))
@@ -163,16 +180,7 @@ while(!feof(param_file))
 	if(strstr(c, str08) != NULL)
 	{
 		sscanf(c, "%*s\t%i", &IS_PERIODIC);
-		#ifdef PERIODIC_Z
-		if(IS_PERIODIC>= 2)
-		{
-			printf("Ewald summation is on in z direction. Using %i images.\n", 2*IS_PERIODIC+1);
-		}
-		else
-		{
-			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
-		}
-		#else
+		#if !defined(PERIODIC_Z)
 		if(IS_PERIODIC > 4)
 		{
 			printf("Error: IS_PERIODIC > 4: No such boundary condition: IS_PERIODIC is set to 4");
@@ -337,6 +345,39 @@ while(!feof(param_file))
 		}
 	}
 	#endif
+	#ifdef USE_BH
+	if(strstr(c, str39) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_CORRECTION);
+		if(RADIAL_BH_FORCE_CORRECTION != 0 && RADIAL_BH_FORCE_CORRECTION != 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_CORRECTION must be 0 or 1. It is set to 0.\n");
+			RADIAL_BH_FORCE_CORRECTION = 0;
+		}
+	}
+	if(strstr(c, str40) != NULL)
+	{
+		sscanf(c, "%*s\t%s", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+	}
+	if(strstr(c, str41) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_SIZE);
+		if(RADIAL_BH_FORCE_TABLE_SIZE < 5)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_SIZE < 5. It is set to 5.\n");
+			RADIAL_BH_FORCE_TABLE_SIZE = 5;
+		}
+	}
+	if(strstr(c, str42) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_ITERATION);
+		if(RADIAL_BH_FORCE_TABLE_ITERATION < 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_ITERATION < 1. It is set to 1.\n");
+			RADIAL_BH_FORCE_TABLE_ITERATION = 1;
+		}
+	}
+	#endif
 #else
 	fgets(c, BUFF_SIZE, param_file);
   if(strstr(c, str01) != NULL)
@@ -372,16 +413,7 @@ while(!feof(param_file))
   if(strstr(c, str08) != NULL)
   {
 		sscanf(c, "%*s\t%i", &IS_PERIODIC);
-		#ifdef PERIODIC_Z
-		if(IS_PERIODIC>= 2)
-		{
-			printf("Ewald summation is on in z direction. Using %i periodic images along the z axis.\n", 2*(IS_PERIODIC+1)+1);
-		}
-		else
-		{
-			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
-		}
-		#else
+		#if !defined(PERIODIC_Z)
 		if(IS_PERIODIC > 4)
 		{
 			printf("Error: IS_PERIODIC > 4: No such boundary condition: IS_PERIODIC is set to 4");
@@ -543,6 +575,39 @@ while(!feof(param_file))
 		}
 	}
 	#endif
+	#ifdef USE_BH
+	if(strstr(c, str39) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_CORRECTION);
+		if(RADIAL_BH_FORCE_CORRECTION != 0 && RADIAL_BH_FORCE_CORRECTION != 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_CORRECTION must be 0 or 1. It is set to 0.\n");
+			RADIAL_BH_FORCE_CORRECTION = 0;
+		}
+	}
+	if(strstr(c, str40) != NULL)
+	{
+		sscanf(c, "%*s\t%s", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+	}
+	if(strstr(c, str41) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_SIZE);
+		if(RADIAL_BH_FORCE_TABLE_SIZE < 5)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_SIZE < 5. It is set to 5.\n");
+			RADIAL_BH_FORCE_TABLE_SIZE = 5;
+		}
+	}
+	if(strstr(c, str42) != NULL)
+	{
+		sscanf(c, "%*s\t%i", &RADIAL_BH_FORCE_TABLE_ITERATION);
+		if(RADIAL_BH_FORCE_TABLE_ITERATION < 1)
+		{
+			printf("Error: RADIAL_BH_FORCE_TABLE_ITERATION < 1. It is set to 1.\n");
+			RADIAL_BH_FORCE_TABLE_ITERATION = 1;
+		}
+	}
+	#endif
 #endif
 }
 
@@ -630,6 +695,17 @@ else
 {
 	printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
 }
+#endif
+#if defined(USE_BH) && !defined(PERIODIC)
+	printf("Radial BH force correction\t%i\n",RADIAL_BH_FORCE_CORRECTION);
+	if(RADIAL_BH_FORCE_CORRECTION==1)
+	{
+		printf("Glass file for BH correction\t%s\n",GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+		printf("Radial BH force table size\t%i\n",RADIAL_BH_FORCE_TABLE_SIZE);
+		#if defined(RANDOMIZE_BH)
+			printf("BH force correction iterations\t%i\n",RADIAL_BH_FORCE_TABLE_ITERATION);
+		#endif
+	}
 #endif
 printf("Wall-clock time limit\t\t%.2f h\n", TIME_LIMIT_IN_MINS/60.0);
 if(COSMOLOGY==1)

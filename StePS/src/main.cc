@@ -21,6 +21,7 @@
 #include <time.h>
 #include <algorithm>
 #include <unistd.h>
+#include <cstring>
 #include "mpi.h"
 #include "global_variables.h"
 #ifdef HAVE_HDF5
@@ -105,9 +106,21 @@ REAL ewald_cut; //cutoff radius for the ewald summation
 int RADIAL_FORCE_TABLE_SIZE; //size of the lookup table for the radial force calculation
 int RADIAL_FORCE_ACCURACY; //number of points used in the integration for the lookup table
 REAL *RADIAL_FORCE_TABLE; //lookup table for the radial force calculation
+bool CYLINDRICAL_LOOKUP_TABLE_CALCULATED=false; //true, if the cylindrical lookup table is calculated
+#endif
+#ifdef USE_BH
+int RADIAL_BH_FORCE_CORRECTION; //0: no correction, 1: correction for the radial force calculation based on the glass or initial radial BH forces (In the case of cylindrical and spherical simulations)
+char GLASS_FILE_FOR_BH_FORCE_CORRECTION[1024]; //glass file used for the radial BH force correction. if "None", the IC file will be used to calculate the radial BH force correction.
+int RADIAL_BH_FORCE_TABLE_SIZE; //size of the lookup table for the radial BH force correction calculation
+REAL* RADIAL_BH_FORCE_TABLE; //lookup table for the radial BH force correction calculation
+int* RADIAL_BH_N_TABLE; //table for the number of particles in a shell in the radial BH force correction calculation
+int N_radial_bh_force_correction; //number of particles used in the radial BH force correction
+int RADIAL_BH_FORCE_TABLE_ITERATION; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
+bool USE_RADIAL_BH_CORRECTION; //true, if the radial BH force correction table is ready to use
 #endif
 double epsilon=1;
 double sigma=1;
+bool Allocate_memory; //if true, memory will be allocated for the next loaded snapshot. if false, the memory is already allocated.
 REAL* M;//Particle mass
 REAL* SOFT_LENGTH; //particle softening lengths
 REAL M_tmp;
@@ -115,14 +128,11 @@ double a, a_start,a_prev,a_tmp;//Scalefactor, scalefactor at the starting time, 
 double Omega_m_eff; //Effective Omega_m
 double delta_a;
 
-//Functions for reading GADGET2 format IC
-int gadget_format_conversion(void);
-int load_snapshot(char *fname, int files);
-int allocate_memory(void);
-int reordering(void);
 
+// function declarations
 void read_param(FILE *param_file);
 void step(REAL* x, REAL* v, REAL* F);
+void calculate_softening_length(REAL *SOFT_LENGTH, REAL *M, int N);
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
 void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max);
@@ -133,12 +143,14 @@ double CALCULATE_Hubble_param(double a);
 double CALCULATE_decel_param(double a);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
+#ifdef USE_BH
+void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADIAL_BH_N_TABLE, int TABLE_SIZE, REAL *F, REAL *x, int N);
+#endif
 
 //Input/Output functions
 int file_exist(char *file_name);
 int dir_exist(char *dir_name);
-int measure_N_part_from_ascii_snapshot(char * filename);
-void read_ascii_ic(FILE *ic_file, int N);
+int load_IC(char *IC_FILE, int IC_FORMAT);
 int read_OUT_LST();
 void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL);
 void write_ascii_snapshot(REAL* x, REAL *v);
@@ -148,7 +160,6 @@ int N_redshiftcone, HDF5_redshiftcone_firstshell;
 //Functions for HDF5 I/O
 void write_hdf5_snapshot(REAL *x, REAL *v, REAL *M);
 void write_header_attributes_in_hdf5(hid_t handle);
-void read_hdf5_ic(char *ic_file);
 #endif
 #if COSMOPARAM==-1
 void read_expansion_history(char* filename);
@@ -255,7 +266,9 @@ int main(int argc, char *argv[])
 	}
 	#endif
 	int i,j;
+	bool F_buffer_allocated = false; //F_buffer is not allocated yet
 	int CONE_ALL=0;
+	Allocate_memory = true; //Before loading the first snapshot, memory will be allocated for the particle data arrays.
 	N_snapshot = 0; //The snapshot start number is 0 by default
 	TIME_LIMIT_IN_MINS = 0; //There is no wall-clock time limit by default
 	H0_INDEPENDENT_UNITS = 0; //StePS uses H0 dependent units by default
@@ -350,11 +363,42 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic and periodic simulations in z direction only.\nExiting.\n");
 			return (-2);
 		}
+		#ifdef USE_BH
+			REAL MaxNodeSize;
+			if(2*Rsim < L)
+			{
+				//if the radius is smaller than half of the box size, we use the periodicity length as the root node size
+				MaxNodeSize = L;
+			}
+			else
+			{
+				//if the radius is larger than half of the box size, we use the double of diameter as the root node size
+				MaxNodeSize = 2.0*Rsim;
+			}
+			if (MaxNodeSize/THETA < (((REAL) (IS_PERIODIC+1)) - 0.4)*L)
+			{
+				if(rank == 0)
+					printf("Warning: Using too many periodic images in the \"z\" direction:\n\tNodeSize/THETA = %.2f Mpc < Ewald_cut = %.2f Mpc.\nPlease consider decreasing the Theta opening angle, or decreasing the number of periodic images.\n", MaxNodeSize/THETA, L*(((REAL) (IS_PERIODIC+1)) - 0.4));
+				IS_PERIODIC = (int) floor(MaxNodeSize/THETA/L + 0.4) - 1; //Decreasing the number of periodic images in the z direction
+				if(rank == 0)
+				{
+					printf("Setting the number of repeated periodic images in the z direction to %i to avoid not-resolved periodic images.\n", 2*IS_PERIODIC+1);
+				}
+			}
+		#endif
+		if(IS_PERIODIC>= 2)
+		{
+			printf("Ewald summation is on in z direction. Using %i images. (Boundary condition %i)\n\n", 2*IS_PERIODIC+1, IS_PERIODIC);
+		}
+		else
+		{
+			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n\n");
+		}
 	#else
 		if(IS_PERIODIC  != 0)
 		{
 			if(rank == 0)
-				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run non-periodic simulations only.\nExiting.\n");
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run non-periodic (spherical) simulations only.\nExiting.\n");
 			return (-2);
 		}
 	#endif
@@ -413,57 +457,285 @@ int main(int argc, char *argv[])
 			return (-2);
 		}
 	}
+	#if defined(USE_BH) && !defined(PERIODIC)
+	USE_RADIAL_BH_CORRECTION = false; //The radial BH force table iteration is not done yet
+	if(RADIAL_BH_FORCE_CORRECTION == 1)
+	{
+		if(rank == 0)
+		{
+			if(file_exist(GLASS_FILE_FOR_BH_FORCE_CORRECTION) == 0 && strcmp(GLASS_FILE_FOR_BH_FORCE_CORRECTION, "None") != 0)
+			{
+				fprintf(stderr, "Error: The %s glass file does not exist!\n Using the initial condition file for radial BH force correction.\n", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+				strcpy(GLASS_FILE_FOR_BH_FORCE_CORRECTION, "None");
+			}
+			if(strcmp(GLASS_FILE_FOR_BH_FORCE_CORRECTION, "None") != 0)
+			{
+				printf("\nRadial BH force correction is on. Using the %s glass file for the radial BH force correction.\n", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+			}
+			else
+			{
+				printf("\nRadial BH force correction is on. Using the initial condition file for the radial BH force correction.\n");
+				strcpy(GLASS_FILE_FOR_BH_FORCE_CORRECTION, IC_FILE);
+			}
+			//Loading the initial glass or IC file for the radial BH force correction (master thread only)
+			if(load_IC(GLASS_FILE_FOR_BH_FORCE_CORRECTION, IC_FORMAT) != 0)
+			{
+				fprintf(stderr, "Error: failed to load the %s file for the radial BH force correction.\nExiting.\n", GLASS_FILE_FOR_BH_FORCE_CORRECTION);
+				return (-1);
+			}
+			N_mpi_thread = (N/numtasks) + (N%numtasks);
+			//Calculating softening lengths for the radial BH force correction
+			//Converting units, if needed
+			if(H0_INDEPENDENT_UNITS != 0 && COSMOLOGY == 1)
+			{
+				if(H0==0.0)
+				{
+					fprintf(stderr, "Error: Hubble constant is zero while using H0 independent units. This must be a mistake.\nExiting.\n");
+					return (-2);
+				}
+				for(i=0;i<N;i++)
+				{
+					for(j=0;j<3;j++)
+					{
+						x[3*i + j] /= (H0*UNIT_V/100.0); //converting coordinates
+					}
+					M[i] /= (H0*UNIT_V/100.0); //converting masses
+				}
+			}
+			calculate_softening_length(SOFT_LENGTH, M, N); //Calculating the softening lengths for the particles
+			if(numtasks > 1 && F_buffer_allocated == false)
+			{
+				//Allocating memory for the F_buffer
+				if(!(F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
+					exit(-2);
+				}
+				F_buffer_allocated = true; //F_buffer is allocated
+			}
+		}
+		//Bcasting the number of particles
+		MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
+		if(rank != 0)
+		{
+			//Allocating memory for the slave processes
+			N_mpi_thread = N/numtasks;
+
+			//Allocating memory for the coordinates
+			if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+				exit(-2);
+			}
+			//Allocating memory for the forces. There is no need to allocate for N forces. N/numtasks should be enough
+			if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+				exit(-2);
+			}
+			//Allocating memory for the masses
+				if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+				exit(-2);
+			}
+			//Allocating memory for the softening lengths
+				if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+				exit(-2);
+			}
+			Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
+		}
+		//Bcasting the particle data
+		#ifdef SINGLE_PRECISION
+			MPI_Bcast(&M_min,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+			MPI_Bcast(&rho_part,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+			MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
+			MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+			MPI_Bcast(SOFT_LENGTH,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+		#else
+			MPI_Bcast(&M_min,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+			MPI_Bcast(&rho_part,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+			MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+			MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+			MPI_Bcast(SOFT_LENGTH,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+		#endif
+		// Calculating cylindrical or spherical radial forces of the last pixel (mass_in_unit_sphere)
+		a = 1.0; //Setting the scale factor to 1.
+		rho_crit = 3.0*H0*H0/(8.0*pi); //Calculating the critical density
+		#if defined(PERIODIC_Z)
+			if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+			{
+				// in cylindrically symmetric simulations, the radial force is proportional to the mass in a unit cylinder
+				mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+				ewald_max = IS_PERIODIC+1;
+				ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the ewald summation
+				// Calculating the lookup table for the radial force calculation
+				printf("Calculating the lookup table for the radial force calculation...\n");
+				RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
+				if(IS_PERIODIC==1)
+				{
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					if(rank==0)
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+				}
+				else
+				{
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim, L*ewald_cut,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					if(rank==0)
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=%.1fLsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, 2*ewald_cut, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+				}
+				CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
+			}
+		#else
+			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
+			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
+		#endif
+		// Allocating memory for the radial BH force correction table on all threads
+		if(!(RADIAL_BH_FORCE_TABLE = (REAL*)malloc(RADIAL_BH_FORCE_TABLE_SIZE*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for RADIAL_BH_FORCE_TABLE.\n", rank);
+			exit(-2);
+		}
+		if(!(RADIAL_BH_N_TABLE = (int*)malloc(RADIAL_BH_FORCE_TABLE_SIZE*sizeof(int))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for RADIAL_BH_N_TABLE.\n", rank);
+			exit(-2);
+		}
+		// Initialize the allocated arrays
+		for(i=0; i<RADIAL_BH_FORCE_TABLE_SIZE; i++)
+		{
+			RADIAL_BH_FORCE_TABLE[i] = 0.0;
+			RADIAL_BH_N_TABLE[i] = 0;
+		}
+		// Calculating the forces between the particles using the BH force calculation method
+		// Do this RADIAL_BH_FORCE_TABLE_ITERATION times, and average the results
+		#if !defined(RANDOMIZE_BH)
+			RADIAL_BH_FORCE_TABLE_ITERATION = 1; //If the BH force calculation is randomised, only one iteration is needed
+			if(rank == 0)
+			{
+				printf("Randomised BH force calculation is off. Only one iteration is needed.\n");
+			}
+		#endif
+		for(int i_iter=0; i_iter<RADIAL_BH_FORCE_TABLE_ITERATION; i_iter++)
+		{
+			if(rank == 0 && RADIAL_BH_FORCE_TABLE_ITERATION > 1)
+				printf("BH radial force correction iteration %d/%d\n------------------------------------------\n", i_iter+1, RADIAL_BH_FORCE_TABLE_ITERATION);
+			if(rank==0)
+			{
+				ID_MPI_min = 0;
+				ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
+				#if defined(PERIODIC_Z)
+					//cylindrical periodic boundary conditions
+					forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+				#else
+					//Spherical non-periodic [StePS] boundary conditions
+					forces(x, F, ID_MPI_min, ID_MPI_max);
+				#endif
+			}
+			else
+			{
+				//Slave threads calculate the forces on their own particles
+				ID_MPI_min = (N%numtasks) + (rank)*(N/numtasks);
+				ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
+				#if defined(PERIODIC_Z)
+					forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+				#else
+					forces(x, F, ID_MPI_min, ID_MPI_max);
+				#endif
+			}
+			//Collecting all the forces to the rank 0 thread
+			if(rank !=0)
+			{
+			#ifdef USE_SINGLE_PRECISION
+				MPI_Send(F, 3*N_mpi_thread, MPI_FLOAT, 0, rank, MPI_COMM_WORLD);
+			#else
+				MPI_Send(F, 3*N_mpi_thread, MPI_DOUBLE, 0, rank, MPI_COMM_WORLD);
+			#endif
+			}
+			else
+			{
+				if(numtasks > 1)
+				{
+					for(i=1; i<numtasks;i++)
+					{
+						BUFFER_start_ID = i*(N/numtasks)+(N%numtasks);
+						#ifdef USE_SINGLE_PRECISION
+							MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
+						#else
+							MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+						#endif
+						for(j=0; j<(N/numtasks); j++)
+						{
+							F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
+							F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];
+							F[3*(BUFFER_start_ID+j)+2] = F_buffer[3*j+2];
+						}
+					}
+				}
+			}
+			//Calculating the radial BH force correction from the force vectors
+			if(rank == 0)
+			{
+				printf("Calculating the radial force correction from the estimated Octree forces...\n");
+			}
+			if(rank == 0)
+			{
+				get_radial_bh_force_correction_table(RADIAL_BH_FORCE_TABLE, RADIAL_BH_N_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, F, x, N);
+			}
+		}
+		//Normalizing the radial BH force correction table
+		if(rank == 0)
+		{
+			for(i=0; i<RADIAL_BH_FORCE_TABLE_SIZE; i++)
+			{
+				if(RADIAL_BH_N_TABLE[i] > 0)
+				{
+					RADIAL_BH_FORCE_TABLE[i] /= (REAL) RADIAL_BH_N_TABLE[i]; //Normalizing the force table
+				}
+				else
+				{
+					RADIAL_BH_FORCE_TABLE[i] = 0.0; //If there are no particles in this bin, set the force to zero
+					printf("Warning: No particles in shell %d, setting force to zero.\n", i);
+				}
+			}
+			printf("Table values:\nBin\tR[Mpc]\t\tForce\t\tRADIAL_BH_N_TABLE\n-------------------------------------\n");
+			for(i=0; i<RADIAL_BH_FORCE_TABLE_SIZE; i++)
+			{
+				printf("%i\t%f\t%f\t %i\n", i, ((double) i + 0.5) * (Rsim / (double) RADIAL_BH_FORCE_TABLE_SIZE), RADIAL_BH_FORCE_TABLE[i], RADIAL_BH_N_TABLE[i]);
+			}
+			fflush(stdout);
+		}
+		#ifdef SINGLE_PRECISION
+		MPI_Bcast(RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		#else
+		MPI_Bcast(RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		#endif
+		if(rank == 0)
+		{
+			printf("Radial BH force correction table calculated.\n");
+		}
+		N_radial_bh_force_correction = N; //Number of particles used in the radial BH force correction
+		USE_RADIAL_BH_CORRECTION = true; //The radial BH force table iteration is done
+	}
+	#endif
 	if(rank == 0)
 	{
-		#ifndef HAVE_HDF5
-		if(IC_FORMAT != 0 && IC_FORMAT != 1)
+		// Loading the initial conditions
+		if(load_IC(IC_FILE, IC_FORMAT) != 0)
 		{
-			fprintf(stderr, "Error: bad IC format!\nExiting.\n");
+			fprintf(stderr, "Error: failed to load the initial conditions from %s file.\nExiting.\n", IC_FILE);
 			return (-1);
 		}
-		#else
-		if(IC_FORMAT < 0 || IC_FORMAT > 2)
-                {
-                        fprintf(stderr, "Error: bad IC format!\nExiting.\n");
-                        return (-1);
-                }
-		#endif
-		if(IC_FORMAT == 0)
+		#ifdef USE_BH
+		if(RADIAL_BH_FORCE_CORRECTION == 1)
 		{
-			printf("\nThe IC file is in ASCII format.\n");
-			if(file_exist(IC_FILE) == 0)
+			if (N!=N_radial_bh_force_correction)
 			{
-				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
+				fprintf(stderr, "Error: the number of particles in the radial BH force correction (%i) does not match the number of particles in the initial conditions (%i).\nPlease check your input files. Exiting.\n", N_radial_bh_force_correction, N);
 				return (-1);
 			}
-			N = measure_N_part_from_ascii_snapshot(IC_FILE);
-			FILE *ic_file = fopen(IC_FILE, "r");
-			read_ascii_ic(ic_file, N);
-		}
-		if(IC_FORMAT == 1)
-		{
-			int files;
-			printf("\nThe IC file is in Gadget format.\nThe IC determines the box size.\n");
-			files = 1;      /* number of files per snapshot */
-			if(file_exist(IC_FILE) == 0)
-			{
-				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
-				return (-1);
-			}
-			load_snapshot(IC_FILE, files);
-			reordering();
-			gadget_format_conversion();
-		}
-		#ifdef HAVE_HDF5
-		if(IC_FORMAT == 2)
-		{
-			printf("\nThe IC is in HDF5 format\n");
-			if(file_exist(IC_FILE) == 0)
-			{
-				fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
-				return (-1);
-			}
-			read_hdf5_ic(IC_FILE);
 		}
 		#endif
 		if(REDSHIFT_CONE == 1 && COSMOLOGY != 1)
@@ -523,13 +795,14 @@ int main(int argc, char *argv[])
 				v[3*i+2] = v[3*i+2]/UNIT_V;
 			}
 		}
-		if(numtasks > 1)
+		if(numtasks > 1 && F_buffer_allocated == false)
 		{
 			if(!(F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL))))
 			{
-		    fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
-		    exit(-2);
-		  }
+				fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
+				exit(-2);
+		  	}
+			F_buffer_allocated = true; //F_buffer is allocated
 		}
 	}
 	#ifdef USE_CUDA
@@ -582,7 +855,7 @@ int main(int argc, char *argv[])
 	//Bcasting the ICs to the rank!=0 threads
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
-  MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+  	MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
@@ -611,24 +884,28 @@ int main(int argc, char *argv[])
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3.0*H0*H0/(8.0*pi);
 		#if defined(PERIODIC_Z)
-			// in cylindrical simmetrical simulations, the radial force is proportional to the mass in a unit cylinder
-			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
-			ewald_max = IS_PERIODIC+1;
-			ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the ewald summation
-			// Calculating the lookup table for the radial force calculation
-			printf("Calculating the lookup table for the radial force calculation...\n");
-			RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
-			if(IS_PERIODIC==1)
+			if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
 			{
-				get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
-				if(rank==0)
-					printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
-			}
-			else
-			{
-				get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim, L*ewald_cut,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
-				if(rank==0)
-					printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=%.1fLsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, 2*ewald_cut, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+				// in cylindrically symmetric simulations, the radial force is proportional to the mass in a unit cylinder
+				mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+				ewald_max = IS_PERIODIC+1;
+				ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the ewald summation
+				// Calculating the lookup table for the radial force calculation
+				printf("Calculating the lookup table for the radial force calculation...\n");
+				RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
+				if(IS_PERIODIC==1)
+				{
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					if(rank==0)
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+				}
+				else
+				{
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim, L*ewald_cut,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					if(rank==0)
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=%.1fLsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, 2*ewald_cut, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+				}
+				CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
 			}
 		#else
 			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
@@ -730,26 +1007,7 @@ int main(int argc, char *argv[])
 	//Searching the minimal mass particle
 	if(rank == 0)
 	{
-		M_min = M[0];
-		for(i=0;i<N;i++)
-		{
-			if(M_min>M[i])
-			{
-				M_min = M[i];
-			}
-		}
-		rho_part = M_min/(4.0*pi*pow(ParticleRadi, 3.0) / 3.0);
-		//Calculating the softening length for each particle:
-		REAL const_beta = 3.0/rho_part/(4.0*pi);
-		printf("Calculating the softening lengths...\n");
-		printf("\tMmin = %f * 10^11 Msol\tMinimal Particle Radius=%fMpc\tParticle density=%f * 10^11 Msol/Mpc^3\n", M_min, ParticleRadi, rho_part);
-		for(i=0;i<N;i++)
-		{
-			SOFT_LENGTH[i] = cbrt(M[i]*const_beta); //setting up the softening length for each particle
-			if(N<10)
-				printf("SOFT_LENGTH[%i] = %f\n", i, SOFT_LENGTH[i]);
-		}
-		printf("...done\n\n");
+		calculate_softening_length(SOFT_LENGTH, M, N); //Calculating the softening lengths for the particles
 	}
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&M_min,1,MPI_FLOAT,0,MPI_COMM_WORLD);
@@ -923,10 +1181,13 @@ int main(int argc, char *argv[])
 		ID_MPI_min = 0;
 		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
 		#if defined(PERIODIC)
+			//3-torus periodic boundary conditions
 			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
 		#elif defined(PERIODIC_Z)
+			//cylindrical periodic boundary conditions
 			forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
 		#else
+			//Spherical non-periodic [StePS] boundary conditions
 			forces(x, F, ID_MPI_min, ID_MPI_max);
 		#endif
 	}
@@ -945,11 +1206,11 @@ int main(int argc, char *argv[])
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
 	if(rank !=0)
 	{
-#ifdef USE_SINGLE_PRECISION
+	#ifdef USE_SINGLE_PRECISION
 		MPI_Send(F, 3*N_mpi_thread, MPI_FLOAT, 0, rank, MPI_COMM_WORLD);
-#else
+	#else
 		MPI_Send(F, 3*N_mpi_thread, MPI_DOUBLE, 0, rank, MPI_COMM_WORLD);
-#endif
+	#endif
 	}
 	else
 	{
@@ -958,11 +1219,11 @@ int main(int argc, char *argv[])
 			for(i=1; i<numtasks;i++)
 			{
 				BUFFER_start_ID = i*(N/numtasks)+(N%numtasks);
-#ifdef USE_SINGLE_PRECISION
-				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
-#else
-				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-#endif
+				#ifdef USE_SINGLE_PRECISION
+					MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
+				#else
+					MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+				#endif
 				for(j=0; j<(N/numtasks); j++)
 				{
 					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
@@ -1016,33 +1277,33 @@ int main(int argc, char *argv[])
 		{
 			printf("\n\n------------------------------------------------------------------------------------------------\n");
 			if(COSMOLOGY == 1)
-    	{
-								if(COMOVING_INTEGRATION == 1)
-								{
-									if(h*UNIT_T >= 1.0)
-						         printf("Timestep %i, t=%.8fGy, h=%fGy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
-									else
-										printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
-									if(OUTPUT_TIME_VARIABLE == 0)
-										printf("Next output time = %f Gy\n",t_next*UNIT_T );
-									else if (OUTPUT_TIME_VARIABLE == 1)
-										printf("Next output redshift = %f\n",t_next);
-								}
-								else
-								{
-									if(h*UNIT_T >= 1.0)
-										printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*UNIT_T, h*UNIT_T);
-									else
-										printf("Timestep %i, t=%.8fGy, h=%fMy\n", t, T*UNIT_T, h*UNIT_T*1000.0);
-									if(OUTPUT_TIME_VARIABLE == 0)
-										printf("Next output time = %f Gy\n",t_next*UNIT_T );
-								}
-      }
-      else
-      {
-              printf("Timestep %i, t=%f, h=%f:\n", t, T, h);
-							printf("Next output time = %f\n",t_next);
-    	}
+    		{
+				if(COMOVING_INTEGRATION == 1)
+				{
+					if(h*UNIT_T >= 1.0)
+					printf("Timestep %i, t=%.8fGy, h=%fGy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+					else
+						printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f:\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
+					if(OUTPUT_TIME_VARIABLE == 0)
+						printf("Next output time = %f Gy\n",t_next*UNIT_T );
+					else if (OUTPUT_TIME_VARIABLE == 1)
+						printf("Next output redshift = %f\n",t_next);
+				}
+				else
+				{
+					if(h*UNIT_T >= 1.0)
+						printf("Timestep %i, t=%.8fGy, h=%fGy\n", t, T*UNIT_T, h*UNIT_T);
+					else
+						printf("Timestep %i, t=%.8fGy, h=%fMy\n", t, T*UNIT_T, h*UNIT_T*1000.0);
+					if(OUTPUT_TIME_VARIABLE == 0)
+						printf("Next output time = %f Gy\n",t_next*UNIT_T );
+				}
+      		}
+			else
+			{
+            	printf("Timestep %i, t=%f, h=%f:\n", t, T, h);
+				printf("Next output time = %f\n",t_next);
+    		}
 		}
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
@@ -1197,6 +1458,7 @@ int main(int argc, char *argv[])
 				printf("\nSimulation wall-clock time limit reached (%.1fmin >= %.1fmin). Stopping...\n", (omp_get_wtime()-SIM_omp_start_time)/60.0, TIME_LIMIT_IN_MINS);
 			break;
 		}
+		MPI_Bcast(&a_tmp,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	}
 	if(OUTPUT_TIME_VARIABLE == 0 && rank == 0)
 	{

@@ -169,11 +169,11 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
         HubbleParam - Hubble parameter
         precision - Floating point precision of the IC (0: 32bit; 1: 64bit)
     '''
-    if np.int(precision) == 0:
+    if int(precision) == 0:
         HDF5datatype = 'float32'
         npdatatype = np.float32
         print("Saving in 32bit HDF5 format.")
-    if np.int(precision) == 1:
+    if int(precision) == 1:
         HDF5datatype = 'double'
         npdatatype = np.float64
         print("Saving in 64bit HDF5 format.")
@@ -189,16 +189,16 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
     header_group.attrs['Time'] = np.double(1.0/(Redshift+1))
     header_group.attrs['Redshift'] = np.double(Redshift)
     header_group.attrs['BoxSize'] = np.double(Linearsize)
-    header_group.attrs['NumFilesPerSnapshot'] = np.int(1)
+    header_group.attrs['NumFilesPerSnapshot'] = int(1)
     header_group.attrs['Omega0'] = np.double(OmegaM)
     header_group.attrs['OmegaLambda'] = np.double(OmegaL)
     header_group.attrs['HubbleParam'] = np.double(HubbleParam)
-    header_group.attrs['Flag_Sfr'] = np.int(0)
-    header_group.attrs['Flag_Cooling'] = np.int(0)
-    header_group.attrs['Flag_StellarAge'] = np.int(0)
-    header_group.attrs['Flag_Metals'] = np.int(0)
-    header_group.attrs['Flag_Feedback'] = np.int(0)
-    header_group.attrs['Flag_Entropy_ICs'] = np.int(0)
+    header_group.attrs['Flag_Sfr'] = int(0)
+    header_group.attrs['Flag_Cooling'] = int(0)
+    header_group.attrs['Flag_StellarAge'] = int(0)
+    header_group.attrs['Flag_Metals'] = int(0)
+    header_group.attrs['Flag_Feedback'] = int(0)
+    header_group.attrs['Flag_Entropy_ICs'] = int(0)
     #Header created.
     #Creating datasets for the particle data
     particle_group = HDF5_snapshot.create_group("/PartType1")
