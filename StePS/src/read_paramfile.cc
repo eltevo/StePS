@@ -173,10 +173,10 @@ while(!feof(param_file))
 			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
 		}
 		#else
-		if(IS_PERIODIC > 3)
+		if(IS_PERIODIC > 4)
 		{
-			printf("Error: IS_PERIODIC > 3: No such boundary condition: IS_PERIODIC is set to 3");
-			IS_PERIODIC = 3;
+			printf("Error: IS_PERIODIC > 4: No such boundary condition: IS_PERIODIC is set to 4");
+			IS_PERIODIC = 4;
 		}
 		#endif
 	}
@@ -382,10 +382,10 @@ while(!feof(param_file))
 			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
 		}
 		#else
-		if(IS_PERIODIC > 3)
+		if(IS_PERIODIC > 4)
 		{
-			printf("Error: IS_PERIODIC > 3: No such boundary condition: IS_PERIODIC is set to 3");
-			IS_PERIODIC = 3;
+			printf("Error: IS_PERIODIC > 4: No such boundary condition: IS_PERIODIC is set to 4");
+			IS_PERIODIC = 4;
 		}
 		#endif
   }

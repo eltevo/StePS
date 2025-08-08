@@ -210,6 +210,7 @@ void step(REAL* x, REAL* v, REAL* F)
 #else
 				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 #endif
+				//Copying the received forces into F
 				for(j=0; j<(N/numtasks); j++)
 				{
 					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];

@@ -301,7 +301,7 @@ int main(int argc, char *argv[])
 	}
 	BCAST_global_parameters();
 	#ifdef PERIODIC
-		if(IS_PERIODIC < 1 || IS_PERIODIC > 3)
+		if(IS_PERIODIC < 1 || IS_PERIODIC > 4)
 		{
 			if(rank == 0)
 				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to deal with periodic simulation only.\nExiting.\n");
@@ -316,11 +316,17 @@ int main(int argc, char *argv[])
 					printf("Ewald force calculation is on. (Ewald cut is 2.6*L)\n");
 				el = ewald_space(3.6,e);
 			}
- 			else
+ 			else if(IS_PERIODIC==3)
 			{
 				if(rank == 0)
-					printf("High precision Ewald force calculation is on. (Ewald cut is 4.8*L)\n");
-				el = ewald_space(5.8,e);
+					printf("High precision Ewald force calculation is on. (Ewald cut is 4.6*L)\n");
+				el = ewald_space(5.6,e);
+			}
+			else
+			{
+				if(rank == 0)
+					printf("High precision Ewald force calculation is on. (Ewald cut is 5.6*L)\n");
+				el = ewald_space(6.6,e);
 			}
 		}
 		else
@@ -547,30 +553,31 @@ int main(int argc, char *argv[])
 	if(rank != 0)
 	{
 		//Allocating memory for the particle datas on the rank != 0 MPI threads
+		//The rank 0 thread already allocated the memory during the particle loading
 		//Allocating memory for the coordinates
 		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
-	  {
-	    fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
-	    exit(-2);
-	  }
-	  //Allocating memory for the forces. There is no need to allocate for N forces. N/numtasks should be enough
-		if(!(F = (REAL*)malloc(3*N_mpi_thread*sizeof(REAL))))
-	  {
-	    fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
-	    exit(-2);
-	  }
-	  //Allocating memory for the masses
-		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
-	  {
-	    fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
-	    exit(-2);
-	  }
-	  //Allocating memory for the softening lengths
-		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
-	  {
-	    fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
-	    exit(-2);
-	  }
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the forces. There is no need to allocate for N forces. N/numtasks should be enough
+		if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the masses
+			if(!(M = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			exit(-2);
+		}
+		//Allocating memory for the softening lengths
+			if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			exit(-2);
+		}
 	}
 	//Bcasting the ICs to the rank!=0 threads
 #ifdef USE_SINGLE_PRECISION
