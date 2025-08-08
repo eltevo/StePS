@@ -6,7 +6,7 @@
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.3.0.0-dev"'
+VERSION='"v1.3.1.0-dev"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or

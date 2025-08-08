@@ -316,9 +316,10 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	#else
 	domain_center[0] = domain_center[1] = domain_center[2] = 0.0;
 	RootNodeSize = 2.00002 * Max_radius; //size of the root node (Dsim+epsilon)
+	printf("MPI task %i: Octree force calculation started.\n", rank);
 	#endif
-	if(rank==0)
-		printf("\t    Root node size: %.6g Mpc.\n", RootNodeSize);
+	if (numtasks > 1)
+		printf("MPI task %i: ID_min = %i, ID_max = %i.\n", rank, ID_min, ID_max);
     OctreeNode *rootnode = create_node(domain_center[0], domain_center[1], domain_center[2], RootNodeSize); //centered at domain_center, size RootNodeSize
     for (int i = 0; i < N; i++)
     {
@@ -368,7 +369,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	// Rotating the coordinates and forces back to the original orientation
 	#ifdef RANDOMIZE_BH
 	rotate_vectors(x, rotation_axis, -rotation_angle, 0, N-1);
-	rotate_vectors(F, rotation_axis, -rotation_angle, ID_min, ID_max);
+	rotate_vectors(F, rotation_axis, -rotation_angle, 0, N_mpi_thread-1);
 	#endif
 	//timing
 	double omp_end_time = omp_get_wtime();
@@ -614,10 +615,12 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 			}
 		}
 	}
+	#else
+	printf("MPI task %i: Octree force calculation started.\n", rank);
 	#endif
-	//Building the octree
-	if(rank==0)
-		printf("\t    Root node size: %.6g Mpc.\n", L);
+	if (numtasks > 1)
+		printf("MPI task %i: ID_min = %i, ID_max = %i.\n", rank, ID_min, ID_max);
+	//Building the octree;
     OctreeNode *rootnode = create_node(0.50*L, 0.50*L, 0.50*L, L); //center of the simulation box, size L
     for (int i = 0; i < N; i++)
     {
@@ -631,7 +634,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 			F[3*i+k] = 0;
 		}
     }
-	chunk = (ID_max-ID_min)/(omp_get_max_threads())/4;
+	chunk = (ID_max-ID_min)/(omp_get_max_threads())/8;
 	if(chunk < 1)
 	{
 		chunk = 1;
@@ -641,8 +644,10 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 		// Ewald summation with multiple images
 		if(IS_PERIODIC==2)
 			EwaldCut = 2.6*L; // Ewald cutoff radius
-		else
+		else if (IS_PERIODIC==3)
 			EwaldCut = 4.6*L; // Ewald cutoff radius
+		else
+			EwaldCut = 5.6*L; // Ewald cutoff radius
 		#pragma omp parallel default(shared)  private(i, m, Fx_tmp, Fy_tmp, Fz_tmp)
 		{
 		#pragma omp for schedule(dynamic,chunk)
@@ -1045,9 +1050,11 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 		//if the maximum diameter is larger than half of the box size, we use the double of maximum diameter as the root node size
 		RootNodeSize = 2.0*Max_radius; // 2+epsilon times of the maximal diameter
 	}
+	printf("MPI task %i: Octree force calculation started.\n", rank);
 	#endif
-	if(rank==0)
-		printf("\t    Root node size: %.6g Mpc.\n", RootNodeSize);
+	if (numtasks > 1)
+		printf("MPI task %i: ID_min = %i, ID_max = %i.\n", rank, ID_min, ID_max);
+	//building the octree
 	OctreeNode *rootnode = create_node(random_shift[0], random_shift[1], 0.50*RootNodeSize, RootNodeSize); //center of the simulation box, size 2*(Rsim+epsilon)
 	for (int i = 0; i < N; i++)
     {
@@ -1170,7 +1177,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     }
 	//rotating back the the simulation volume to its original orientation
 	rotate_vectors_2d(x, -rotation_angle, 0, N-1);
-	rotate_vectors_2d(F, -rotation_angle, ID_min, ID_max);
+	rotate_vectors_2d(F, -rotation_angle, 0, N_mpi_thread-1);
 	#endif
     //timing
     double omp_end_time = omp_get_wtime();
