@@ -73,6 +73,8 @@ extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 
 extern double FIRST_T_OUT, H_OUT; //First output time, output frequency in Gy
 
+extern bool Allocate_memory; //if true, memory will be allocated for the next loaded snapshot. if false, the memory is already allocated.
+
 extern REAL* M; //Particle masses
 extern REAL *SOFT_LENGTH; //particle softening lengths
 extern REAL M_tmp;
@@ -116,6 +118,16 @@ extern REAL ewald_cut; //cutoff radius for the ewald summation
 extern int RADIAL_FORCE_TABLE_SIZE; //size of the lookup table for the radial force calculation
 extern int RADIAL_FORCE_ACCURACY; //number of points used in the integration for the lookup table
 extern REAL *RADIAL_FORCE_TABLE; //lookup table for the radial force calculation
+#endif
+#ifdef USE_BH
+extern int RADIAL_BH_FORCE_CORRECTION; //0: no correction, 1: correction for the radial force calculation based on the glass or initial radial BH forces (In the case of cylindrical and spherical simulations)
+extern char GLASS_FILE_FOR_BH_FORCE_CORRECTION[1024]; //glass file used for the radial BH force correction. if "None", the IC file will be used to calculate the radial BH force correction.
+extern int RADIAL_BH_FORCE_TABLE_SIZE; //size of the lookup table for the radial BH force correction calculation
+extern REAL* RADIAL_BH_FORCE_TABLE; //lookup table for the radial BH force correction calculation
+extern int* RADIAL_BH_N_TABLE; //table for the number of particles in a shell in the radial BH force correction calculation
+extern int N_radial_bh_force_correction; //number of particles used in the radial BH force correction
+extern int RADIAL_BH_FORCE_TABLE_ITERATION; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
+extern bool USE_RADIAL_BH_CORRECTION; //true, if the radial BH force correction table is ready to use
 #endif
 //Functions
 //Initial timestep length calculation

@@ -21,6 +21,8 @@
 #include "mpi.h"
 #include "global_variables.h"
 
+#define RADIAL_BH_FORCE_ORDER 1 // Order of the radial BH force correction table interpolation
+
 extern int e[2202][4];
 extern REAL w[3];
 extern int N, el;
@@ -38,6 +40,15 @@ void recalculate_softening()
 		rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
 	}
 }
+
+#if defined(PERIODIC_Z) || defined(USE_BH)
+//These interpolators are defined in the utils.cc file
+// They are used to interpolate the force table values in radial BH or cylindrical force calculations
+REAL linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2);
+REAL quadratic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3);
+REAL cubic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3, REAL X4, REAL Y4);
+#endif
+
 #if defined(USE_BH)
 // Oct-tree struct
 typedef struct OctreeNode
@@ -122,14 +133,100 @@ void free_node(OctreeNode *node)
 	free(node);
 
 }
+
+REAL get_bin_center(REAL R, int bin_index, int RADIAL_BH_FORCE_TABLE_SIZE)
+{
+	// This function calculates the center of a bin for the BH radial force correction table.
+	// It returns the center of the bin for a given bin index.
+	return (((REAL) bin_index) +0.5 ) * (R / (REAL) RADIAL_BH_FORCE_TABLE_SIZE);
+}
+
+REAL get_BH_radial_force_correction(REAL r, REAL R, REAL *RADIAL_BH_FORCE_TABLE, int RADIAL_BH_FORCE_TABLE_SIZE, int ORDER)
+{
+    // This function calculates the radial force correction for BH force calculation.
+    // It uses the radial force table to interpolate the force correction for a given radial distance r.
+	REAL correction = 0.0;
+	REAL bin_center1, bin_center2, bin_center3;
+	int bin_index1, bin_index2, bin_index3;
+	if (ORDER>2) return 0; // If the order is higher than 2, we cannot interpolate
+    if (r < 0) return 0;
+	if (r>R)
+	{
+		// If r is greater than the maximum radius, return the linearly extrapolated value
+		bin_index1 = RADIAL_BH_FORCE_TABLE_SIZE - 2;
+		bin_center1 = get_bin_center(R, bin_index1, RADIAL_BH_FORCE_TABLE_SIZE);
+		bin_index2 = RADIAL_BH_FORCE_TABLE_SIZE - 1;
+		bin_center2 = get_bin_center(R, bin_index2, RADIAL_BH_FORCE_TABLE_SIZE);
+		correction = linear_interpolation(r, bin_center1, RADIAL_BH_FORCE_TABLE[bin_index1], bin_center2, RADIAL_BH_FORCE_TABLE[bin_index2]);
+		return correction;
+	}
+	bin_index1 = (int)floor(r / (Rsim / (double) RADIAL_BH_FORCE_TABLE_SIZE));
+	bin_center1 = get_bin_center(Rsim, bin_index1, RADIAL_BH_FORCE_TABLE_SIZE);
+	if(ORDER==1)
+	{
+		// linear interpolation. We use the two nearest bins
+		if(bin_center1 <= r)
+		{
+			if(bin_index1 < RADIAL_BH_FORCE_TABLE_SIZE - 1)
+			{
+				bin_index2 = bin_index1 + 1;
+				bin_center2 = (((REAL) bin_index2) +0.5 ) * (Rsim / (REAL) RADIAL_BH_FORCE_TABLE_SIZE);
+			}
+			else
+			{
+				bin_index1 -= 1; // If we are at the last bin, we use the previous bin
+				bin_center1 = (((REAL) bin_index1) +0.5 ) * (Rsim / (REAL) RADIAL_BH_FORCE_TABLE_SIZE);
+				bin_index2 = bin_index1 + 1;
+				bin_center2 = (((REAL) bin_index2) +0.5 ) * (Rsim / (REAL) RADIAL_BH_FORCE_TABLE_SIZE);
+			}
+			correction = linear_interpolation(r, bin_center1, RADIAL_BH_FORCE_TABLE[bin_index1], bin_center2, RADIAL_BH_FORCE_TABLE[bin_index2]);
+
+		}
+		else
+		{
+			if (bin_index1 > 1)
+			{
+				bin_index2 = bin_index1 - 1;
+				bin_center2 = (((REAL) bin_index2) +0.5 ) * (Rsim / (REAL) RADIAL_BH_FORCE_TABLE_SIZE);
+				correction = linear_interpolation(r, bin_center2, RADIAL_BH_FORCE_TABLE[bin_index2], bin_center1, RADIAL_BH_FORCE_TABLE[bin_index1]);
+			}
+			else
+			{
+				correction = linear_interpolation(r, 0.0, 0.0, bin_center1, RADIAL_BH_FORCE_TABLE[bin_index1]);
+			}
+		}
+
+	}
+	else if(ORDER==2)
+	{
+		//since we are working from three poins, and the central bin is known, this is much easier
+		bin_index1 -= 1; //before thecentral bin
+		if(bin_index1 < 0)
+		{
+			// the index is less than 0, so we use the first bin
+			bin_index1 = 0;
+		}
+		else if(bin_index1 >= RADIAL_BH_FORCE_TABLE_SIZE - 3)
+		{
+			bin_index1 = RADIAL_BH_FORCE_TABLE_SIZE - 3;
+		}
+		bin_center1 = get_bin_center(Rsim, bin_index1, RADIAL_BH_FORCE_TABLE_SIZE);
+		bin_index2 = bin_index1 + 1;
+		bin_center2 = get_bin_center(Rsim, bin_index2, RADIAL_BH_FORCE_TABLE_SIZE);
+		bin_index3 = bin_index1 + 2;
+		bin_center3 = get_bin_center(Rsim, bin_index3, RADIAL_BH_FORCE_TABLE_SIZE);
+		correction = quadratic_interpolation(r, bin_center1, RADIAL_BH_FORCE_TABLE[bin_index1], bin_center2, RADIAL_BH_FORCE_TABLE[bin_index2], bin_center3, RADIAL_BH_FORCE_TABLE[bin_index3]);
+	}
+
+    return correction;
+}
+
 #endif
+
+
 
 #if defined(PERIODIC_Z)
 
-//These interpolators are defined in the utils.cc file
-REAL linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2);
-REAL quadratic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3);
-REAL cubic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3, REAL X4, REAL Y4);
 //This function calculates the force table for cylindrical simulations, and it is defined in the utils.cc file
 void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_SIZE, int RADIAL_FORCE_ACCURACY);
 
@@ -283,7 +380,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
     //timing
     double omp_start_time = omp_get_wtime();
     //timing
-    REAL Fx_tmp, Fy_tmp, Fz_tmp;
+    REAL Fx_tmp, Fy_tmp, Fz_tmp, r_xyz;
     REAL DE = (REAL) H0*H0*Omega_lambda;
     int i, k, chunk;
 	REAL domain_center[3];
@@ -356,6 +453,13 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 			F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i];
 			F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];
 			F[3*(i-ID_min)+2] += mass_in_unit_sphere * x[3*i+2];
+			if(USE_RADIAL_BH_CORRECTION == true)
+			{
+				r_xyz = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2) + pow(x[3*i+2], 2));
+				F[3*(i-ID_min)] -= x[3*i]*get_BH_radial_force_correction(r_xyz, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xyz;
+				F[3*(i-ID_min)+1] -= x[3*i+1]*get_BH_radial_force_correction(r_xyz, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xyz;
+				F[3*(i-ID_min)+2] -= x[3*i+2]*get_BH_radial_force_correction(r_xyz, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xyz;
+			}
 		}
 		else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
 		{
@@ -1113,6 +1217,11 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 					cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
 					F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
 					F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
+					if(USE_RADIAL_BH_CORRECTION == true)
+					{
+						F[3*(i-ID_min)] -= x[3*i]*get_BH_radial_force_correction(r_xy, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xy;
+						F[3*(i-ID_min)+1] -= x[3*i+1]*get_BH_radial_force_correction(r_xy, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xy;
+					}
 				}
 				else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
 				{
@@ -1152,6 +1261,11 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 					cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
 					F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
 					F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
+					if(USE_RADIAL_BH_CORRECTION == true)
+					{
+						F[3*(i-ID_min)] -= x[3*i]*get_BH_radial_force_correction(r_xy, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xy;
+						F[3*(i-ID_min)+1] -= x[3*i+1]*get_BH_radial_force_correction(r_xy, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xy;
+					}
 				}
 				else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
 				{
