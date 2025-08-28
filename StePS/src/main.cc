@@ -378,11 +378,9 @@ int main(int argc, char *argv[])
 			if (MaxNodeSize/THETA < (((REAL) (IS_PERIODIC+1)) - 0.4)*L)
 			{
 				if(rank == 0)
-					printf("Warning: Using too many periodic images in the \"z\" direction:\n\tNodeSize/THETA = %.2f Mpc < Ewald_cut = %.2f Mpc.\nPlease consider decreasing the Theta opening angle, or decreasing the number of periodic images.\n", MaxNodeSize/THETA, L*(((REAL) (IS_PERIODIC+1)) - 0.4));
-				IS_PERIODIC = (int) floor(MaxNodeSize/THETA/L + 0.4) - 1; //Decreasing the number of periodic images in the z direction
-				if(rank == 0)
 				{
-					printf("Setting the number of repeated periodic images in the z direction to %i to avoid not-resolved periodic images.\n", 2*IS_PERIODIC+1);
+					printf("Warning: Using too many periodic images in the \"z\" direction:\n\tNodeSize/THETA = %.2f Mpc < Ewald_cut = %.2f Mpc.\nPlease consider decreasing the Theta opening angle, or decreasing the number of periodic images.\n", MaxNodeSize/THETA, L*(((REAL) (IS_PERIODIC+1)) - 0.4));
+					printf("You can set the repeated periodic images in the z direction to %i (Boundary condition %i) to avoid not-resolved periodic images.\n", 2*((int) floor(MaxNodeSize/THETA/L + 0.4) - 1)+1, (int) floor(MaxNodeSize/THETA/L + 0.4) - 1);
 				}
 			}
 		#endif
@@ -614,14 +612,15 @@ int main(int argc, char *argv[])
 		#if !defined(RANDOMIZE_BH)
 			RADIAL_BH_FORCE_TABLE_ITERATION = 1; //If the BH force calculation is randomised, only one iteration is needed
 			if(rank == 0)
-			{
 				printf("Randomised BH force calculation is off. Only one iteration is needed.\n");
-			}
 		#endif
 		for(int i_iter=0; i_iter<RADIAL_BH_FORCE_TABLE_ITERATION; i_iter++)
 		{
 			if(rank == 0 && RADIAL_BH_FORCE_TABLE_ITERATION > 1)
+			{
 				printf("BH radial force correction iteration %d/%d\n------------------------------------------\n", i_iter+1, RADIAL_BH_FORCE_TABLE_ITERATION);
+				fflush(stdout);
+			}
 			if(rank==0)
 			{
 				ID_MPI_min = 0;
