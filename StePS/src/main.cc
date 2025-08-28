@@ -256,6 +256,21 @@ int main(int argc, char *argv[])
 	if(numtasks != 1 && rank == 0)
 	{
 		printf("Number of MPI tasks: %i\n", numtasks);
+		#if !defined(USE_CUDA)
+			printf("Number of OpenMP threads per MPI tasks: %i\n", omp_threads);
+			printf("Total number of OpenMP threads: %i\n\n", numtasks*omp_threads);
+		#else
+			printf("\n");
+		#endif
+	}
+	if(numtasks == 1 && rank == 0)
+	{
+		printf("Running in OpenMP mode (Number of MPI tasks: %i).\n", numtasks);
+		#if !defined(USE_CUDA)
+			printf("Total number of OpenMP threads: %i\n\n", omp_threads);
+		#else
+			printf("\n");
+		#endif
 	}
 	#ifndef USE_CUDA
 	if(rank == 0 && argc == 3)
