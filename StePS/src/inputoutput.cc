@@ -884,14 +884,7 @@ void write_ascii_snapshot(REAL* x, REAL *v)
 		}
 	}
 	FILE *coordinate_file;
-	if(t < 1)
-	{
-		coordinate_file = fopen(filename, "w");
-	}
-	else
-	{
-		coordinate_file = fopen(filename, "a");
-	}
+	coordinate_file = fopen(filename, "w");
 
 	for(i=0; i<N; i++)
 	{
