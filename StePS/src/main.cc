@@ -1071,12 +1071,12 @@ int main(int argc, char *argv[])
 			{
 				Delta_T_out = H_OUT/UNIT_T; //Output frequency in internal time units
 				if(FIRST_T_OUT >= T*UNIT_T) //Calculating first output time
-				{
-					printf("Warning: FIRST_T_OUT is larger than the starting time! Setting the first output time to t_start+H_OUT Gy.\n");
-					t_next = FIRST_T_OUT/UNIT_T + Delta_T_out;
+				{	
+					t_next = FIRST_T_OUT/UNIT_T;
 				}
 				else
 				{
+					printf("Warning: FIRST_T_OUT is larger than the starting time! Setting the first output time to t_start+H_OUT Gy.\n");
 					t_next = T+Delta_T_out;
 				}
 			}
