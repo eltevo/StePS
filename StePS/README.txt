@@ -210,8 +210,15 @@ SNAPSHOT_START_NUMBER	0					%Initial snapshot number. Useful for restarting simu
 H_INDEPENDENT_UNITS   0         %Units of the I/O files. 0: i/o in Mpc, Msol, etc. (default); 1: i/o in Mpc/h, Msol/h, etc.
 TIME_LIMIT_IN_MIN     3600      %Simulation wall-clock time limit in minutes. If 0, or not defined, then no time limit will be considered.
 
-Optional parameters:    %These parameters are only needed when alternative cosmology parametrizations are turned on in the makefile.
---------------------
+Optional BH parameters: % These parameters only used in octree force calculation mode in spherical and cylindrical topology
+-----------------------
+RADIAL_BH_FORCE_CORRECTION          1     % 0: No radial octree force correction. 1: Radial correction of the Harnes-Hut force calculation is on.
+GLASS_FILE_FOR_BH_FORCE_CORRECTION  None  % Location of the initial glass file for estimating the correction. If None, the IC will be used to calculate the correction table.
+RADIAL_BH_FORCE_TABLE_SIZE          128   % Size of the radial correction table.
+RADIAL_BH_FORCE_TABLE_ITERATION     16    % Number of iterations used in the radial correction table calculation, if randomized BH force calculation is turned on in the makefile.
+
+Optional cosmological parameters:    %These parameters are only needed when alternative cosmology parametrizations are turned on in the makefile.
+---------------------------------
 w0    -0.9                        %Dark energy equation of state at z=0 in wCDM and w0waCDM parametrization. (LCDM: w0=-1.0)
 wa    0.1                         %Negative derivative of the dark energy equation of state in w0waCDM parametrization. (LCDM: wa=0.0)
 EXPANSION_FILE      ./wpwaCDM.dat %input file with tabulated expansion history. Columns in the file: age [Gy], scale factor [dimensionless], Hubble parameter [km/s/Mpc]
