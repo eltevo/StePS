@@ -41,6 +41,44 @@ void recalculate_softening()
 	}
 }
 
+REAL force_softening(REAL r, REAL beta, REAL mass_j)
+{
+	//This function calculates the softened force coefficient between two particles
+	//Only cubic spline softening is implemented here. New softening types can be added later.
+	//Input:
+	//    * r - distance between the two particles
+	//    * beta - softening length
+	//    * mass_j - mass of the second particle
+	//Output:
+	//    * wij - softened force coefficient (mass_j/r^3 for non-softened force)
+	REAL SOFT_CONST[5];
+	REAL betap2 = beta*0.5;
+	REAL wij = 0.0;
+	wij = 0;
+	if(r >= beta)
+	{
+		wij = mass_j/(pow(r, 3));
+	}
+	else if(r > betap2 && r < beta)
+	{
+		SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
+		SOFT_CONST[1] = 38.4/pow(beta, 5);
+		SOFT_CONST[2] = -48.0/pow(beta, 4);
+		SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
+		SOFT_CONST[4] = -1.0/15.0;
+		wij = mass_j*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
+	}
+	else
+	{
+		SOFT_CONST[0] = 32.0/pow(beta, 6);
+		SOFT_CONST[1] = -38.4/pow(beta, 5);
+		SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
+
+		wij = mass_j*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
+	}
+	return wij;
+}
+
 #if defined(PERIODIC_Z) || defined(USE_BH)
 //These interpolators are defined in the utils.cc file
 // They are used to interpolate the force table values in radial BH or cylindrical force calculations
@@ -329,8 +367,7 @@ void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL 
 {
     if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
-	REAL SOFT_CONST[5];
-	REAL wij, beta, betap2;
+	REAL wij, beta;
 
     REAL dx = node->com_x - X[3*i];
     REAL dy = node->com_y - X[3*i+1];
@@ -340,28 +377,7 @@ void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL 
     if (node->particle_index != -1 || node->nodesize / dist < THETA)
     {
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		betap2 = beta*0.5;
-		if (dist >= beta)
-        {
-        		wij = node->mass /(pow(dist,3));
-		}
-		else if(dist > betap2 && dist < beta)
-        {
-				SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-				SOFT_CONST[1] = 38.4/pow(beta, 5);
-				SOFT_CONST[2] = -48.0/pow(beta, 4);
-				SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-				SOFT_CONST[4] = -1.0/15.0;
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]*dist+SOFT_CONST[3]+SOFT_CONST[4]/pow(dist, 3));
-		}
-		else
-        {
-                SOFT_CONST[0] = 32.0/pow(beta, 6);
-				SOFT_CONST[1] = -38.4/pow(beta, 5);
-				SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]);
-
-		}
+		wij = force_softening(dist, beta, node->mass);
         *fx += wij * dx;
         *fy += wij * dy;
         *fz += wij * dz;
@@ -486,8 +502,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 // Direct summation force calculation
 void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 {
-	REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2;
-	REAL SOFT_CONST[5];
+	REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv;
 	REAL DE = (REAL) H0*H0*Omega_lambda;
 
 	//timing
@@ -508,7 +523,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	{
 		chunk = 1;
 	}
-	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+	#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv)
 	{
 	#pragma omp for schedule(dynamic,chunk)
 	for(i=ID_min; i<ID_max+1; i++)
@@ -516,34 +531,12 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 		for(j=0; j<N; j++)
 		{
 			beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-			beta_privp2 = beta_priv*0.5;
 			//calculating particle distances
             dx=x[3*j]-x[3*i];
 			dy=x[3*j+1]-x[3*i+1];
 			dz=x[3*j+2]-x[3*i+2];
 			r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
-			wij = 0;
-			if(r >= beta_priv)
-			{
-				wij = M[j]/(pow(r, 3));
-			}
-			else if(r > beta_privp2 && r < beta_priv)
-            {
-				SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-				SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-				SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-				SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-				SOFT_CONST[4] = -1.0/15.0;
-				wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
-			}
-			else
-			{
-				SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-				SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-				SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-
-				wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
-			}
+			wij = force_softening(r, beta_priv, M[j]);
 			Fx_tmp = wij*(dx);
 			Fy_tmp = wij*(dy);
 			Fz_tmp = wij*(dz);
@@ -585,8 +578,7 @@ void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL COORD_X, REAL COORD
 {
     if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
-	REAL SOFT_CONST[5];
-	REAL wij, beta, betap2;
+	REAL wij, beta;
 
     REAL dx = node->com_x - COORD_X;
     REAL dy = node->com_y - COORD_Y;
@@ -596,28 +588,7 @@ void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL COORD_X, REAL COORD
     {
 		if (dist > ewald_cut) return; // Skip if outside the cutoff radius
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		betap2 = beta*0.5;
-		if (dist >= beta)
-        {
-        		wij = node->mass /(pow(dist,3));
-		}
-		else if(dist > betap2 && dist < beta)
-        {
-				SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-				SOFT_CONST[1] = 38.4/pow(beta, 5);
-				SOFT_CONST[2] = -48.0/pow(beta, 4);
-				SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-				SOFT_CONST[4] = -1.0/15.0;
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]*dist+SOFT_CONST[3]+SOFT_CONST[4]/pow(dist, 3));
-		}
-		else
-        {
-                SOFT_CONST[0] = 32.0/pow(beta, 6);
-				SOFT_CONST[1] = -38.4/pow(beta, 5);
-				SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]);
-
-		}
+		wij = force_softening(dist, beta, node->mass);
         *fx += wij * dx;
         *fy += wij * dy;
         *fz += wij * dz;
@@ -636,8 +607,7 @@ void compute_BH_QP_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, RE
 	//quasi-periodic force calculation
     if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
-	REAL SOFT_CONST[5];
-	REAL wij, beta, betap2;
+	REAL wij, beta;
 
     REAL dx = node->com_x - X[3*i];
     REAL dy = node->com_y - X[3*i+1];
@@ -653,28 +623,7 @@ void compute_BH_QP_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, RE
     if (node->particle_index != -1 || node->nodesize / dist < THETA)
     {
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		betap2 = beta*0.5;
-		if (dist >= beta)
-        {
-        		wij = node->mass /(pow(dist,3));
-		}
-		else if(dist > betap2 && dist < beta)
-        {
-				SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-				SOFT_CONST[1] = 38.4/pow(beta, 5);
-				SOFT_CONST[2] = -48.0/pow(beta, 4);
-				SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-				SOFT_CONST[4] = -1.0/15.0;
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]*dist+SOFT_CONST[3]+SOFT_CONST[4]/pow(dist, 3));
-		}
-		else
-        {
-                SOFT_CONST[0] = 32.0/pow(beta, 6);
-				SOFT_CONST[1] = -38.4/pow(beta, 5);
-				SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]);
-
-		}
+		wij = force_softening(dist, beta, node->mass);
         *fx += wij * dx;
         *fy += wij * dy;
         *fz += wij * dz;
@@ -824,8 +773,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	//timing
 	double omp_start_time = omp_get_wtime();
 	//timing
-	REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2, EwaldCut;
-	REAL SOFT_CONST[5];
+	REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, EwaldCut;
 	int i, j, k, m, chunk;
 	for(i=0; i<N_mpi_thread; i++)
 	{
@@ -846,7 +794,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 			EwaldCut = 2.6*L; // Ewald cutoff radius
 		else
 			EwaldCut = 4.6*L; // Ewald cutoff radius
-		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv)
 		{
 		#pragma omp for schedule(dynamic,chunk)
 		for(i=ID_min; i<ID_max+1; i++)
@@ -857,7 +805,6 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 				Fy_tmp = 0;
 				Fz_tmp = 0;
 				beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-				beta_privp2 = beta_priv*0.5; 
 				//calculating particle distances inside the simulation box
 				dx=x[3*j]-x[3*i];
 				dy=x[3*j+1]-x[3*i+1];
@@ -867,28 +814,9 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 				{
 					r = sqrt(pow((dx-((REAL) e[m][0])*L), 2)+pow((dy-((REAL) e[m][1])*L), 2)+pow((dz-((REAL) e[m][2])*L), 2));
 					wij = 0;
-					if(r >= beta_priv && r < EwaldCut)
+					if(r < EwaldCut)
 					{
-						wij = M[j]/(pow(r, 3));
-					}
-					else if(r > beta_privp2 && r < beta_priv)
-					{
-						SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-						SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-						SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-						SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-						SOFT_CONST[4] = -1.0/15.0;
-						wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
-					}
-					else if(r <= beta_privp2)
-					{
-						SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-										SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-										SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-						wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
-					}
-					if(wij != 0)
-					{
+						wij = force_softening(r, beta_priv, M[j]);
 						Fx_tmp += wij*(dx-((REAL) e[m][0])*L);
 						Fy_tmp += wij*(dy-((REAL) e[m][1])*L);
 						Fz_tmp += wij*(dz-((REAL) e[m][2])*L);
@@ -906,7 +834,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	}
 	else
 	{
-		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv)
         	{
         	#pragma omp for schedule(dynamic,chunk)
 	        	for(i=ID_min; i<ID_max+1; i++)
@@ -914,7 +842,6 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 				for(j=0; j<N; j++)
 				{
 					beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-					beta_privp2 = beta_priv*0.5;
 					//calculating particle distances
 					dx=x[3*j]-x[3*i];
 					dy=x[3*j+1]-x[3*i+1];
@@ -927,27 +854,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 					if(fabs(dz)>0.5*L)
 						dz = dz-L*dz/fabs(dz);
 					r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
-					wij = 0;
-					if(r >= beta_priv)
-					{
-						wij = M[j]/(pow(r, 3));
-					}
-					else if(r > beta_privp2 && r < beta_priv)
-					{
-						SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-						SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-						SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-						SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-						SOFT_CONST[4] = -1.0/15.0;
-						wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
-					}
-					else
-					{
-						SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-						SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-						SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-						wij = M[j]*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
-					}
+					wij = force_softening(r, beta_priv, M[j]);
 					Fx_tmp = wij*(dx);
 					Fy_tmp = wij*(dy);
 					Fz_tmp = wij*(dz);
@@ -996,8 +903,7 @@ void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REA
 {
 	if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
-	REAL SOFT_CONST[5];
-	REAL wij, beta, betap2;
+	REAL wij, beta;
 
 	REAL dx = node->com_x - COORD_X;
 	REAL dy = node->com_y - COORD_Y;
@@ -1007,27 +913,7 @@ void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REA
 	{
 		if (fabs(dz) > ewald_cut) return;
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		betap2 = beta*0.5;
-		if (dist >= beta)
-		{
-				wij = node->mass /(pow(dist,3));
-		}
-		else if(dist > betap2 && dist < beta)
-		{
-				SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-				SOFT_CONST[1] = 38.4/pow(beta, 5);
-				SOFT_CONST[2] = -48.0/pow(beta, 4);
-				SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-				SOFT_CONST[4] = -1.0/15.0;
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]*dist+SOFT_CONST[3]+SOFT_CONST[4]/pow(dist, 3));
-		}
-		else
-		{
-				SOFT_CONST[0] = 32.0/pow(beta, 6);
-				SOFT_CONST[1] = -38.4/pow(beta, 5);
-				SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]);
-		}
+		wij = force_softening(dist, beta, node->mass);
 		*fx += wij * dx;
 		*fy += wij * dy;
 		*fz += wij * dz;
@@ -1046,8 +932,7 @@ void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, 
 	//quasi-periodic force calculation in the z direction only
 	if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
-	REAL SOFT_CONST[5];
-	REAL wij, beta, betap2;
+	REAL wij, beta;
 
 	REAL dx = node->com_x - X[3*i];
 	REAL dy = node->com_y - X[3*i+1];
@@ -1059,27 +944,7 @@ void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, 
 	if (node->particle_index != -1 || (node->nodesize) / dist < THETA)
 	{
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		betap2 = beta*0.5;
-		if (dist >= beta)
-		{
-				wij = node->mass /(pow(dist,3));
-		}
-		else if(dist > betap2 && dist < beta)
-		{
-				SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-				SOFT_CONST[1] = 38.4/pow(beta, 5);
-				SOFT_CONST[2] = -48.0/pow(beta, 4);
-				SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-				SOFT_CONST[4] = -1.0/15.0;
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist,2)+SOFT_CONST[2]*dist+SOFT_CONST[3]+SOFT_CONST[4]/pow(dist, 3));
-		}
-		else
-		{
-				SOFT_CONST[0] = 32.0/pow(beta, 6);
-				SOFT_CONST[1] = -38.4/pow(beta, 5);
-				SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
-				wij = node->mass*(SOFT_CONST[0]*pow(dist, 3)+SOFT_CONST[1]*pow(dist, 2)+SOFT_CONST[2]);
-		}
+		wij = force_softening(dist, beta, node->mass);
 		*fx += wij * dx;
 		*fy += wij * dy;
 		*fz += wij * dz;
@@ -1307,8 +1172,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     double omp_start_time = omp_get_wtime();
     //timing
-    REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, beta_privp2, r_xy, cylindrical_force_correction;
-    REAL SOFT_CONST[5];
+    REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, r_xy, cylindrical_force_correction;
 	REAL DE = (REAL) H0*H0*Omega_lambda;
     
     int i, j, k, m, chunk;
@@ -1326,7 +1190,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
         chunk = 1;
     }
     if(IS_PERIODIC>=2) {
-        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2,dz_ewald)
+        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, dz_ewald)
             #pragma omp for schedule(dynamic,chunk)
                 for(i=ID_min; i<ID_max+1; i++) {
                     for(j=0; j<N; j++) {
@@ -1334,7 +1198,6 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         Fy_tmp = 0;
                         Fz_tmp = 0;
                         beta_priv = (SOFT_LENGTH[i] + SOFT_LENGTH[j]);
-                        beta_privp2 = beta_priv*0.5; 
                         //calculating particle distances inside the simulation volume
                         dx = x[3*j] - x[3*i];
                         dy = x[3*j+1] - x[3*i+1];
@@ -1347,29 +1210,10 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 							dz_ewald = dz+((REAL) m)*L;
                             r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz_ewald, 2));
                             wij = 0;
-                            if(r >= beta_priv && fabs(dz_ewald) <= ewald_cut*L)
+                            if(fabs(dz_ewald) <= ewald_cut*L)
                             {
 								//applying a cutoff at ewald_cut*L (2.6*L, if IS_PERIODIC==2)
-                                wij = M[j]/(pow(r, 3));
-                            }
-                            else if(r > beta_privp2 && r < beta_priv)
-                            {
-                                SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-                                SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-                                SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-                                SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-                                SOFT_CONST[4] = -1.0/15.0;
-                                wij = M[j]*(SOFT_CONST[0]*pow(r, 3) + SOFT_CONST[1]*pow(r, 2) + SOFT_CONST[2]*r + SOFT_CONST[3] + SOFT_CONST[4]/pow(r, 3));
-                            }
-                            else if(r <= beta_privp2)
-                            {
-                                SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-                                SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-                                SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-                                wij = M[j]*(SOFT_CONST[0]*pow(r, 3) + SOFT_CONST[1]*pow(r, 2) + SOFT_CONST[2]);
-                            }
-                            if(wij != 0)
-                            {
+                                wij = force_softening(r, beta_priv, M[j]);
                                 Fx_tmp += wij*(dx);
                                 Fy_tmp += wij*(dy);
                                 Fz_tmp += wij*(dz_ewald);
@@ -1400,13 +1244,12 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                 }
     }
     else {
-        #pragma omp parallel default(shared) private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, SOFT_CONST, beta_priv, beta_privp2)
+        #pragma omp parallel default(shared) private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv)
             #pragma omp for schedule(dynamic,chunk)
                 for(i=ID_min; i<ID_max+1; i++) {
                     for(j=0; j<N; j++)
                     {
                         beta_priv = (SOFT_LENGTH[i] + SOFT_LENGTH[j]);
-                        beta_privp2 = beta_priv*0.5;
                         //calculating particle distances
                         dx = x[3*j] - x[3*i];
                         dy = x[3*j+1] - x[3*i+1];
@@ -1414,27 +1257,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         //in this case we use only the nearest image
                         if(fabs(dz)>0.5*L) { dz = dz-L*dz/fabs(dz); }
                         r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-                        wij = 0;
-                        if(r >= beta_priv)
-                        {
-                            wij = M[j]/(pow(r, 3));
-                        }
-                        else if(r > beta_privp2 && r < beta_priv)
-                        {
-                            SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-                            SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-                            SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-                            SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-                            SOFT_CONST[4] = -1.0/15.0;
-                            wij = M[j]*(SOFT_CONST[0]*pow(r, 3) + SOFT_CONST[1]*pow(r, 2) + SOFT_CONST[2]*r + SOFT_CONST[3] + SOFT_CONST[4]/pow(r, 3));
-                        }
-                        else
-                        {
-                            SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-                            SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-                            SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-                            wij = M[j]*(SOFT_CONST[0]*pow(r, 3) + SOFT_CONST[1]*pow(r, 2) + SOFT_CONST[2]);
-                        }
+                        wij = force_softening(r, beta_priv, M[j]);
                         Fx_tmp = wij*(dx);
                         Fy_tmp = wij*(dy);
                         Fz_tmp = wij*(dz);
