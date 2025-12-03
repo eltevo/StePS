@@ -1515,6 +1515,31 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Sclose(hdf5_dataspace);
 	#endif
 
+	//Flags for Compile time options, program name, and version info
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hid_t str_type = H5Tcopy(H5T_C_S1);
+	H5Tset_size(str_type, strlen(PROGRAMNAME) + 1);
+	H5Tset_cset(str_type, H5T_CSET_ASCII);
+
+	hdf5_attribute = H5Acreate(handle, "ProgramName", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)PROGRAMNAME);
+	H5Aclose(hdf5_attribute);
+
+	H5Tset_size(str_type, strlen(PROGRAM_VERSION) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramVersion", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)PROGRAM_VERSION);
+	H5Aclose(hdf5_attribute);
+
+	H5Tset_size(str_type, strlen(BUILD_DATE) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramBuildDate", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)BUILD_DATE);
+	H5Aclose(hdf5_attribute);
+
+	H5Sclose(hdf5_dataspace);
+	H5Tclose(str_type);
+
+	
+
 	//Flags for GADGET compatibility
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "Flag_Sfr", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);

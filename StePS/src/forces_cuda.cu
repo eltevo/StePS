@@ -94,12 +94,49 @@ void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max)
 
 void recalculate_softening();
 
+__device__ REAL force_softening_cuda(REAL r, REAL beta, REAL mass_j)
+{
+
+    //This CUDA kernel calculates the softened force coefficient between two particles
+	//Only cubic spline softening is implemented here. New softening types can be added later.
+	//Input:
+	//    * r - distance between the two particles
+	//    * beta - softening length
+	//    * mass_j - mass of the second particle
+	//Output:
+	//    * wij - softened force coefficient (mass_j/r^3 for non-softened force)
+	REAL betap2 = beta*0.5;
+	REAL wij;
+	wij = 0.0;
+	if(r >= beta)
+	{
+		wij = mass_j/(pow(r, 3));
+	}
+	else if(r > betap2 && r < beta)
+	{
+		REAL SOFT_CONST0 = -32.0/(3.0*pow(beta, 6));
+		REAL SOFT_CONST1 = 38.4/pow(beta, 5);
+		REAL SOFT_CONST2 = -48.0/pow(beta, 4);
+		REAL SOFT_CONST3 = 64.0/(3.0*pow(beta, 3));
+		REAL SOFT_CONST4 = -1.0/15.0;
+		wij = mass_j*(SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2*r+SOFT_CONST3+SOFT_CONST4/pow(r, 3));
+	}
+	else
+	{
+		REAL SOFT_CONST0 = 32.0/pow(beta, 6);
+		REAL SOFT_CONST1 = -38.4/pow(beta, 5);
+		REAL SOFT_CONST2 = 32.0/(3.0*pow(beta, 3));
+		wij = mass_j*(SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2);
+	}
+	return wij;
+
+}
+
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
 __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const REAL* M, const REAL* SOFT_LENGTH, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
-	REAL r, dx, dy, dz, wij, beta_priv, beta_privp2;
-	REAL SOFT_CONST[5];
+	REAL r, dx, dy, dz, wij, beta_priv;
 	int i, j, id;
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
@@ -108,32 +145,12 @@ __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, 
 			for (j = 0; j<N; j++)
 			{
 				beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-				beta_privp2 = beta_priv*0.5;
 				//calculating particle distances
 				dx = (xx[j] - xx[i]);
 				dy = (xy[j] - xy[i]);
 				dz = (xz[j] - xz[i]);
 				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-				if (r >= beta_priv)
-				{
-					wij = M[j] / (pow(r, 3));
-				}
-				else if (r > beta_privp2 && r < beta_priv)
-				{
-					SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-					SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-					SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-					SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-					SOFT_CONST[4] = -1.0/15.0;
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-				}
-				else
-				{
-					SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-					SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-					SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
-				}
+				wij = force_softening_cuda(r, beta_priv, M[j]);
 				Fx_tmp += wij*(dx);
 				Fy_tmp += wij*(dy);
 				Fz_tmp += wij*(dz);
@@ -164,8 +181,7 @@ __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, 
 __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const int *e, int el, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
-	REAL r, dx, dy, dz, wij, beta_priv, beta_privp2;
-	REAL SOFT_CONST[5];
+	REAL r, dx, dy, dz, wij, beta_priv;
 	int i, j, m, id;
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
@@ -190,26 +206,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 					dz = dz - L*dz / fabs(dz);
 				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
                                 wij = 0.0;
-				if (r >= beta_priv)
-				{
-					wij = M[j] / (pow(r, 3));
-				}
-				else if (r > beta_privp2 && r < beta_priv)
-                                {
-					SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-					SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-					SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-					SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-					SOFT_CONST[4] = -1.0/15.0;
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-				}
-				else
-				{
-					SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-					SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-					SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-					wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
-				}
+				wij = force_softening_cuda(r, beta_priv, M[j]);
 				Fx_tmp += wij*(dx);
 				Fy_tmp += wij*(dy);
 				Fz_tmp += wij*(dz);
@@ -228,7 +225,6 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 			for (j = 0; j<N; j++)
 			{
 				beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-				beta_privp2 = beta_priv*0.5;
 				//calculating particle distances
 				dx = (xx[j] - xx[i]);
 				dy = (xy[j] - xy[i]);
@@ -237,26 +233,9 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 				for (m = 0; m < 3*el; m = m+3)
 				{
 					r = sqrt(pow((dx - ((REAL)e[m])*L), 2) + pow((dy - ((REAL)e[m+1])*L), 2) + pow((dz-((REAL)e[m+2])*L), 2));
-					wij = 0.0;
-					if (r >= beta_priv && r < 2.6*L)
+					if ( r < 2.6*L)
 					{
-						wij = M[j] / (pow(r, 3));
-					}
-					else if (r > beta_privp2 && r <= beta_priv)
-					{
-						SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-						SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-						SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-						SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-						SOFT_CONST[4] = -1.0/15.0;
-						wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-					}
-					else if (r <= beta_privp2)
-					{
-						SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-						SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-						SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-						wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
+						wij = force_softening_cuda(r, beta_priv, M[j]);
 					}
 					if (wij != 0)
 					{
@@ -281,8 +260,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const REAL RADIAL_FORCE_TABLE_SIZE, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
     REAL Fx_tmp, Fy_tmp, Fz_tmp;
-    REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, beta_privp2, ewald_cut, r_xy, cylindrical_force_correction;
-    REAL SOFT_CONST[5];
+    REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, ewald_cut, r_xy, cylindrical_force_correction;
     int i, j, m, id, ewald_max;
     id = blockIdx.x * blockDim.x + threadIdx.x;
     Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
@@ -295,8 +273,6 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             for (j = 0; j<N; j++)
             {
                 beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-                beta_privp2 = beta_priv*0.5;
-                
                 // Calculating particle distances
                 dx = (xx[j] - xx[i]);
                 dy = (xy[j] - xy[i]);
@@ -307,28 +283,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                     dz = dz - L*dz / fabs(dz);
                     
                 r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-                wij = 0.0;
-                
-                if (r >= beta_priv)
-                {
-                    wij = M[j] / (pow(r, 3));
-                }
-                else if (r > beta_privp2 && r < beta_priv)
-                {
-                    SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-                    SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-                    SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-                    SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-                    SOFT_CONST[4] = -1.0/15.0;
-                    wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-                }
-                else
-                {
-                    SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-                    SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-                    SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-                    wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
-                }
+                wij = force_softening_cuda(r, beta_priv, M[j]);
                 
                 Fx_tmp += wij*(dx);
                 Fy_tmp += wij*(dy);
@@ -364,7 +319,6 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             for (j = 0; j<N; j++)
             {
                 beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-                beta_privp2 = beta_priv*0.5;
                 
                 // Calculating particle distances inside the simulation box
                 dx = (xx[j] - xx[i]);
@@ -379,30 +333,9 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                     r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz_ewald, 2));
                     wij = 0.0;
                     
-                    if (r >= beta_priv && fabs(dz_ewald) < ewald_cut)
+                    if (fabs(dz_ewald) < ewald_cut)
                     {
-						//applying a cutoff at ewald_cut*L (2.6*L, if IS_PERIODIC==2)
-                        wij = M[j] / (pow(r, 3));
-                    }
-                    else if (r > beta_privp2 && r < beta_priv)
-                    {
-                        SOFT_CONST[0] = -32.0/(3.0*pow(beta_priv, 6));
-                        SOFT_CONST[1] = 38.4/pow(beta_priv, 5);
-                        SOFT_CONST[2] = -48.0/pow(beta_priv, 4);
-                        SOFT_CONST[3] = 64.0/(3.0*pow(beta_priv, 3));
-                        SOFT_CONST[4] = -1.0/15.0;
-                        wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2] * r + SOFT_CONST[3] + SOFT_CONST[4] / pow(r, 3));
-                    }
-                    else if (r <= beta_privp2)
-                    {
-                        SOFT_CONST[0] = 32.0/pow(beta_priv, 6);
-                        SOFT_CONST[1] = -38.4/pow(beta_priv, 5);
-                        SOFT_CONST[2] = 32.0/(3.0*pow(beta_priv, 3));
-                        wij = M[j]*(SOFT_CONST[0] * pow(r, 3) + SOFT_CONST[1] * pow(r, 2) + SOFT_CONST[2]);
-                    }
-                    
-                    if (wij != 0.0)
-                    {
+						wij = force_softening_cuda(r, beta_priv, M[j]);
                         Fx_tmp += wij*(dx);
                         Fy_tmp += wij*(dy);
                         Fz_tmp += wij*(dz_ewald);

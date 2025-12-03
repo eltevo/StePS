@@ -53,7 +53,7 @@ REAL force_softening(REAL r, REAL beta, REAL mass_j)
 	//    * wij - softened force coefficient (mass_j/r^3 for non-softened force)
 	REAL SOFT_CONST[5];
 	REAL betap2 = beta*0.5;
-	REAL wij = 0.0;
+	REAL wij;
 	wij = 0;
 	if(r >= beta)
 	{
