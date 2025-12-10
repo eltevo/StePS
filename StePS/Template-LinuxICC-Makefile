@@ -6,7 +6,7 @@
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.4.0.2-dev"'
+VERSION='"v1.4.0.3-dev"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -69,8 +69,10 @@ DEPS = $(SRC_DIR)/global_variables.h
 OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o $(BUILD_DIR)/utils.o
 
 COMPILERVERSION=$(shell $(CXX) --version | head -1)
+GITCOMMIT_ID=$(shell git rev-parse HEAD)
+GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
-BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"'
+BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"'
 CFLAGS = -Wno-long-long -Wall -ansi -pedantic -O3 -std=gnu++98 -fopenmp -lgomp -qopenmp
 
 IMPI_COMPILE_FLAGS = $(shell mpiicpc -compile-info)

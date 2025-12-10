@@ -187,10 +187,16 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 	{
 		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2025 Gabor Racz et al.\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
-		printf("Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
-		printf("Compiled with: %s", COMPILER_VERSION);
+		printf(" Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
+		printf(" Compiled with: %s", COMPILER_VERSION);
 		unsigned long int I;
 		for(I = 0; I<10-((sizeof(COMPILER_VERSION)-1)/8); I++)
+			printf("\t");
+		printf("|\n| Git branch: %s", GIT_BRANCH);
+		for(I = 0; I<10-((sizeof(GIT_BRANCH)-1)/8); I++)
+			printf("\t");
+		printf("|\n| Git commit ID: %s", GIT_COMMIT_ID);
+		for(I = 0; I<10-((sizeof(GIT_COMMIT_ID)-1)/8); I++)
 			printf("\t");
 		printf("|\n+-----------------------------------------------------------------------------------------------+\n\n");
 		printf("+---------------------------------------------------------------+\n| StePS comes with ABSOLUTELY NO WARRANTY.\t\t\t|\n| This is free software, and you are welcome to redistribute it\t|\n| under certain conditions. See the LICENSE file for details.\t|\n+---------------------------------------------------------------+\n\n");

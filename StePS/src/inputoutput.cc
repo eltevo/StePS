@@ -1521,19 +1521,62 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Tset_size(str_type, strlen(PROGRAMNAME) + 1);
 	H5Tset_cset(str_type, H5T_CSET_ASCII);
 
+	// Name of the executable
 	hdf5_attribute = H5Acreate(handle, "ProgramName", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, str_type, (const void*)PROGRAMNAME);
 	H5Aclose(hdf5_attribute);
 
+	// Version of the executable
 	H5Tset_size(str_type, strlen(PROGRAM_VERSION) + 1);
 	hdf5_attribute = H5Acreate(handle, "ProgramVersion", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, str_type, (const void*)PROGRAM_VERSION);
 	H5Aclose(hdf5_attribute);
 
+	// Build date of the executable
 	H5Tset_size(str_type, strlen(BUILD_DATE) + 1);
 	hdf5_attribute = H5Acreate(handle, "ProgramBuildDate", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, str_type, (const void*)BUILD_DATE);
 	H5Aclose(hdf5_attribute);
+
+	// Compiler version used for the executable
+	H5Tset_size(str_type, strlen(COMPILER_VERSION) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramCompiler", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)COMPILER_VERSION);
+	H5Aclose(hdf5_attribute);
+
+	//Git commit ID of the executable
+	H5Tset_size(str_type, strlen(GIT_COMMIT_ID) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramCommitID", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)GIT_COMMIT_ID);
+	H5Aclose(hdf5_attribute);
+	
+	//Branch name of the executable
+	H5Tset_size(str_type, strlen(GIT_BRANCH) + 1);
+	hdf5_attribute = H5Acreate(handle, "ProgramBranchName", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)GIT_BRANCH);
+	H5Aclose(hdf5_attribute);
+
+	//Boundary conditions
+	#if defined(PERIODIC)
+	//Periodic (3-torus) boundary conditions
+	H5Tset_size(str_type, strlen("T^3") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"T^3");
+	H5Aclose(hdf5_attribute);
+	#elif defined(PERIODIC_Z)
+	//Periodic in z direction, free in x and y (S1xR2 topological manifold)
+	H5Tset_size(str_type, strlen("S^1xR^2") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"S^1xR^2");
+	H5Aclose(hdf5_attribute);
+	#else
+	//Free boundary conditions (R^3 topological manifold)
+	H5Tset_size(str_type, strlen("R^3") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"R^3");
+	H5Aclose(hdf5_attribute);
+	#endif
+
 
 	H5Sclose(hdf5_dataspace);
 	H5Tclose(str_type);
