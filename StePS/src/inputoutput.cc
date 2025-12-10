@@ -922,7 +922,31 @@ void Log_write() //Writing logfile
 	{
 		LOGFILE = fopen(filename, "a");
 		//Writing header
+		//Program information
 		fprintf(LOGFILE, "# %s logfile\n# code version: %s\n# git commit: %s\n# git branch: %s\n# build date: %s\n", PROGRAMNAME, PROGRAM_VERSION, GIT_COMMIT_ID, GIT_BRANCH, BUILD_DATE);
+		//Cosmological parameters
+		if(COSMOLOGY == 1)
+		{
+			fprintf(LOGFILE, "# Cosmological parameters used:\n");
+			fprintf(LOGFILE, "# H0 = %.2f km/s/Mpc, Omega_m0 = %.5f, Omega_l0 = %.5f, Omega_r0 = %.5e", H0*UNIT_V, Omega_m, Omega_lambda, Omega_r);
+			#if COSMOPARAM==1
+			fprintf(LOGFILE, ", w0 = %.5f", w0);
+			#elif COSMOPARAM==2
+			fprintf(LOGFILE, ", w0 = %.5f, wa = %.5f", w0, wa);
+			#elif COSMOPARAM==-1
+			fprintf(LOGFILE, "\n Tabulated expansion history from %s", EXPANSION_FILE);
+			#endif
+			fprintf(LOGFILE, "\n");
+		}
+		//Topology information
+		#if defined(PERIODIC)
+			fprintf(LOGFILE, "# Topological manifold: T^3\n");
+		#elif defined(PERIODIC_Z)
+			fprintf(LOGFILE, "# Topological manifold: S^1xR^2\n");
+		#else
+			fprintf(LOGFILE, "# Topological manifold: R^3\n");
+		#endif
+		//Writing column headers
 		fprintf(LOGFILE, "# Time[Gy]\tMax_Error\tStep_Size[Gy]\tScale factor\tRedshift\tHubble_Parameter[km/s/Mpc]\tDeceleration_Parameter\tOmega_m_Effective\n");
 		//Writing first line
 		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
