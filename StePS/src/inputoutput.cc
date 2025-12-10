@@ -918,8 +918,20 @@ void Log_write() //Writing logfile
 		fprintf(stderr, "Error: The name of the logfile got truncated.\nAborting.\n");
 		abort();
 	}
-	LOGFILE = fopen(filename, "a");
-	fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
+	if(file_exist(filename) == 0)
+	{
+		LOGFILE = fopen(filename, "a");
+		//Writing header
+		fprintf(LOGFILE, "# %s logfile\n# code version: %s\n# git commit: %s\n# git branch: %s\n# build date: %s\n", PROGRAMNAME, PROGRAM_VERSION, GIT_COMMIT_ID, GIT_BRANCH, BUILD_DATE);
+		fprintf(LOGFILE, "# Time[Gy]\tMax_Error\tStep_Size[Gy]\tScale factor\tRedshift\tHubble_Parameter[km/s/Mpc]\tDeceleration_Parameter\tOmega_m_Effective\n");
+		//Writing first line
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
+	}
+	else
+	{
+		LOGFILE = fopen(filename, "a");
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.10f\n", T*UNIT_T, errmax, h*UNIT_T, a, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, Omega_m_eff);
+	}
 	fclose(LOGFILE);
 }
 

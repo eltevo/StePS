@@ -8,11 +8,12 @@ All notable changes to the StePS simulation code is documented in this file.
 - Random domain center shift option for periodic Barnes-Hut simulations
 - Random domain center shift and rotation option for non-periodic Barnes-Hut simulations
 - Random domain center shift and rotation in cylindrical Barnes-Hut simulations
-- Cylindrically symmetric boundary conditions
+- Implemented S^1xR^2 topological manifold (cylindrically symmetric boundary conditions)
 
 ### Changed
 - Updated makefile templates
 - w0 and wa parameter values of wCDM and w0waCDM cosmologies are saved into the hdf5 snapshots
+- Executable info (version, git commit ID, git branch, compiler, build date) are saved into the hdf5 snapshots and logfiles.
 
 ### Fixed
 - Fixed constant-resolution periodic initial condition reading from HDF5 format

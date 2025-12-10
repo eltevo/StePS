@@ -7,7 +7,7 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v1.4.0.3
+v1.4.0.4
 Copyright (C) 2017-2025 Gábor Rácz - gabor.racz@helsinki.fi
   Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland
   Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
