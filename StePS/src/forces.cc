@@ -28,7 +28,9 @@ extern REAL w[3];
 extern int N, el;
 
 
-int ewald_space(REAL R, int ewald_index[2102][4]);
+#if defined(PERIODIC)
+void ewald_interpolate_D(int Ngrid, REAL L, const REAL *T3_EWALD_FORCE_TABLE, const REAL dx, const REAL dy, const REAL dz, REAL D[3], int order);
+#endif
 
 void recalculate_softening();
 
@@ -41,23 +43,22 @@ void recalculate_softening()
 	}
 }
 
-REAL force_softening(REAL r, REAL beta, REAL mass_j)
+REAL force_softening(REAL r, REAL beta)
 {
 	//This function calculates the softened force coefficient between two particles
 	//Only cubic spline softening is implemented here. New softening types can be added later.
 	//Input:
 	//    * r - distance between the two particles
 	//    * beta - softening length
-	//    * mass_j - mass of the second particle
 	//Output:
-	//    * wij - softened force coefficient (mass_j/r^3 for non-softened force)
+	//    * wij - softened force coefficient (1/r^3 for non-softened force)
 	REAL SOFT_CONST[5];
 	REAL betap2 = beta*0.5;
 	REAL wij;
 	wij = 0;
 	if(r >= beta)
 	{
-		wij = mass_j/(pow(r, 3));
+		wij = pow(r, -3);
 	}
 	else if(r > betap2 && r < beta)
 	{
@@ -66,7 +67,7 @@ REAL force_softening(REAL r, REAL beta, REAL mass_j)
 		SOFT_CONST[2] = -48.0/pow(beta, 4);
 		SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
 		SOFT_CONST[4] = -1.0/15.0;
-		wij = mass_j*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3));
+		wij = SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3);
 	}
 	else
 	{
@@ -74,7 +75,7 @@ REAL force_softening(REAL r, REAL beta, REAL mass_j)
 		SOFT_CONST[1] = -38.4/pow(beta, 5);
 		SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
 
-		wij = mass_j*(SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]);
+		wij = SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2];
 	}
 	return wij;
 }
@@ -377,7 +378,7 @@ void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL 
     if (node->particle_index != -1 || node->nodesize / dist < THETA)
     {
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		wij = force_softening(dist, beta, node->mass);
+		wij = node->mass * force_softening(dist, beta);
         *fx += wij * dx;
         *fy += wij * dy;
         *fz += wij * dz;
@@ -536,7 +537,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 			dy=x[3*j+1]-x[3*i+1];
 			dz=x[3*j+2]-x[3*i+2];
 			r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
-			wij = force_softening(r, beta_priv, M[j]);
+			wij = M[j]*force_softening(r, beta_priv);
 			Fx_tmp = wij*(dx);
 			Fy_tmp = wij*(dy);
 			Fz_tmp = wij*(dz);
@@ -574,30 +575,38 @@ return;
 #ifdef PERIODIC
 #if defined(USE_BH)
 //Barnes-Hut oct-tree force calculation with multiple images
-void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL COORD_X, REAL COORD_Y, REAL COORD_Z, REAL *SOFT_LENGTH, REAL ewald_cut, REAL *fx, REAL *fy, REAL *fz)
+void compute_BH_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL boxsize, REAL *fx, REAL *fy, REAL *fz)
 {
     if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
 	REAL wij, beta;
-
-    REAL dx = node->com_x - COORD_X;
-    REAL dy = node->com_y - COORD_Y;
-    REAL dz = node->com_z - COORD_Z;
+	REAL D[3];
+    REAL dx = node->com_x - X[3*i];
+    REAL dy = node->com_y - X[3*i+1];
+    REAL dz = node->com_z - X[3*i+2];
+	//in this case we use only the nearest image of the node, but correcting for periodicity with the interpolated Ewald force table
+	if(fabs(dx)>0.5*boxsize)
+		dx = dx-boxsize*dx/fabs(dx);
+	if(fabs(dy)>0.5*boxsize)
+		dy = dy-boxsize*dy/fabs(dy);
+	if(fabs(dz)>0.5*boxsize)
+		dz = dz-boxsize*dz/fabs(dz);
     REAL dist = sqrt(dx*dx + dy*dy + dz*dz);
     if (node->particle_index != -1 || node->nodesize / dist < THETA)
     {
-		if (dist > ewald_cut) return; // Skip if outside the cutoff radius
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		wij = force_softening(dist, beta, node->mass);
-        *fx += wij * dx;
-        *fy += wij * dy;
-        *fz += wij * dz;
+		wij = force_softening(dist, beta);
+		//Adding the Ewald correction
+		ewald_interpolate_D(N_EWALD_FORCE_GRID, L, T3_EWALD_FORCE_TABLE, dx, dy, dz, D, EWALD_INTERPOLATION_ORDER);
+        *fx += node->mass *( wij * dx - D[0]);
+        *fy += node->mass *( wij * dy - D[1]);
+        *fz += node->mass *( wij * dz - D[2]);
     }
     else
     {
         for (int j = 0; j < 8; j++)
         {
-            compute_BH_force(node->children[j], X, i, COORD_X, COORD_Y, COORD_Z, SOFT_LENGTH, ewald_cut, fx, fy, fz);
+            compute_BH_force(node->children[j], X, i, SOFT_LENGTH, boxsize, fx, fy, fz);
         }
     }
 }
@@ -623,7 +632,7 @@ void compute_BH_QP_force(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, RE
     if (node->particle_index != -1 || node->nodesize / dist < THETA)
     {
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		wij = force_softening(dist, beta, node->mass);
+		wij = node->mass * force_softening(dist, beta);
         *fx += wij * dx;
         *fy += wij * dy;
         *fz += wij * dz;
@@ -642,8 +651,8 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	//timing
 	double omp_start_time = omp_get_wtime();
 	//timing
-	REAL Fx_tmp, Fy_tmp, Fz_tmp, EwaldCut;
-	int i, k, m, chunk;
+	REAL Fx_tmp, Fy_tmp, Fz_tmp;
+	int i, k, chunk;
 	#ifdef RANDOMIZE_BH
 	//generating the random shift vector
 	REAL random_shift[3];
@@ -695,22 +704,13 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	if(IS_PERIODIC>=2)
 	{
 		// Ewald summation with multiple images
-		if(IS_PERIODIC==2)
-			EwaldCut = 2.6*L; // Ewald cutoff radius
-		else if (IS_PERIODIC==3)
-			EwaldCut = 4.6*L; // Ewald cutoff radius
-		else
-			EwaldCut = 5.6*L; // Ewald cutoff radius
-		#pragma omp parallel default(shared)  private(i, m, Fx_tmp, Fy_tmp, Fz_tmp)
-		{
-		#pragma omp for schedule(dynamic,chunk)
-		for(i=ID_min; i<ID_max+1; i++)
-		{
-			//using multiple images
-			for(m=0;m<el;m++)
+		#pragma omp parallel default(shared)  private(i, Fx_tmp, Fy_tmp, Fz_tmp)
+        {
+        	#pragma omp for schedule(dynamic,chunk)
+	        for(i=ID_min; i<ID_max+1; i++)
 			{
 				Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
-				compute_BH_force(rootnode, x, i, x[3*i]+((REAL) e[m][0])*L, x[3*i+1]+((REAL) e[m][1])*L, x[3*i+2]+((REAL) e[m][2])*L, SOFT_LENGTH, EwaldCut, &Fx_tmp, &Fy_tmp, &Fz_tmp);
+				compute_BH_force(rootnode, x, i, SOFT_LENGTH, L, &Fx_tmp, &Fy_tmp, &Fz_tmp);
 				#pragma omp atomic
 					F[3*(i-ID_min)] += Fx_tmp;
 				#pragma omp atomic
@@ -718,8 +718,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 				#pragma omp atomic
 					F[3*(i-ID_min)+2] += Fz_tmp;
 			}
-		}
-		}
+		}	
 	}
 	else
 	{
@@ -773,8 +772,9 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	//timing
 	double omp_start_time = omp_get_wtime();
 	//timing
-	REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, EwaldCut;
-	int i, j, k, m, chunk;
+	REAL D[3];
+	REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv;
+	int i, j, k, chunk;
 	for(i=0; i<N_mpi_thread; i++)
 	{
 		for(k=0; k<3; k++)
@@ -790,45 +790,39 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	}
 	if(IS_PERIODIC>=2)
 	{
-		if(IS_PERIODIC==2)
-			EwaldCut = 2.6*L; // Ewald cutoff radius
-		else
-			EwaldCut = 4.6*L; // Ewald cutoff radius
-		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv)
-		{
-		#pragma omp for schedule(dynamic,chunk)
-		for(i=ID_min; i<ID_max+1; i++)
-		{
-			for(j=0; j<N; j++)
+		#pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, D)
+        	{
+        	#pragma omp for schedule(dynamic,chunk)
+	        for(i=ID_min; i<ID_max+1; i++)
 			{
-				Fx_tmp = 0;
-				Fy_tmp = 0;
-				Fz_tmp = 0;
-				beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-				//calculating particle distances inside the simulation box
-				dx=x[3*j]-x[3*i];
-				dy=x[3*j+1]-x[3*i+1];
-				dz=x[3*j+2]-x[3*i+2];
-				//In here we use multiple images
-				for(m=0;m<el;m++)
+				for(j=0; j<N; j++)
 				{
-					r = sqrt(pow((dx-((REAL) e[m][0])*L), 2)+pow((dy-((REAL) e[m][1])*L), 2)+pow((dz-((REAL) e[m][2])*L), 2));
-					wij = 0;
-					if(r < EwaldCut)
-					{
-						wij = force_softening(r, beta_priv, M[j]);
-						Fx_tmp += wij*(dx-((REAL) e[m][0])*L);
-						Fy_tmp += wij*(dy-((REAL) e[m][1])*L);
-						Fz_tmp += wij*(dz-((REAL) e[m][2])*L);
-					}
+					beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
+					//calculating particle distances
+					dx=x[3*j]-x[3*i];
+					dy=x[3*j+1]-x[3*i+1];
+					dz=x[3*j+2]-x[3*i+2];
+					//in this case we use only the nearest image
+                    if(fabs(dx)>0.5*L)
+                        dx = dx-L*dx/fabs(dx);
+					if(fabs(dy)>0.5*L)
+						dy = dy-L*dy/fabs(dy);
+					if(fabs(dz)>0.5*L)
+						dz = dz-L*dz/fabs(dz);
+					r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
+					wij = force_softening(r, beta_priv);
+					//adding the contributions from all images
+					ewald_interpolate_D(N_EWALD_FORCE_GRID, L, T3_EWALD_FORCE_TABLE, dx, dy, dz, D, EWALD_INTERPOLATION_ORDER);
+					Fx_tmp = M[j] * (wij*(dx) - D[0]);
+					Fy_tmp = M[j] * (wij*(dy) - D[1]);
+					Fz_tmp = M[j] * (wij*(dz) - D[2]);
+					#pragma omp atomic
+					F[3*(i-ID_min)] += Fx_tmp;
+					#pragma omp atomic
+					F[3*(i-ID_min)+1] += Fy_tmp;
+					#pragma omp atomic
+					F[3*(i-ID_min)+2] += Fz_tmp;
 				}
-				#pragma omp atomic
-							F[3*(i-ID_min)] += Fx_tmp;
-				#pragma omp atomic
-							F[3*(i-ID_min)+1] += Fy_tmp;
-				#pragma omp atomic
-							F[3*(i-ID_min)+2] += Fz_tmp;
-			}
 			}
 		}
 	}
@@ -854,7 +848,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 					if(fabs(dz)>0.5*L)
 						dz = dz-L*dz/fabs(dz);
 					r = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
-					wij = force_softening(r, beta_priv, M[j]);
+					wij = M[j] * force_softening(r, beta_priv);
 					Fx_tmp = wij*(dx);
 					Fy_tmp = wij*(dy);
 					Fz_tmp = wij*(dz);
@@ -913,7 +907,7 @@ void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REA
 	{
 		if (fabs(dz) > ewald_cut) return;
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		wij = force_softening(dist, beta, node->mass);
+		wij = node->mass * force_softening(dist, beta);
 		*fx += wij * dx;
 		*fy += wij * dy;
 		*fz += wij * dz;
@@ -944,7 +938,7 @@ void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, 
 	if (node->particle_index != -1 || (node->nodesize) / dist < THETA)
 	{
 		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
-		wij = force_softening(dist, beta, node->mass);
+		wij = node->mass * force_softening(dist, beta);
 		*fx += wij * dx;
 		*fy += wij * dy;
 		*fz += wij * dz;
@@ -1213,7 +1207,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                             if(fabs(dz_ewald) <= ewald_cut*L)
                             {
 								//applying a cutoff at ewald_cut*L (2.6*L, if IS_PERIODIC==2)
-                                wij = force_softening(r, beta_priv, M[j]);
+                                wij = M[j] * force_softening(r, beta_priv);
                                 Fx_tmp += wij*(dx);
                                 Fy_tmp += wij*(dy);
                                 Fz_tmp += wij*(dz_ewald);
@@ -1257,7 +1251,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         //in this case we use only the nearest image
                         if(fabs(dz)>0.5*L) { dz = dz-L*dz/fabs(dz); }
                         r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-                        wij = force_softening(r, beta_priv, M[j]);
+                        wij = M[j] * force_softening(r, beta_priv);
                         Fx_tmp = wij*(dx);
                         Fy_tmp = wij*(dy);
                         Fz_tmp = wij*(dz);
