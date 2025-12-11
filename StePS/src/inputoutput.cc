@@ -940,11 +940,23 @@ void Log_write() //Writing logfile
 		}
 		//Topology information
 		#if defined(PERIODIC)
-			fprintf(LOGFILE, "# Topological manifold: T^3\n");
+			fprintf(LOGFILE, "# Topological manifold: T^3 (Periodic box)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Box size: %.3f Mpc\n", L);
+			else
+				fprintf(LOGFILE, "# Box size: %.3f Mpc/h\n", L*H0*UNIT_V/100.0);
 		#elif defined(PERIODIC_Z)
-			fprintf(LOGFILE, "# Topological manifold: S^1xR^2\n");
+			fprintf(LOGFILE, "# Topological manifold: S^1xR^2 (Periodic cylinder)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
+			else
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
 		#else
-			fprintf(LOGFILE, "# Topological manifold: R^3\n");
+			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc\n", Rsim);
+			else
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc/h\n", Rsim*H0*UNIT_V/100.0);
 		#endif
 		//Writing column headers
 		fprintf(LOGFILE, "# Time[Gy]\tMax_Error\tStep_Size[Gy]\tScale factor\tRedshift\tHubble_Parameter[km/s/Mpc]\tDeceleration_Parameter\tOmega_m_Effective\n");
