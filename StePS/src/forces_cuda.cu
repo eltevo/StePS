@@ -78,6 +78,94 @@ void forces(REAL*x, REAL*F, int ID_min, int ID_max)
 }
 #endif
 #ifdef PERIODIC
+__device__ static inline size_t lut_offset_cuda(int Ngrid, int ix, int iy, int iz, int comp)
+{
+    return ((size_t)((ix * Ngrid + iy) * Ngrid + iz) * 3u) + (size_t)comp;
+}
+
+
+__device__ int imodp(int i, int n)
+{
+	// positive modulo for periodic wrap
+    int r = i % n;
+    return (r < 0) ? (r + n) : r;
+}
+__device__ void map_to_centered_grid(REAL r, REAL L, int Ngrid, int *i0, REAL *fx)
+{
+	// Map a physical coordinate r in [-L/2,L/2] (or any real number) to the index of the *left* neighbor cell-center and the fractional offset fx in [0,1), given that centers lie at (i+0.5)*a - L/2.
+    REAL grid_spacing  = L / (REAL)Ngrid;                 /* grid spacing */
+    REAL u  = (r + L*(REAL)0.5) / grid_spacing - (REAL)0.5; /* continuous index @ centers */
+    REAL uf = floor(u);
+    *i0 = imodp((int)uf, Ngrid);
+    *fx = (REAL)(u - uf); /* in [0,1) */
+}
+
+__device__ void get_cubic_weights(REAL t, REAL w[4])
+{
+    REAL t2 = t*t;
+    REAL t3 = t*t2;
+    w[0] = -0.5*t3 + t2 - 0.5*t;
+    w[1] =  1.5*t3 - 2.5*t2 + 1.0;
+    w[2] = -1.5*t3 + 2.0*t2 + 0.5*t;
+    w[3] =  0.5*t3 - 0.5*t2;
+}
+
+__device__ void ewald_interpolate_cuda(int Ngrid, REAL L, const REAL *table, const REAL dx, const REAL dy, const REAL dz, REAL D[3])
+{
+    //Ewald interpolation in T^3 periodic torus topology using tri-cubic interpolation
+    //Inputs:
+    //    * Ngrid   :  Grid dimension
+    //    * L       :  Box size
+    //    * table   :  Force table
+    //    * dx,dy,dz:  Relative particle position
+    //    * D       :  Output force correction
+
+
+    // Map to grid coordinates
+    int ix0, iy0, iz0;
+    REAL fx, fy, fz;
+    map_to_centered_grid(dx, L, Ngrid, &ix0, &fx);
+    map_to_centered_grid(dy, L, Ngrid, &iy0, &fy);
+    map_to_centered_grid(dz, L, Ngrid, &iz0, &fz);
+
+    REAL wx[4], wy[4], wz[4];
+    get_cubic_weights(fx, wx);
+    get_cubic_weights(fy, wy);
+    get_cubic_weights(fz, wz);
+
+    // Perform Tensor Product Summation
+    REAL sum[3] = {0.0, 0.0, 0.0};
+    
+    // Offset to the starting neighbor index
+    int offset = - 1;
+
+    for (int i = 0; i < 4; i++) {
+        int ix = imodp(ix0 + offset + i, Ngrid);
+        REAL w_x = wx[i];
+
+        for (int j = 0; j < 4; j++) {
+            int iy = imodp(iy0 + offset + j, Ngrid);
+            REAL w_xy = w_x * wy[j];
+
+            for (int k = 0; k < 4; k++) {
+                int iz = imodp(iz0 + offset + k, Ngrid);
+                REAL w_xyz = w_xy * wz[k];
+
+                // Fetch vector from table
+                size_t idx = lut_offset_cuda(Ngrid, ix, iy, iz, 0);
+                
+                sum[0] += w_xyz * table[idx + 0];
+                sum[1] += w_xyz * table[idx + 1];
+                sum[2] += w_xyz * table[idx + 2];
+            }
+        }
+    }
+
+    D[0] = sum[0];
+    D[1] = sum[1];
+    D[2] = sum[2];
+}
+
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)
 {
 	forces_periodic_cuda(x, F, n_GPU, ID_min, ID_max);
@@ -94,7 +182,7 @@ void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max)
 
 void recalculate_softening();
 
-__device__ REAL force_softening_cuda(REAL r, REAL beta, REAL mass_j)
+__device__ REAL force_softening_cuda(REAL r, REAL beta)
 {
 
     //This CUDA kernel calculates the softened force coefficient between two particles
@@ -102,15 +190,14 @@ __device__ REAL force_softening_cuda(REAL r, REAL beta, REAL mass_j)
 	//Input:
 	//    * r - distance between the two particles
 	//    * beta - softening length
-	//    * mass_j - mass of the second particle
 	//Output:
-	//    * wij - softened force coefficient (mass_j/r^3 for non-softened force)
+	//    * wij - softened force coefficient (1/r^3 for non-softened force)
 	REAL betap2 = beta*0.5;
 	REAL wij;
 	wij = 0.0;
 	if(r >= beta)
 	{
-		wij = mass_j/(pow(r, 3));
+		wij = pow(r, -3);
 	}
 	else if(r > betap2 && r < beta)
 	{
@@ -119,14 +206,14 @@ __device__ REAL force_softening_cuda(REAL r, REAL beta, REAL mass_j)
 		REAL SOFT_CONST2 = -48.0/pow(beta, 4);
 		REAL SOFT_CONST3 = 64.0/(3.0*pow(beta, 3));
 		REAL SOFT_CONST4 = -1.0/15.0;
-		wij = mass_j*(SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2*r+SOFT_CONST3+SOFT_CONST4/pow(r, 3));
+		wij = SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2*r+SOFT_CONST3+SOFT_CONST4/pow(r, 3);
 	}
 	else
 	{
 		REAL SOFT_CONST0 = 32.0/pow(beta, 6);
 		REAL SOFT_CONST1 = -38.4/pow(beta, 5);
 		REAL SOFT_CONST2 = 32.0/(3.0*pow(beta, 3));
-		wij = mass_j*(SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2);
+		wij = SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2;
 	}
 	return wij;
 
@@ -150,7 +237,7 @@ __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, 
 				dy = (xy[j] - xy[i]);
 				dz = (xz[j] - xz[i]);
 				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-				wij = force_softening_cuda(r, beta_priv, M[j]);
+				wij = M[j] * force_softening_cuda(r, beta_priv);
 				Fx_tmp += wij*(dx);
 				Fy_tmp += wij*(dy);
 				Fz_tmp += wij*(dz);
@@ -178,21 +265,23 @@ __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, 
 #endif
 
 #ifdef PERIODIC
-__global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const int *e, int el, int ID_min, int ID_max)
+__global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL *EwaldTable, int NewaldGrid, int ID_min, int ID_max)
 {
+	// This kernel calculates forces in periodic T^3 topology
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
 	REAL r, dx, dy, dz, wij, beta_priv;
-	int i, j, m, id;
+	REAL D[3];
+	int i, j, id;
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
 	if (IS_PERIODIC == 1)
 	{
+		// Quasi-periodic case: only the nearest image is used
 		for (i = (ID_min+id); i<=ID_max; i+=n)
 		{
 			for (j = 0; j<N; j++)
 			{
 				beta_priv = (SOFT_LENGTH[i]+SOFT_LENGTH[j]);
-				beta_privp2 = beta_priv*0.5;
 				//calculating particle distances
 				dx = (xx[j] - xx[i]);
 				dy = (xy[j] - xy[i]);
@@ -206,7 +295,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 					dz = dz - L*dz / fabs(dz);
 				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
                                 wij = 0.0;
-				wij = force_softening_cuda(r, beta_priv, M[j]);
+				wij = M[j] * force_softening_cuda(r, beta_priv);
 				Fx_tmp += wij*(dx);
 				Fy_tmp += wij*(dy);
 				Fz_tmp += wij*(dz);
@@ -220,7 +309,8 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 	}
 	else if (IS_PERIODIC >= 2)
 	{
-		for (i = (ID_min+id); i<=ID_max; i=i+n)
+		// Full periodic case: multiple images are used (Ewald lookup table)
+		for (i = (ID_min+id); i<=ID_max; i+=n)
 		{
 			for (j = 0; j<N; j++)
 			{
@@ -229,26 +319,26 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 				dx = (xx[j] - xx[i]);
 				dy = (xy[j] - xy[i]);
 				dz = (xz[j] - xz[i]);
-				//in this function we use multiple images
-				for (m = 0; m < 3*el; m = m+3)
-				{
-					r = sqrt(pow((dx - ((REAL)e[m])*L), 2) + pow((dy - ((REAL)e[m+1])*L), 2) + pow((dz-((REAL)e[m+2])*L), 2));
-					if ( r < 2.6*L)
-					{
-						wij = force_softening_cuda(r, beta_priv, M[j]);
-					}
-					if (wij != 0)
-					{
-						Fx_tmp += wij*(dx - ((REAL)e[m])*L);
-						Fy_tmp += wij*(dy - ((REAL)e[m + 1])*L);
-						Fz_tmp += wij*(dz - ((REAL)e[m + 2])*L);
-					}
-				}
+				//Getting the softened nearest image force
+				if (fabs(dx)>0.5*L)
+					dx = dx - L*dx / fabs(dx);
+				if (fabs(dy)>0.5*L)
+					dy = dy - L*dy / fabs(dy);
+				if (fabs(dz)>0.5*L)
+					dz = dz - L*dz / fabs(dz);
+				r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+                                wij = 0.0;
+				wij = force_softening_cuda(r, beta_priv);
+				//Calculating the Ewald force correction based on the lookup table
+				ewald_interpolate_cuda(NewaldGrid, L, EwaldTable, dx, dy, dz, D);
+				Fx_tmp += M[j] * (wij*dx - D[0]);
+				Fy_tmp += M[j] * (wij*dy - D[1]);
+				Fz_tmp += M[j] * (wij*dz - D[2]);
 
 			}
-			F[3 * (i-ID_min)] += Fx_tmp;
-			F[3 * (i-ID_min) + 1] += Fy_tmp;
-			F[3 * (i-ID_min) + 2] += Fz_tmp;
+			F[3*(i-ID_min)] += Fx_tmp;
+			F[3*(i-ID_min)+1] += Fy_tmp;
+			F[3*(i-ID_min)+2] += Fz_tmp;
 			Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
 		}
 	}
@@ -283,7 +373,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                     dz = dz - L*dz / fabs(dz);
                     
                 r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-                wij = force_softening_cuda(r, beta_priv, M[j]);
+                wij = M[j] * force_softening_cuda(r, beta_priv);
                 
                 Fx_tmp += wij*(dx);
                 Fy_tmp += wij*(dy);
@@ -335,7 +425,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                     
                     if (fabs(dz_ewald) < ewald_cut)
                     {
-						wij = force_softening_cuda(r, beta_priv, M[j]);
+						wij = M[j] * force_softening_cuda(r, beta_priv);
                         Fx_tmp += wij*(dx);
                         Fy_tmp += wij*(dy);
                         Fz_tmp += wij*(dz_ewald);
@@ -636,8 +726,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 	REAL *dev_M = 0;
 	REAL *dev_SOFT_LENGTH = 0;
 	REAL *dev_F = 0;
-	int *dev_e;
-	int e_tmp[6606];
+	REAL *dev_EwaldTable = 0;
 
 	int numDevices;
 	cudaGetDeviceCount(&numDevices);
@@ -678,7 +767,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
         //timing
 	omp_set_dynamic(0);             // Explicitly disable dynamic teams
 	omp_set_num_threads(n_GPU);     // Use n_GPU threads
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, dev_e)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH)
 {
 		#pragma omp critical
 		{
@@ -706,7 +795,10 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
-			printf("MPI task %i: GPU force calculation (full periodic).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+			if(IS_PERIODIC == 1)
+				printf("MPI task %i: GPU force calculation (quasi-periodic).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+			else
+				printf("MPI task %i: GPU force calculation (fully periodic with Ewald correction).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
 		}
 		#pragma omp critical
 		cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
@@ -754,20 +846,12 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 			ForceError = true;
 			goto Error;
 		}
-		// Allocate GPU buffers for e matrix
-		cudaStatus = cudaMalloc((void**)&dev_e, 6606 * sizeof(int));
+		// Allocate GPU buffers for Ewald lookup table
+		cudaStatus = cudaMalloc((void**)&dev_EwaldTable, N_EWALD_FORCE_GRID * N_EWALD_FORCE_GRID * N_EWALD_FORCE_GRID * 3 * sizeof(REAL));
 		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "MPI rank %i: GPU%i: e cudaMalloc failed!\n", rank, GPU_ID);
+			fprintf(stderr, "MPI rank %i: GPU%i: EwaldTable cudaMalloc failed!\n", rank, GPU_ID);
 			ForceError = true;
 			goto Error;
-		}
-		//Converting e matrix into a vector
-		for (i = 0; i < 2202; i++)
-		{
-			for (j = 0; j < 3; j++)
-			{
-				e_tmp[3 * i + j] = e[i][j];
-			}
 		}
 		// Copy input vectors from host memory to GPU buffers.
 		cudaStatus = cudaMemcpy(dev_xx, xx_tmp, N * sizeof(REAL), cudaMemcpyHostToDevice);
@@ -806,15 +890,16 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 			ForceError = true;
 			goto Error;
 		}
-		cudaStatus = cudaMemcpy(dev_e, e_tmp, 6606 * sizeof(int), cudaMemcpyHostToDevice);
+		// Copy Ewald lookup table to GPU
+		cudaStatus = cudaMemcpy(dev_EwaldTable, T3_EWALD_FORCE_TABLE, N_EWALD_FORCE_GRID * N_EWALD_FORCE_GRID * N_EWALD_FORCE_GRID * 3 * sizeof(REAL), cudaMemcpyHostToDevice);
 		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "MPI rank %i: GPU%i: cudaMemcpy e in failed!\n", rank, GPU_ID);
+			fprintf(stderr, "MPI rank %i: GPU%i: cudaMemcpy EwaldTable in failed!\n", rank, GPU_ID);
 			ForceError = true;
 			goto Error;
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU with one thread for each element.
-		ForceKernel_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, dev_e, el, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, dev_EwaldTable, N_EWALD_FORCE_GRID, GPU_index_min, GPU_index_min+N_GPU-1);
 
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
@@ -866,7 +951,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 		cudaFree(dev_M);
 		cudaFree(dev_F);
 		cudaFree(dev_SOFT_LENGTH);
-		cudaFree(dev_e);
+		//Free Ewald lookup table
 		cudaDeviceReset();
 }
 	free(xx_tmp);

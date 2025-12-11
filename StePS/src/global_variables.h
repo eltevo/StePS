@@ -25,8 +25,10 @@
 
 #ifdef USE_SINGLE_PRECISION
 typedef float REAL;
+#define PRECISION_STR  "float32"
 #else
 typedef double REAL;
+#define PRECISION_STR  "float64"
 #endif
 
 #ifdef USE_BH
@@ -65,7 +67,11 @@ extern MPI_Status Stat;
 extern REAL* F_buffer; //buffer for force copy
 extern int BUFFER_start_ID;
 
-extern int e[2202][4]; //ewald space
+#ifdef PERIODIC
+#define EWALD_INTERPOLATION_ORDER 4 //order of the interpolation used in the ewald force calculation (2,4,6). Order 4 (tri-cubic) is the default.
+extern REAL *T3_EWALD_FORCE_TABLE; //lookup table for the ewald force calculation
+extern int N_EWALD_FORCE_GRID; //size of the ewald force lookup table
+#endif
 
 extern REAL x4, err, errmax, ACC_PARAM; //variables used for error calculations
 extern double h, h_min, h_max,  t_next; //actual stepsize, minimal and maximal stepsize, next time for output

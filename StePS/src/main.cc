@@ -34,8 +34,7 @@ typedef float REAL;
 typedef double REAL;
 #endif
 
-int t,N,el;
-int e[2202][4];
+int t,N;
 REAL SOFT_CONST[8];
 REAL w[3];
 double a_max;
@@ -98,6 +97,12 @@ int expansion_index; //index of the current value in the expansion history
 double** expansion_tab; //expansion history tab (columns: t, a, H)
 int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
 #endif
+#if defined(PERIODIC)
+//Variables only used in T^3 periodic simulations
+REAL *T3_EWALD_FORCE_TABLE; //Ewald force correction lookup table for T^3 topology
+char ewaldfilepath[0x100];
+int N_EWALD_FORCE_GRID; //size of the ewald force lookup table
+#endif
 #if defined(PERIODIC_Z)
 //Variables only used in cylindrical simmetrical simulations
 //Variables only used in cylindrical simmetrical simulations
@@ -138,13 +143,18 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
 void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max);
 double friedmann_solver_start(double a0, double t0, double h, double a_start);
 double friedmann_solver_step(double a0, double h);
-int ewald_space(REAL R, int ewald_index[2102][4]);
 double CALCULATE_Hubble_param(double a);
 double CALCULATE_decel_param(double a);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
 #ifdef USE_BH
 void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADIAL_BH_N_TABLE, int TABLE_SIZE, REAL *F, REAL *x, int N);
+#endif
+#ifdef PERIODIC
+int ewald_space(REAL R, int ewald_index[][4]);
+void calculate_t3_ewald_lookup_table(int Ngrid, REAL L, REAL alpha, int realspace_el, int recspace_el, int realspace_ewald_index[][4], int recspace_ewald_index[][4], REAL rel_cut, REAL rec_cut, REAL *T3_EWALD_FORCE_TABLE);
+int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_EWALD_FORCE_TABLE);
+int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_out);
 #endif
 
 //Input/Output functions
@@ -209,7 +219,16 @@ int main(int argc, char *argv[])
 	}
 	#ifdef USE_CUDA
 	if(rank == 0)
+	{
 		printf("\tUsing CUDA capable GPUs for force calculation.\n");
+	}
+	#ifdef USE_BH
+	if(rank == 0)
+	{
+		fprintf(stderr,"\nError: Barnes-Hut octree force calculation is not (yet) implemented on CUDA capable GPUs.\nPlease recompile StePS without the USE_BH or USE_CUDA option.\nExiting...\n");
+	}
+	return (-1);
+	#endif
 	#endif
 	#ifdef GLASS_MAKING
 	if(rank == 0)
@@ -224,13 +243,13 @@ int main(int argc, char *argv[])
 	#endif
 	#if defined(PERIODIC)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions. (Periodic 3-torus topology)\n");
+		printf("\tPeriodic boundary conditions. (T^3 topological manifold)\n");
 	#elif defined(PERIODIC_Z)
 	if(rank == 0)
-		printf("\tPeriodic boundary conditions in the z direction. (Cylindrically symmetric topology)\n");
+		printf("\tPeriodic boundary conditions in the z direction. (S^1 x R^2 topological manifold)\n");
 	#else
 	if(rank == 0)
-		printf("\tNon-periodic boundary conditions. (Spherically symmetric topology)\n");
+		printf("\tNon-periodic boundary conditions. (R^3 topological manifold)\n");
 	#endif
 	#if defined(USE_BH)
 	THETA = (REAL) USE_BH; //Opening angle for the octree
@@ -344,38 +363,124 @@ int main(int argc, char *argv[])
 
 		if(IS_PERIODIC>1)
 		{
-			if(IS_PERIODIC==2)
+			if(rank == 0)
 			{
-				if(rank == 0)
-					printf("Ewald force calculation is on. (Ewald cut is 2.6*L)\n");
-				el = ewald_space(3.6,e);
+				//variables only used in periodic ewald force calculation
+				int number_of_ewald_real_space_indexes,number_of_ewald_reciprocal_space_indexes;
+				int ewald_real_space_indexes[739][4];
+				int ewald_reciprocal_space_indexes[11459][4];
+				double EWALD_alpha; //Ewald alpha parameter
+				REAL rel_cut, rec_cut;
+				EWALD_alpha = 2.0/L;
+				//rank 0 MPI thread is calculating the ewald lookup table
+				char EwaldTableFile[] = "Ewald_table_lowres.hdf5";
+				if(IS_PERIODIC==2)
+				{
+					printf("Ewald force calculation is on. (Ewald cut is 2.6*L in real and 8 in reciprocal space)\nCalculating Ewald lookup tables...\n");
+					rel_cut = 2.6;
+					rec_cut = 8.0;
+					N_EWALD_FORCE_GRID = 63; //size of the ewald force lookup table (must be odd to include the center point and axes)
+					
+				}
+				else if(IS_PERIODIC==3)
+				{
+					printf("Medium precision Ewald force calculation is on. (Ewald cut is 3.6*L in real and 10 in reciprocal space)\nCalculating Ewald lookup tables...\n\n");
+					rel_cut = 3.6;
+					rec_cut = 10.0;
+					N_EWALD_FORCE_GRID = 127; //size of the ewald force lookup table (must be odd to include the center point and axes)
+					strcpy(EwaldTableFile, "Ewald_table_medres.hdf5");
+				}
+				else
+				{
+					printf("High precision Ewald force calculation is on. (Ewald cut is 4.6*L in real and 12 in reciprocal space)\nCalculating Ewald lookup tables...\n\n");
+					rel_cut = 4.6;
+					rec_cut = 12.0;
+					N_EWALD_FORCE_GRID = 255; //size of the ewald force lookup table (must be odd to include the center point and axes)
+					strcpy(EwaldTableFile, "Ewald_table_higres.hdf5");
+				}
+				//Allocating memory for the ewald lookup table in the rank 0 MPI thread
+				printf("MPI task %i: Allocating memory for the Ewald lookup table with %i^3 grid points...\n", rank, N_EWALD_FORCE_GRID);
+				if(!(T3_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for The Ewald lookup table.\n", rank);
+					exit(-2);
+				}
+				#ifdef HAVE_HDF5
+					//if we have HDF5, we save/load the Ewald table in HDF5 format				
+					if(snprintf(ewaldfilepath, sizeof(ewaldfilepath), "%s%s", OUT_DIR, EwaldTableFile) < 0)
+					{
+						fprintf(stderr, "Error: The name of the ewald table got truncated.\nAborting.\n");
+						abort();
+					}
+					if(file_exist(ewaldfilepath) == 0)
+					{
+						printf("Ewald lookup table file (%s) not found.\nCalculating new lookup table...\n", ewaldfilepath);
+						double EWALD_omp_start_time = omp_get_wtime(); //Timing
+						number_of_ewald_real_space_indexes = ewald_space(rel_cut+1,ewald_real_space_indexes); //real space indexes
+						number_of_ewald_reciprocal_space_indexes = ewald_space(rec_cut+2,ewald_reciprocal_space_indexes); //reciprocal space indexes
+						printf("Ewald real space images: %i; Ewald reciprocal space images: %i\n", number_of_ewald_real_space_indexes, number_of_ewald_reciprocal_space_indexes);
+						calculate_t3_ewald_lookup_table(N_EWALD_FORCE_GRID, L, EWALD_alpha, number_of_ewald_real_space_indexes, number_of_ewald_reciprocal_space_indexes, ewald_real_space_indexes, ewald_reciprocal_space_indexes, rel_cut, rec_cut, T3_EWALD_FORCE_TABLE);
+						double EWALD_omp_end_time = omp_get_wtime(); //Timing
+						printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+						printf("Ewald lookup table calculated.\nSaving into %s\n", ewaldfilepath);
+						save_t3_ewald_lookup_table(ewaldfilepath, N_EWALD_FORCE_GRID, T3_EWALD_FORCE_TABLE);
+					}
+					else
+					{
+						printf("Ewald lookup table file (%s) found.\nLoading lookup table from file...\n", ewaldfilepath);
+						double EWALD_omp_start_time = omp_get_wtime(); //Timing
+						if(load_t3_ewald_lookup_table(ewaldfilepath, &N_EWALD_FORCE_GRID, &T3_EWALD_FORCE_TABLE)!=0)
+						{
+							fprintf(stderr, "Error: Failed to load the Ewald lookup table from file %s\nAborting.\n", ewaldfilepath);
+							return(-2);
+						}
+						printf("Ewald lookup table loaded from file %s with grid size %i.\n", ewaldfilepath, N_EWALD_FORCE_GRID);
+						double EWALD_omp_end_time = omp_get_wtime(); //Timing
+						printf("Ewald lookup table loading finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+					}
+				#else
+					printf("HDF5 support not compiled in.\nCalculating new Ewald lookup table...\n");
+					double EWALD_omp_start_time = omp_get_wtime(); //Timing
+					number_of_ewald_real_space_indexes = ewald_space(rel_cut+1,ewald_real_space_indexes); //real space indexes
+					number_of_ewald_reciprocal_space_indexes = ewald_space(rec_cut+2,ewald_reciprocal_space_indexes); //reciprocal space indexes
+					calculate_t3_ewald_lookup_table(N_EWALD_FORCE_GRID, L, EWALD_alpha, number_of_ewald_real_space_indexes, number_of_ewald_reciprocal_space_indexes, ewald_real_space_indexes, ewald_reciprocal_space_indexes, rel_cut, rec_cut, T3_EWALD_FORCE_TABLE);
+					double EWALD_omp_end_time = omp_get_wtime(); //Timing
+					printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+				#endif
+				#ifndef USE_GPU
+					printf("Ewald lookup table interpolation order: %i\n\n", EWALD_INTERPOLATION_ORDER);
+				#else
+					printf("Ewald lookup table interpolation order is always 4 on GPUs.\n\n");
+				#endif
 			}
- 			else if(IS_PERIODIC==3)
+			//Bcasting the N_EWALD_FORCE_GRID variable to all MPI threads
+			MPI_Bcast(&N_EWALD_FORCE_GRID, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			if(rank != 0)
 			{
-				if(rank == 0)
-					printf("High precision Ewald force calculation is on. (Ewald cut is 4.6*L)\n");
-				el = ewald_space(5.6,e);
+				//Allocating memory for the ewald lookup table in all other MPI threads
+				T3_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3*sizeof(REAL));
 			}
-			else
-			{
-				if(rank == 0)
-					printf("High precision Ewald force calculation is on. (Ewald cut is 5.6*L)\n");
-				el = ewald_space(6.6,e);
-			}
+			//bcasting the ewald lookup table to all MPI threads
+			#ifdef USE_SINGLE_PRECISION
+				MPI_Bcast(T3_EWALD_FORCE_TABLE, N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3, MPI_FLOAT, 0, MPI_COMM_WORLD);
+			#else
+				MPI_Bcast(T3_EWALD_FORCE_TABLE, N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			#endif
 		}
 		else
 		{
-			printf("Quasi-periodic boundary conditions.\n");
-			el = 2202;
-			for(i=0;i<el;i++)
+			printf("Quasi-periodic boundary conditions. (No Ewald force correction)\n");
+			//To avoid errors, we set N_EWALD_FORCE_GRID to 1 and allocate a dummy ewald table with 0 forces
+			N_EWALD_FORCE_GRID = 1;
+			//Allocating memory for the dummy ewald lookup table in all MPI threads
+			if(!(T3_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3*sizeof(REAL))))
 			{
-				for(j=0;j<3;j++)
-				{
-					e[i][j]=0.0;
-				}
+				fprintf(stderr, "MPI task %i: failed to allocate memory for The Ewald lookup table.\n", rank);
+				exit(-2);
 			}
-			i=0;
-			j=0;
+			T3_EWALD_FORCE_TABLE[0]=0.0;
+			T3_EWALD_FORCE_TABLE[1]=0.0;
+			T3_EWALD_FORCE_TABLE[2]=0.0;
 		}
 	#elif defined(PERIODIC_Z)
 		if(IS_PERIODIC < 1)

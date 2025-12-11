@@ -21,7 +21,7 @@
 #include "global_variables.h"
 
 //interpolator functions
-double linear_interpolation(double X, double X1, double Y1, double X2, double Y2)
+REAL linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2)
 {
     //helper function for linear interpolation
     //         Y2
@@ -31,27 +31,27 @@ double linear_interpolation(double X, double X1, double Y1, double X2, double Y2
     //  Y1  |  |
     //  |   |  |
     //--X1--X--X2
-    double A=(Y2-Y1)/(X2-X1);
-    double B=Y1-A*X1;
+    REAL A=(Y2-Y1)/(X2-X1);
+    REAL B=Y1-A*X1;
     return A*X+B;
 }
 
-double quadratic_interpolation(double X, double X1, double Y1, double X2, double Y2, double X3, double Y3)
+REAL quadratic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3)
 {
     //helper function for quadratic_interpolation
-    double L1 = (X-X2)*(X-X3)/((X1-X2)*(X1-X3));
-    double L2 = (X-X1)*(X-X3)/((X2-X1)*(X2-X3));
-    double L3 = (X-X1)*(X-X2)/((X3-X1)*(X3-X2));
+    REAL L1 = (X-X2)*(X-X3)/((X1-X2)*(X1-X3));
+    REAL L2 = (X-X1)*(X-X3)/((X2-X1)*(X2-X3));
+    REAL L3 = (X-X1)*(X-X2)/((X3-X1)*(X3-X2));
     return Y1*L1+Y2*L2+Y3*L3;
 }
 
-double cubic_interpolation(double X, double X1, double Y1, double X2, double Y2, double X3, double Y3, double X4, double Y4)
+REAL cubic_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2, REAL X3, REAL Y3, REAL X4, REAL Y4)
 {
     //helper function for cubic interpolation
-    double L1 = (X-X2)*(X-X3)*(X-X4)/((X1-X2)*(X1-X3)*(X1-X4));
-    double L2 = (X-X1)*(X-X3)*(X-X4)/((X2-X1)*(X2-X3)*(X2-X4));
-    double L3 = (X-X1)*(X-X2)*(X-X4)/((X3-X1)*(X3-X2)*(X3-X4));
-    double L4 = (X-X1)*(X-X2)*(X-X3)/((X4-X1)*(X4-X2)*(X4-X3));
+    REAL L1 = (X-X2)*(X-X3)*(X-X4)/((X1-X2)*(X1-X3)*(X1-X4));
+    REAL L2 = (X-X1)*(X-X3)*(X-X4)/((X2-X1)*(X2-X3)*(X2-X4));
+    REAL L3 = (X-X1)*(X-X2)*(X-X4)/((X3-X1)*(X3-X2)*(X3-X4));
+    REAL L4 = (X-X1)*(X-X2)*(X-X3)/((X4-X1)*(X4-X2)*(X4-X3));
     return Y1*L1+Y2*L2+Y3*L3+Y4*L4;
 }
 
