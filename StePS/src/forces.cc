@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal, Viola Varga               */
+/*    Copyright (C) 2017-2026 Gabor Racz, Balazs Pal, Viola Varga               */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -29,7 +29,13 @@ extern int N, el;
 
 
 #if defined(PERIODIC)
+//Functions for T^3 Ewald force correction
 void ewald_interpolate_D(int Ngrid, REAL L, const REAL *T3_EWALD_FORCE_TABLE, const REAL dx, const REAL dy, const REAL dz, REAL D[3], int order);
+#endif
+
+#if defined(PERIODIC_Z)
+//Functions for S^1 x R^2 Ewald force correction
+void ewald_interpolate_D( const REAL* T, int Nrho, int Nz, REAL rho_max, REAL Lz, REAL dx, REAL dy, REAL dz, REAL &Fx, REAL &Fy, REAL &Fz);
 #endif
 
 void recalculate_softening();
@@ -893,7 +899,8 @@ void rotate_vectors_2d(REAL* CoordArray, REAL ROT_RAD, int idmin, int idmax)
 }
 #endif
 
-void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL COORD_X, REAL COORD_Y, REAL COORD_Z, REAL ewald_cut, REAL *fx, REAL *fy, REAL *fz)
+#ifdef PERIODIC_Z_NOLOOKUP
+void compute_BH_rspace_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL COORD_X, REAL COORD_Y, REAL COORD_Z, REAL ewald_cut, REAL *fx, REAL *fy, REAL *fz)
 {
 	if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
 
@@ -916,10 +923,44 @@ void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REA
 	{
 		for (int j = 0; j < 8; j++)
 		{
-			compute_BH_force_z(node->children[j], X, i, SOFT_LENGTH, COORD_X, COORD_Y, COORD_Z, ewald_cut, fx, fy, fz);
+			compute_BH_rspace_force_z(node->children[j], X, i, SOFT_LENGTH, COORD_X, COORD_Y, COORD_Z, ewald_cut, fx, fy, fz);
 		}
 	}
 }
+#else
+void compute_BH_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL boxsize, REAL *fx, REAL *fy, REAL *fz)
+{
+	if (node == NULL || (node->mass == 0) || (node->particle_index == i)) return;
+
+	REAL wij, beta;
+	REAL D[3];
+	REAL dx = node->com_x - X[3*i];
+	REAL dy = node->com_y - X[3*i+1];
+	REAL dz = node->com_z - X[3*i+2];
+	//in this case we use only the nearest image of the node
+	if(fabs(dz)>0.5*boxsize)
+		dz = dz-boxsize*dz/fabs(dz); //wrapping in the z direction only (no need to wrap after this)
+	REAL dist = sqrt(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
+	if (node->particle_index != -1 || (node->nodesize) / dist < THETA)
+	{
+		beta = cbrt(node->mass / M_min)*ParticleRadi + SOFT_LENGTH[i];
+		wij = force_softening(dist, beta);
+		//Adding the Ewald correction
+		ewald_interpolate_D( S1R2_EWALD_FORCE_TABLE, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, boxsize, dx, dy, dz, D[0], D[1], D[2]);
+
+		*fx += node->mass *  (wij * dx - D[0]);
+		*fy += node->mass *  (wij * dy - D[1]);
+		*fz += node->mass *  (wij * dz - D[2]);
+	}
+	else
+	{
+		for (int j = 0; j < 8; j++)
+		{
+			compute_BH_force_z(node->children[j], X, i, SOFT_LENGTH, boxsize, fx, fy, fz);
+		}
+	}
+}
+#endif
 
 void compute_BH_QP_force_z(OctreeNode *node, REAL *X, int i, REAL *SOFT_LENGTH, REAL boxsize, REAL *fx, REAL *fy, REAL *fz)
 {
@@ -957,10 +998,13 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     double omp_start_time = omp_get_wtime();
     //timing
-    REAL Fx_tmp, Fy_tmp, Fz_tmp, r_xy, cylindrical_force_correction, RootNodeSize, EwaldCut;
+    REAL Fx_tmp, Fy_tmp, Fz_tmp, r_xy, RootNodeSize, cylindrical_force_correction;
+	#ifdef PERIODIC_Z_NOLOOKUP
+		REAL RealSpaceCut;
+	#endif
 	REAL random_shift[3];
 	REAL DE = (REAL) H0*H0*Omega_lambda;
-    int i, k, m, chunk;
+    int i, k, chunk;
     for(i=0; i<N_mpi_thread; i++)
     {
         for(k=0; k<3; k++)
@@ -1051,31 +1095,51 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     }
     if(IS_PERIODIC>=2) 
 	{
-		EwaldCut = ewald_cut*L; // Ewald cutoff radius
-        #pragma omp parallel default(shared)  private(i, m, Fx_tmp, Fy_tmp, Fz_tmp)
+		// Fully periodic in the z direction using Ewald summation or direct real-space summation with multiple images
+		#ifdef PERIODIC_Z_NOLOOKUP
+			RealSpaceCut = ewald_cut*L; // Real space cutoff radius
+		#endif
+        #pragma omp parallel default(shared)  private(i, Fx_tmp, Fy_tmp, Fz_tmp)
 		#pragma omp for schedule(dynamic,chunk)
 			for(i=ID_min; i<ID_max+1; i++)
 			{
-				//using multiple images
-				for(m=-ewald_max; m<ewald_max+1; m++)
-				{
+				#ifdef PERIODIC_Z_NOLOOKUP
+					//using direct real-space summation with multiple images
+					for(int m=-ewald_max; m<ewald_max+1; m++)
+					{
+						Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
+						compute_BH_rspace_force_z(rootnode, x, i, SOFT_LENGTH, x[3*i], x[3*i+1], x[3*i+2]+((REAL) m)*L, RealSpaceCut, &Fx_tmp, &Fy_tmp, &Fz_tmp);
+						#pragma omp atomic
+							F[3*(i-ID_min)] += Fx_tmp;
+						#pragma omp atomic
+							F[3*(i-ID_min)+1] += Fy_tmp;
+						#pragma omp atomic
+							F[3*(i-ID_min)+2] += Fz_tmp;
+					}
+				#else
+					//using Ewald look-up table for the periodicity in the z direction
 					Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
-					compute_BH_force_z(rootnode, x, i, SOFT_LENGTH, x[3*i], x[3*i+1], x[3*i+2]+((REAL) m)*L, EwaldCut, &Fx_tmp, &Fy_tmp, &Fz_tmp);
+					compute_BH_force_z(rootnode, x, i, SOFT_LENGTH, L, &Fx_tmp, &Fy_tmp, &Fz_tmp);
 					#pragma omp atomic
 						F[3*(i-ID_min)] += Fx_tmp;
 					#pragma omp atomic
 						F[3*(i-ID_min)+1] += Fy_tmp;
 					#pragma omp atomic
 						F[3*(i-ID_min)+2] += Fz_tmp;
-				}
+				#endif
 				//adding the external force from the outside of the simulation volume,
 				//if we run a not fully periodic comoving cosmological simulation
 				if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
 				{
 					r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
-					cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
-					F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
-					F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
+					#ifdef PERIODIC_Z_NOLOOKUP
+						cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
+						F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
+						F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
+					#else
+						F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i]; //-2\pi*G*rho_b*x
+                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1]; //-2\pi*G*rho_b*y
+					#endif
 					if(USE_RADIAL_BH_CORRECTION == true)
 					{
 						F[3*(i-ID_min)] -= x[3*i]*get_BH_radial_force_correction(r_xy, Rsim, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_ORDER)/r_xy;
@@ -1091,7 +1155,8 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     }
     else
 	{
-        #pragma omp parallel default(shared)  private(i, m, Fx_tmp, Fy_tmp, Fz_tmp)
+		//quasi-periodic in the z direction only
+        #pragma omp parallel default(shared)  private(i, Fx_tmp, Fy_tmp, Fz_tmp)
 		#pragma omp for schedule(dynamic,chunk)
 			for(i=ID_min; i<ID_max+1; i++)
 			{
@@ -1104,14 +1169,6 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 					F[3*(i-ID_min)+1] += Fy_tmp;
 				#pragma omp atomic
 					F[3*(i-ID_min)+2] += Fz_tmp;
-				#ifdef RANDOMIZE_BH
-				//Shifting back the simulation volume to the center, before we calculate the radial forces
-				for(k=0; k<2; k++)
-				{
-					x[3*i+k] -= random_shift[k];
-				}
-				//the z direction is transformed back outside of this loop (from x_tmp array)
-				#endif
 				//adding the external force from the outside of the simulation volume,
 				//if we run a not fully periodic comoving cosmological simulation
 				if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
@@ -1166,10 +1223,15 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     double omp_start_time = omp_get_wtime();
     //timing
-    REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, r_xy, cylindrical_force_correction;
+    REAL Fx_tmp, Fy_tmp, Fz_tmp, beta_priv,cylindrical_force_correction, r_xy;
 	REAL DE = (REAL) H0*H0*Omega_lambda;
-    
-    int i, j, k, m, chunk;
+    #if !defined(PERIODIC_Z_NOLOOKUP)
+	REAL D[3];
+	#else
+	int m;
+	REAL dz_image;
+	#endif
+    int i, j, k, chunk;
     for(i=0; i<N_mpi_thread; i++)
     {
         for(k=0; k<3; k++)
@@ -1177,17 +1239,22 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
             F[3*i+k] = 0;
         }
     }
-    REAL r, dx, dy, dz, wij, dz_ewald;
+    REAL r, dx, dy, dz, wij;
     chunk = (ID_max-ID_min)/(omp_get_max_threads());
     if(chunk < 1)
     {
         chunk = 1;
     }
-    if(IS_PERIODIC>=2) {
-        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, dz_ewald)
+    if(IS_PERIODIC>=2)
+	{
+		#ifdef PERIODIC_Z_NOLOOKUP
+		// Direct summation in real space with multiple images in the z direction
+        #pragma omp parallel default(shared)  private(dx, dy, dz, r, wij, i, j, m, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv, dz_image)
             #pragma omp for schedule(dynamic,chunk)
-                for(i=ID_min; i<ID_max+1; i++) {
-                    for(j=0; j<N; j++) {
+                for(i=ID_min; i<ID_max+1; i++)
+				{
+                    for(j=0; j<N; j++)
+					{
                         Fx_tmp = 0;
                         Fy_tmp = 0;
                         Fz_tmp = 0;
@@ -1201,16 +1268,16 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         for(m=-ewald_max; m<ewald_max+1; m++)
                         {
 							//calculating the distance in the z direction
-							dz_ewald = dz+((REAL) m)*L;
-                            r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz_ewald, 2));
+							dz_image = dz+((REAL) m)*L;
+                            r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz_image, 2));
                             wij = 0;
-                            if(fabs(dz_ewald) <= ewald_cut*L)
+                            if(fabs(dz_image) <= ewald_cut*L)
                             {
 								//applying a cutoff at ewald_cut*L (2.6*L, if IS_PERIODIC==2)
                                 wij = M[j] * force_softening(r, beta_priv);
                                 Fx_tmp += wij*(dx);
                                 Fy_tmp += wij*(dy);
-                                Fz_tmp += wij*(dz_ewald);
+                                Fz_tmp += wij*(dz_image);
                             }
                         }
                         #pragma omp atomic
@@ -1236,11 +1303,61 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                         F[3*(i-ID_min)+1] += DE * x[3*i+1];
                     } //non-comoving integration is not implemented for periodic_z (yet?)
                 }
+		#else
+		// Using Ewald summation results from the lookup table
+		#pragma omp parallel default(shared) private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, D, beta_priv)
+            #pragma omp for schedule(dynamic,chunk)
+                for(i=ID_min; i<ID_max+1; i++)
+				{
+                    for(j=0; j<N; j++)
+                    {
+                        beta_priv = (SOFT_LENGTH[i] + SOFT_LENGTH[j]);
+                        //calculating particle distances
+                        dx = x[3*j] - x[3*i];
+                        dy = x[3*j+1] - x[3*i+1];
+                        dz = x[3*j+2] - x[3*i+2];
+                        //in this case we use only the nearest image (and correct with Ewald table)
+                        if(fabs(dz)>0.5*L)
+						{
+							dz = dz-L*dz/fabs(dz);
+						}
+                        r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+                        wij = force_softening(r, beta_priv);
+						ewald_interpolate_D(S1R2_EWALD_FORCE_TABLE, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, L, dx, dy, dz, D[0], D[1], D[2]);
+                        Fx_tmp = M[j]*(wij*(dx) - D[0]);
+                        Fy_tmp = M[j]*(wij*(dy) - D[1]);
+                        Fz_tmp = M[j]*(wij*(dz) - D[2]);
+                        #pragma omp atomic
+                            F[3*(i-ID_min)] += Fx_tmp;
+                        #pragma omp atomic
+                            F[3*(i-ID_min)+1] += Fy_tmp;
+                        #pragma omp atomic
+                            F[3*(i-ID_min)+2] += Fz_tmp;
+                    }
+                    //adding the external force from the outside of the simulation volume,
+                    //if we run non-periodic comoving cosmological simulation
+                    //only include this in the X and Y directions
+                    if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
+                    {
+                        F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i]; //-2\pi*G*rho_b*x
+                        F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1];//-2\pi*G*rho_b*y
+                    }
+                    else if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 0)
+                    {
+                        F[3*(i-ID_min)] +=  DE * x[3*i];
+                        F[3*(i-ID_min)+1] += DE * x[3*i+1];
+                    } //non-comoving integration is not implemented for periodic_z (yet?)
+                }
+		#endif
+
     }
-    else {
+    else
+	{
+		//Quasi-periodic force calculation in S^1 x R^2 topology
         #pragma omp parallel default(shared) private(dx, dy, dz, r, wij, j, i, Fx_tmp, Fy_tmp, Fz_tmp, beta_priv)
             #pragma omp for schedule(dynamic,chunk)
-                for(i=ID_min; i<ID_max+1; i++) {
+                for(i=ID_min; i<ID_max+1; i++)
+				{
                     for(j=0; j<N; j++)
                     {
                         beta_priv = (SOFT_LENGTH[i] + SOFT_LENGTH[j]);
@@ -1268,7 +1385,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
                     if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
                     {
 						r_xy = sqrt(pow(x[3*i], 2) + pow(x[3*i+1], 2));
-                        cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
+						cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, 1);
                         F[3*(i-ID_min)] += mass_in_unit_sphere * x[3*i] * cylindrical_force_correction;
                         F[3*(i-ID_min)+1] += mass_in_unit_sphere * x[3*i+1] * cylindrical_force_correction;
                     }

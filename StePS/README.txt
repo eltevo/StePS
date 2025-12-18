@@ -7,8 +7,8 @@
 
 StePS - STEreographically Projected cosmological Simulations
 
-v1.5.0.0
-Copyright (C) 2017-2025 Gábor Rácz - gabor.racz@helsinki.fi
+v1.6.0.0
+Copyright (C) 2017-2026 Gábor Rácz - gabor.racz@helsinki.fi
   Department of Physics, University of Helsinki | Gustaf Hällströmin katu 2, Helsinki, Finland
   Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
   Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
@@ -38,7 +38,7 @@ An N-body code for compactified cosmological simulations.
 Main features:
 - Optimized to run dark matter only N-body simulations in LambdaCDM, wCDM or w0waCDM cosmology.
 - Running simulations with other models are possible by using external tabulated expansion histories.
-- Able to run standard periodic, cylindrical, and non-periodic spherical cosmological simulations.
+- Able to run standard periodic (T^3), cylindrical (S^1 x R^2), and non-periodic spherical (R^3) cosmological simulations.
 - Direct [CPU & GPU], Octree (a.k.a. Barnes-Hut)[CPU only], and randomized Octree [CPU only] force calculation.
 - Can be used to make periodic, quasi-periodic, cylindrical or spherical glass.
 - Available for GNU/Linux and Darwin (macOS).
@@ -86,7 +86,19 @@ Compiling:
 		-HAVE_HDF5
 			If this option is set, then the generated executable will be able to write the output files in HDF5 format.
 		-PERIODIC
-			Set this if the simulations will use periodic boundary condition. Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
+			Set this if the simulations will use periodic boundary conditions (T^3 topological manifold). Note that there is a similar option in the parameter file. If the two options are contradicting each other, then the program will exit with an error message.
+		-PERIODIC_Z
+			Set this if the simulation will use periodic boundary conditions only in the "z" direction (S^1xR^2 topological manifold). You cannot use this with the "PERIODIC" compile time option.
+		-PERIODIC_Z_RSPACELOOKUP
+			Using direct real-space summation with large cutoff (N>10^3) to generate the periodic lookup table. Otherwise, Tornberg (2015) Ewald summation method will be used. Only works with "PERIODIC_Z" turned on.
+		-PERIODIC_Z_NOLOOKUP
+			Instead of using a lookup tabe, a direct real-space summation of the periodic images will be used to calculate the forces in S^1xR^2 topology for every gravitational interaction. Only works with "PERIODIC_Z" turned on.
+		-EWALD_INTERPOLATION_ORDER
+			Order of the Ewald lookup table interpolation during fully periodic and cylindrical simulations (0:NGP, 2:CIC, 4:TSC(default))
+		-USE_BH
+			If this is set, the gravitational forces between particles will be calculated with Barnes-Hut octree algorithm.
+		-RANDOMIZE_BH
+			If this option is set, the domain center will be randomly shifted between every timestep during the BH force calculation. In R^3 and S^1xR^2 topology, the code will additionally randomly rotate the BH domains to mitigate the anisotropies of the octree method.
 		-COSMOPARAM
 			Parametrization of the background cosmology. Possible values:
 				0: standard Lambda-CDM parametrization (default)
@@ -106,7 +118,7 @@ Once you compiled the code, you can simply run it by typing:
 	$ export OMP_NUM_THREADS=<Number of shared memory OMP threads per MPI tasks>
 	$ mpirun -np <number of MPI tasks> ./build/StePS <parameterfile>
   or
-  $ mpirun -np <number of MPI tasks> ./buildStePS <parameterfile> <Number of shared memory OMP threads per MPI tasks>
+  $ mpirun -np <number of MPI tasks> ./build/StePS <parameterfile> <Number of shared memory OMP threads per MPI tasks>
 where the parameterfile specifies the parameters of the simulation.
 
 If you compiled the code with CUDA, you can simply run it by typing:

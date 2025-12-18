@@ -89,7 +89,7 @@ double friedmann_solver_start(double a0, double t0, double h, double a_start)
 		h_var *= 0.5;
 		i++;
 	}
-	printf("...done. After %i iteration, the calculated initial time is %fy. (h_var=%fy,  err=%fy)\n\n", i, -1.0*t_cosm*UNIT_T*1e9, h_var*2.0*UNIT_T*1e9, (fabs(t_cosm-t_cosm_tmp))*UNIT_T*1e9);
+	printf("...done. After %i iterations, the calculated initial time is %fy. (h_var=%fy,  err=%fy)\n\n", i, -1.0*t_cosm*UNIT_T*1e9, h_var*2.0*UNIT_T*1e9, (fabs(t_cosm-t_cosm_tmp))*UNIT_T*1e9);
 	//Setting t=0 to Big Bang:
 	return -1.0*t_cosm;
 }

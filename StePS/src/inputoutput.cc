@@ -971,6 +971,31 @@ void Log_write() //Writing logfile
 	fclose(LOGFILE);
 }
 
+void save_function_to_ascii_table(char *filename, REAL x_min, REAL x_max, REAL deltax, REAL *values, int Ntable, char* header)
+{
+	//Saving a function to an ascii table
+	// Input parameters:
+	// filename: the name of the output ascii file
+	// x_min: the minimum x value
+	// x_max: the maximum x value
+	// deltax: the step size in x
+	// values: array containing the function values
+	// Ntable: number of entries in the values array
+	// header: header string to be written at the top of the file
+
+	FILE *output_file;
+	output_file = fopen(filename, "w");
+	fprintf(output_file, "%s\n", header);
+	REAL argument = x_min;
+	for(int i=0; i<Ntable; i++)
+	{
+		if(argument > x_max) break;
+		fprintf(output_file, "%.6f\t%.15f\n", argument, values[i]);
+		argument += deltax;
+	}
+	fclose(output_file);
+}
+
 #ifdef HAVE_HDF5
 
 void read_hdf5_ic(char *ic_file, bool allocate_memory)
@@ -1981,7 +2006,339 @@ int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_ou
     return 0;
 }
 
+#elif defined(PERIODIC_Z)
+//Save the S^1 x R^2 Ewald force-correction lookup table to HDF5 format
+int save_s1r2_ewald_lookup_table(const char *filename, int Nrho_grid, int Nz_grid, const REAL *S1R2_EWALD_FORCE_TABLE)
+{
+	hid_t datatype = 0;
+	hid_t headergrp = 0;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+	#endif
+    herr_t status;
+    hid_t ewald_file = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (ewald_file < 0) { fprintf(stderr, "HDF5: cannot create Ewald lookup file %s\n", filename); return -1; }
 
+	//Creating the header group, and write the header into the file
+	headergrp = H5Gcreate(ewald_file, "/Header", 0, H5P_DEFAULT,H5P_DEFAULT);
+    //Creatin the t3_ewald group for storing the dataset
+    hid_t g = H5Gcreate2(ewald_file, "/s1r2_ewald", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (g < 0) { H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald group\n"); return -2; }
+
+    // dataset space: (Ngrid, Ngrid, Ngrid, 3)
+    hsize_t dims[3] = { (hsize_t)Nrho_grid, (hsize_t)Nz_grid, (hsize_t)2 };
+    hid_t dspace = H5Screate_simple(3, dims, NULL);
+
+    // dataset create
+    hid_t dset = H5Dcreate2(g, "S1R2_EWALD_FORCE_TABLE", datatype, dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (dset < 0) { H5Sclose(dspace); H5Gclose(g); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald dataset\n"); return -3; }
+
+
+	// Explicit memory dataspace: same dims as dataset
+    hid_t mspace = H5Screate_simple(3, dims, NULL);
+
+
+    // write raw data
+    status = H5Dwrite(dset, datatype, mspace, dspace, H5P_DEFAULT, S1R2_EWALD_FORCE_TABLE);
+    if (status < 0) { fprintf(stderr, "HDF5: dataset write failed\n"); }
+
+	// Writing header attributes
+	write_header_attributes_in_hdf5(headergrp);
+	//saving the Ewald grid size
+	hid_t hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hid_t hdf5_attribute = H5Acreate(headergrp, "EWALD_GRID_SIZE_RHO", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Nrho_grid);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	//Saving Nz grid size
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_GRID_SIZE_Z", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Nz_grid);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	//saving float/double precision info
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_PRECISION", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	#ifdef USE_SINGLE_PRECISION
+		int precision = 0; //32-bit float
+	#else
+		int precision = 1; //64-bit double
+	#endif
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+    /* clean-up */
+    H5Dclose(dset);
+    H5Sclose(dspace);
+	H5Gclose(headergrp);
+    H5Gclose(g);
+    H5Fclose(ewald_file);
+    return (status < 0) ? -4 : 0;
+}
+
+//Loading the S1xR2 Ewald force-correction lookup table from HDF5 format
+int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_grid, REAL **table_out)
+{
+	hid_t datatype = 0;
+	herr_t status = 0;
+	int precision = 0;
+	int format_mismatch = 0; //0: no mismatch, 1: file=float/program=double, 2: file=double/program=float
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+		double *mismatchbuf; //temporary buffer for conversion if needed
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+		float *mismatchbuf; //temporary buffer for conversion if needed
+	#endif
+
+    hid_t f = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (f < 0)
+	{
+		fprintf(stderr, "HDF5: cannot open file %s\n", filename);
+		return -1;
+	}
+
+	//loading the header and reading the Ewald grid size and float/double precision info
+
+	hid_t headergrp = H5Gopen2(f, "/Header", H5P_DEFAULT);
+	if (headergrp < 0)
+	{
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open header group\n");
+		return -3;
+	}
+	hid_t hdf5_attribute = H5Aopen(headergrp, "EWALD_GRID_SIZE_RHO", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_GRID_SIZE_RHO attribute\n");
+		return -4;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Nrho_grid);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_GRID_SIZE_RHO attribute\n");
+		return -5;
+	}
+	H5Aclose(hdf5_attribute);
+	hdf5_attribute = H5Aopen(headergrp, "EWALD_GRID_SIZE_Z", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_GRID_SIZE_Z attribute\n");
+		return -4;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Nz_grid);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_GRID_SIZE_Z attribute\n");
+		return -5;
+	}
+	H5Aclose(hdf5_attribute);
+	hdf5_attribute = H5Aopen(headergrp, "EWALD_PRECISION", H5P_DEFAULT);
+	if (hdf5_attribute < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open EWALD_PRECISION attribute\n");
+		return -6;
+	}
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	if (status < 0)
+	{
+		H5Aclose(hdf5_attribute);
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot read EWALD_PRECISION attribute\n");
+		return -6;
+	}
+	H5Aclose(hdf5_attribute);
+	H5Gclose(headergrp);
+
+	#ifdef USE_SINGLE_PRECISION
+		if (precision == 1)
+		{
+			printf("HDF5 warning: Ewald table precision mismatch (file: double, program: float)\n");
+			//Need to read into temporary double buffer and convert to float
+			format_mismatch = 2;
+		}
+	#else
+		if (precision == 0)
+		{
+			printf("HDF5 warning: Ewald table precision mismatch (file: float, program: double)\n");
+			//Need to read into temporary float buffer and convert to double
+			format_mismatch = 1;
+		}
+	#endif
+
+    hid_t g = H5Gopen2(f, "/s1r2_ewald", H5P_DEFAULT);
+    if (g < 0)
+	{
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open group /s1r2_ewald\n");
+		return -2;
+	}
+
+    /* Open dataset */
+    hid_t dset   = H5Dopen2(g, "S1R2_EWALD_FORCE_TABLE", H5P_DEFAULT);
+    if (dset < 0)
+	{
+		H5Gclose(g);
+		H5Fclose(f);
+		fprintf(stderr, "HDF5: cannot open dataset\n");
+		return -4;
+	}
+
+    hid_t dspace = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_ndims(dspace);
+    if (ndims != 3)
+	{
+        H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "HDF5: dataset rank != 3\n");
+        return -5;
+    }
+    hsize_t dims[3];
+    H5Sget_simple_extent_dims(dspace, dims, NULL);
+    if ((int)dims[0] != *Nrho_grid || (int)dims[1] != *Nz_grid || (int)dims[2] != 2)
+	{
+        H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "HDF5: dimension mismatch (%llu,%llu,%llu)\n", (unsigned long long)dims[0], (unsigned long long)dims[1], (unsigned long long)dims[2]);
+        return -6;
+    }
+
+    // Create matching memory dataspace (explicitly C order)
+    hid_t mspace = H5Screate_simple(3, dims, NULL);
+
+    // Allocate and read
+    size_t n = (size_t)(*Nrho_grid) * (size_t)(*Nz_grid) * 2u;
+    REAL *buf = (REAL*)malloc(n * sizeof(REAL));
+    if (!buf)
+	{
+        H5Sclose(mspace);
+		H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+        fprintf(stderr, "Ewald table malloc failed\n");
+        return -7;
+    }
+
+	if (format_mismatch == 0)
+	{
+		//No format mismatch, read directly into output buffer}
+		status = H5Dread(dset, datatype, mspace, dspace, H5P_DEFAULT, buf);
+		if (status < 0) {
+			free(buf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+	}
+	else if (format_mismatch == 1)
+	{
+		//File=float, program=double
+		#ifndef USE_SINGLE_PRECISION
+		size_t n = (size_t)(*Nrho_grid) * (size_t)(*Nz_grid) * 2u;
+		mismatchbuf = (float*)malloc(n * sizeof(float));
+		if (!mismatchbuf)
+		{
+			H5Fclose(f);
+			fprintf(stderr, "Ewald table malloc failed\n");
+			return -7;
+		}
+		status = H5Dread(dset, H5T_NATIVE_FLOAT, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) {
+			free(buf);
+			free(mismatchbuf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+		//Convert to double
+		for (size_t i = 0; i < n; i++)
+			buf[i] = (REAL)mismatchbuf[i];
+		free(mismatchbuf);
+		printf("Loaded Ewald lookup table (%i*%i) with float->double conversion.\n", *Nrho_grid, *Nz_grid);
+		#endif
+	}
+	else if (format_mismatch == 2)
+	{
+		//File=double, program=float
+		#ifdef USE_SINGLE_PRECISION
+		size_t n = (size_t)(*Nrho_grid) * (size_t)(*Nz_grid) * 2u;
+		mismatchbuf = (double*)malloc(n * sizeof(double));
+		if (!mismatchbuf)
+		{
+			H5Fclose(f);
+			fprintf(stderr, "Ewald table malloc failed\n");
+			return -7;
+		}
+		status = H5Dread(dset, H5T_NATIVE_DOUBLE, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) {
+			free(buf);
+			free(mismatchbuf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
+			H5Fclose(f);
+			fprintf(stderr, "HDF5: dataset read failed\n");
+			return -8;
+		}
+		//Convert to float
+		for (size_t i = 0; i < n; i++)
+			buf[i] = (REAL)mismatchbuf[i];
+		free(mismatchbuf);
+		printf("Loaded Ewald lookup table (%i*%i) with double->float conversion.\n", *Nrho_grid, *Nz_grid);
+		#endif
+	}
+	else
+	{
+		//Should not happen
+		free(buf);
+		H5Sclose(mspace);
+		H5Sclose(dspace);
+		H5Dclose(dset);
+		H5Gclose(g);
+		H5Fclose(f);
+		fprintf(stderr, "Ewald table format mismatch error\n");
+		return -9;
+	}
+
+    *table_out = buf;
+    H5Sclose(mspace);
+    H5Sclose(dspace);
+    H5Dclose(dset);
+    H5Gclose(g);
+    H5Fclose(f);
+    return 0;
+}
 #endif
 
 

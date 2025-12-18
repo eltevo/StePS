@@ -1,12 +1,12 @@
 
 #-----------------------------------------------------------------------------------------------#
 # StePS Makefile
-# Copyright (C) 2017-2025 Gabor Racz
+# Copyright (C) 2017-2026 Gabor Racz
 #		Department of Physics, University of Helsinki | Helsinki, Finland
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.5.0.0-dev"'
+VERSION='"v1.6.0.0-dev"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -26,9 +26,12 @@ VERSION='"v1.5.0.0-dev"'
 #OPT += -DUSE_BH=0.25 # Use the Barnes-Hut (OctTree) method for force calculation with an opening angle of 0.25. (Recommended value is 0.25)
 #OPT += -DRANDOMIZE_BH=123456 # Randomize the BH tree to avoid artifacts. Only works with the BH method, and it is highly recommended to use it.
 
-#------------------------------- Options for boundary conditions (only uncomment one of them)
-#OPT += -DPERIODIC # Periodic boundary conditions
-#OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only
+#------------------------------- Options for boundary conditions
+#OPT += -DPERIODIC # Periodic boundary conditions (T^3 topological manifold)
+#OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only (S^1 x R^2 topological manifold)
+#OPT += -DPERIODIC_Z_RSPACELOOKUP # Using direct real-space summation with large cutoff (N>10^3) to generate the periodic lookup table. Otherwise, Tornberg (2015) Ewald summation method will be used for lookup table calculation (only for cylindrical periodic BCs).
+#OPT += -DPERIODIC_Z_NOLOOKUP # Enable direct periodic real-space summation without using a lookup table (only for cylindrical periodic BCs), otherwise lookup table method is used.
+EWALD_INTERPOLATION_ORDER=4# Interpolation order for the Ewald force correction table (0: NGP, 2: CIC, 4: TSC). Higher order = more accurate but slower. Recommended: 4 (TSC)
 
 #------------------------------- Option for enabling HDF5 I/O
 OPT += -DHAVE_HDF5
@@ -76,6 +79,29 @@ LDFLAGS = -lc++ -lhdf5 -lm
 MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
 MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
 
+#------------------------------- Printing out some info
+$(info This is the StePS $(VERSION) Makefile.)
+$(info ----------------------------------------)
+$(info Basic compilation settings:)
+$(info Compiling StePS with $(CXX) ($(COMPILERVERSION)) without CUDA support (CPU only mode))
+$(info MPI compile flags: $(MPI_COMPILE_FLAGS))
+$(info MPI link flags: $(MPI_LINK_FLAGS))
+$(info C++ compiler flags: $(CFLAGS))
+$(info Build options: $(OPT))
+$(info ----------------------------------------)
+$(info )
+
+#------------------------------- Ewald interpolation order setting
+ifeq ($(EWALD_INTERPOLATION_ORDER),0)
+OPT += -DEWALD_INTERPOLATION_ORDER=0
+else ifeq ($(EWALD_INTERPOLATION_ORDER),2)
+OPT += -DEWALD_INTERPOLATION_ORDER=2
+else ifeq ($(EWALD_INTERPOLATION_ORDER),4)
+OPT += -DEWALD_INTERPOLATION_ORDER=4
+else
+$(info Warning: Unsupported EWALD_INTERPOLATION_ORDER value ($(EWALD_INTERPOLATION_ORDER)). Supported values are 0, 2, and 4. Setting to default value of 4. (TSC))
+OPT += -DEWALD_INTERPOLATION_ORDER=4
+endif
 
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS"'
 
