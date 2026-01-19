@@ -68,7 +68,7 @@ void BCAST_global_parameters()
 	MPI_Bcast(&ACC_PARAM,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
-#ifdef PERIODIC_Z
+#if defined(PERIODIC_Z) && defined(DIRECT_PERIODIC_REALSPACE)
 	MPI_Bcast(&RADIAL_FORCE_ACCURACY,1,MPI_INT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&RADIAL_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
 #endif
@@ -122,7 +122,7 @@ char str34[] = "EXPANSION_FILE";
 char str35[] = "INTERPOLATION_ORDER";
 #endif
 char str36[] = "R_SIM";
-#ifdef PERIODIC_Z
+#if defined(PERIODIC_Z)
 char str37[] = "RADIAL_FORCE_ACCURACY";
 char str38[] = "RADIAL_FORCE_TABLE_SIZE";
 RADIAL_FORCE_ACCURACY = 1000; //number of points used in the integration for the lookup table. (Setting up some default value in the case for older parameter files)
@@ -325,7 +325,7 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%f", &Rsim);
 	}
-	#ifdef PERIODIC_Z
+	#if defined(PERIODIC_Z)
 	if(strstr(c, str37) != NULL)
 	{
 		sscanf(c, "%*s\t%i", &RADIAL_FORCE_ACCURACY);
@@ -555,7 +555,7 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%lf", &Rsim);
 	}
-	#ifdef PERIODIC_Z
+	#if defined(PERIODIC_Z)
 	if(strstr(c, str37) != NULL)
 	{
 		sscanf(c, "%*s\t%i", &RADIAL_FORCE_ACCURACY);
@@ -687,12 +687,16 @@ else
 #ifdef PERIODIC_Z
 if(IS_PERIODIC >= 2)
 {
+	#if defined(PERIODIC_Z_NOLOOKUP)
 	printf("Radial force accuracy\t\t%i\n",RADIAL_FORCE_ACCURACY);
 	printf("Radial force table size\t\t%i\n",RADIAL_FORCE_TABLE_SIZE);
 	printf("Number of images in z direction\t%i\n",2*IS_PERIODIC+1);
+	#endif
 }
 else
 {
+	printf("Radial force accuracy\t\t%i\n",RADIAL_FORCE_ACCURACY);
+	printf("Radial force table size\t\t%i\n",RADIAL_FORCE_TABLE_SIZE);
 	printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
 }
 #endif

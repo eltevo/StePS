@@ -81,6 +81,16 @@ void calculate_softening_length(REAL *SOFT_LENGTH, REAL *M, int N)
     printf("...done\n\n");
 }
 
+//setting a REAL array to zero
+void set_REAL_array_to_zero(REAL *array, int N)
+{
+    int i;
+    for(i=0; i<N; i++)
+    {
+        array[i] = 0.0;
+    }
+}
+
 #if defined(USE_BH) && !defined(PERIODIC)
 // Function to calculate the radial force correction for BH force calculation
 void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADIAL_BH_N_TABLE, int TABLE_SIZE, REAL *F, REAL *x, int N)

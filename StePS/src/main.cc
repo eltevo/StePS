@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                            */
+/*    Copyright (C) 2017-2026 Gabor Racz, Balazs Pal                            */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -61,7 +61,7 @@ REAL x4, err, errmax;
 REAL beta, ParticleRadi, rho_part, M_min;
 
 #ifdef USE_BH
-REAL THETA;//default value for the opening angle (used in BH forces)
+	REAL THETA;//value for the opening angle (used in BH forces)
 #endif
 
 int IS_PERIODIC, COSMOLOGY;
@@ -86,42 +86,54 @@ unsigned int N_snapshot; //number of written out snapshots
 
 double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param; //Cosmologycal parameters
 #if COSMOPARAM==1
-double w0; //Dark energy equation of state at all redshifts. (LCDM: w0=-1.0)
+	double w0; //Dark energy equation of state at all redshifts. (LCDM: w0=-1.0)
 #elif COSMOPARAM==2
-double w0; //Dark energy equation of state at z=0. (LCDM: w0=-1.0)
-double wa; //Negative derivative of the dark energy equation of state. (LCDM: wa=0.0)
+	double w0; //Dark energy equation of state at z=0. (LCDM: w0=-1.0)
+	double wa; //Negative derivative of the dark energy equation of state. (LCDM: wa=0.0)
 #elif COSMOPARAM==-1
-char EXPANSION_FILE[1024]; //input file with expansion history
-int N_expansion_tab; //number of rows in the expansion history tab
-int expansion_index; //index of the current value in the expansion history
-double** expansion_tab; //expansion history tab (columns: t, a, H)
-int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
+	char EXPANSION_FILE[1024]; //input file with expansion history
+	int N_expansion_tab; //number of rows in the expansion history tab
+	int expansion_index; //index of the current value in the expansion history
+	double** expansion_tab; //expansion history tab (columns: t, a, H)
+	int INTERPOLATION_ORDER; //order of the interpolation (1,2,or 3)
 #endif
 #if defined(PERIODIC)
-//Variables only used in T^3 periodic simulations
-REAL *T3_EWALD_FORCE_TABLE; //Ewald force correction lookup table for T^3 topology
-char ewaldfilepath[0x100];
-int N_EWALD_FORCE_GRID; //size of the ewald force lookup table
+	//Variables only used in T^3 periodic simulations
+	REAL *T3_EWALD_FORCE_TABLE; //Ewald force correction lookup table for T^3 topology
+	char ewaldfilepath[0x100];
+	int N_EWALD_FORCE_GRID; //size of the ewald force lookup table
 #endif
 #if defined(PERIODIC_Z)
-//Variables only used in cylindrical simmetrical simulations
-//Variables only used in cylindrical simmetrical simulations
-int ewald_max; //number of images in the z direction
-REAL ewald_cut; //cutoff radius for the ewald summation
-int RADIAL_FORCE_TABLE_SIZE; //size of the lookup table for the radial force calculation
-int RADIAL_FORCE_ACCURACY; //number of points used in the integration for the lookup table
-REAL *RADIAL_FORCE_TABLE; //lookup table for the radial force calculation
-bool CYLINDRICAL_LOOKUP_TABLE_CALCULATED=false; //true, if the cylindrical lookup table is calculated
+	//Variables only used in S^1 x R^2 simulations
+	int RADIAL_FORCE_TABLE_SIZE; //size of the lookup table for the radial force calculation
+	int RADIAL_FORCE_ACCURACY; //number of points used in the integration for the lookup table
+	REAL *RADIAL_FORCE_TABLE; //lookup table for the radial force calculation
+	bool CYLINDRICAL_LOOKUP_TABLE_CALCULATED=false; //true, if the cylindrical lookup table is calculated
+	char CYLINDRICAL_LOOKUP_TABLE_PATH[0x100]; //output file path for the radial cylindrical force lookup table
+	#if defined(PERIODIC_Z_NOLOOKUP)
+		//Direct periodic real-space summation variables
+		int ewald_max; //number of images in the z direction
+		REAL ewald_cut; //cutoff radius for the ewald summation
+	#else
+		//Ewald summation variables
+		REAL *S1R2_EWALD_FORCE_TABLE; //Ewald force correction lookup table for S^1 x R^2 topology
+		char ewaldfilepath[0x100];
+		int Nz_EWALD_FORCE_GRID; //size of the ewald force lookup in the z direction
+		int Nrho_EWALD_FORCE_GRID; //size of the ewald force lookup in the radial direction
+	#endif
 #endif
 #ifdef USE_BH
-int RADIAL_BH_FORCE_CORRECTION; //0: no correction, 1: correction for the radial force calculation based on the glass or initial radial BH forces (In the case of cylindrical and spherical simulations)
-char GLASS_FILE_FOR_BH_FORCE_CORRECTION[1024]; //glass file used for the radial BH force correction. if "None", the IC file will be used to calculate the radial BH force correction.
-int RADIAL_BH_FORCE_TABLE_SIZE; //size of the lookup table for the radial BH force correction calculation
-REAL* RADIAL_BH_FORCE_TABLE; //lookup table for the radial BH force correction calculation
-int* RADIAL_BH_N_TABLE; //table for the number of particles in a shell in the radial BH force correction calculation
-int N_radial_bh_force_correction; //number of particles used in the radial BH force correction
-int RADIAL_BH_FORCE_TABLE_ITERATION; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
-bool USE_RADIAL_BH_CORRECTION; //true, if the radial BH force correction table is ready to use
+	int RADIAL_BH_FORCE_CORRECTION; //0: no correction, 1: correction for the radial force calculation based on the glass or initial radial BH forces (In the case of cylindrical and spherical simulations)
+	char GLASS_FILE_FOR_BH_FORCE_CORRECTION[1024]; //glass file used for the radial BH force correction. if "None", the IC file will be used to calculate the radial BH force correction.
+	int RADIAL_BH_FORCE_TABLE_SIZE; //size of the lookup table for the radial BH force correction calculation
+	REAL* RADIAL_BH_FORCE_TABLE; //lookup table for the radial BH force correction calculation
+	int* RADIAL_BH_N_TABLE; //table for the number of particles in a shell in the radial BH force correction calculation
+	int N_radial_bh_force_correction; //number of particles used in the radial BH force correction
+	int RADIAL_BH_FORCE_TABLE_ITERATION; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
+	bool USE_RADIAL_BH_CORRECTION; //true, if the radial BH force correction table is ready to use
+	#if !defined(PERIODIC)
+		char RADIAL_BH_FORCE_CORRECTION_PATH[0x100]; //output file path for the radial BH force correction table
+	#endif
 #endif
 double epsilon=1;
 double sigma=1;
@@ -155,7 +167,21 @@ int ewald_space(REAL R, int ewald_index[][4]);
 void calculate_t3_ewald_lookup_table(int Ngrid, REAL L, REAL alpha, int realspace_el, int recspace_el, int realspace_ewald_index[][4], int recspace_ewald_index[][4], REAL rel_cut, REAL rec_cut, REAL *T3_EWALD_FORCE_TABLE);
 int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_EWALD_FORCE_TABLE);
 int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_out);
+#elif defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
+//Functions for S^1 x R^2 Ewald summation
+void calculate_S1R2ewald_correction_table(int Nrho, int Nz, REAL rho_max, REAL Lz, REAL alpha, int nmax, int mmax, REAL*& S1R2_EWALD_FORCE_TABLE);
+#ifdef HAVE_HDF5
+int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_grid, REAL **table_out);
+int save_s1r2_ewald_lookup_table(const char *filename, int Nrho_grid, int Nz_grid, const REAL *S1R2_EWALD_FORCE_TABLE);
 #endif
+#endif
+#if defined(PERIODIC_Z)
+//Functions for direct periodic S^1 x R^2 real space force calculation
+void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_SIZE, int RADIAL_FORCE_ACCURACY);
+#endif
+
+//helper functions
+void set_REAL_array_to_zero(REAL *array, int N);
 
 //Input/Output functions
 int file_exist(char *file_name);
@@ -165,6 +191,7 @@ int read_OUT_LST();
 void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL);
 void write_ascii_snapshot(REAL* x, REAL *v);
 void Log_write();
+void save_function_to_ascii_table(char *filename, REAL x_min, REAL x_max, REAL deltax, REAL *values, int Ntable, char* header);
 #ifdef HAVE_HDF5
 int N_redshiftcone, HDF5_redshiftcone_firstshell;
 //Functions for HDF5 I/O
@@ -173,9 +200,6 @@ void write_header_attributes_in_hdf5(hid_t handle);
 #endif
 #if COSMOPARAM==-1
 void read_expansion_history(char* filename);
-#endif
-#if defined(PERIODIC_Z)
-void get_cylindrical_force_table(REAL* FORCE_TABLE, REAL R, REAL Lz, int TABLE_SIZE, int RADIAL_FORCE_ACCURACY);
 #endif
 
 int main(int argc, char *argv[])
@@ -196,7 +220,7 @@ int main(int argc, char *argv[])
 	#endif
 	if(rank == 0)
 	{
-		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2025 Gabor Racz et al.\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
+		printf("+-----------------------------------------------------------------------------------------------+\n|   _____ _       _____   _____ \t\t\t\t\t\t\t\t|\n|  / ____| |     |  __ \\ / ____|\t\t\t\t\t\t\t\t|\n| | (___ | |_ ___| |__) | (___  \t\t\t\t\t\t\t\t|\n|  \\___ \\| __/ _ \\  ___/ \\___ \\ \t\t\t\t\t\t\t\t|\n|  ____) | ||  __/ |     ____) |\t\t\t\t\t\t\t\t|\n| |_____/ \\__\\___|_|    |_____/ \t\t\t\t\t\t\t\t|\n|StePS %s\t\t\t\t\t\t\t\t\t\t\t|\n| (STEreographically Projected cosmological Simulations)\t\t\t\t\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) 2017-2026 Gabor Racz et al.\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n|\t\t\t\t\t\t\t\t\t\t\t\t|\n|", PROGRAM_VERSION);
 		printf(" Build date: %s\t\t\t\t\t\t\t|\n|",  BUILD_DATE);
 		printf(" Compiled with: %s", COMPILER_VERSION);
 		unsigned long int I;
@@ -245,8 +269,32 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 		printf("\tPeriodic boundary conditions. (T^3 topological manifold)\n");
 	#elif defined(PERIODIC_Z)
-	if(rank == 0)
-		printf("\tPeriodic boundary conditions in the z direction. (S^1 x R^2 topological manifold)\n");
+		if(rank == 0)
+			printf("\tPeriodic boundary conditions in the z direction. (S^1 x R^2 topological manifold)\n");
+		#if defined(PERIODIC_Z_NOLOOKUP)
+		if(rank == 0)
+			printf("\t\tUsing direct periodic real-space summation in force calculation.\n");
+		#else
+		if(rank == 0)
+		{
+			#if !defined(PERIODIC_Z_RSPACELOOKUP)
+			printf("\t\tUsing S^1 x R^2 Ewald lookup table in force calculation. (Tornberg 2015 method)\n");
+			#else
+			printf("\t\tUsing S^1 x R^2 real-space lookup table in force calculation.\n");
+			#endif
+			printf("\t\tEwald interpolation method: ");
+			#if EWALD_INTERPOLATION_ORDER==0
+				printf("NGP (Nearest Grid Point)\n");
+			#elif EWALD_INTERPOLATION_ORDER==2
+				printf("CIC (Cloud-in-Cell)\n");
+			#elif EWALD_INTERPOLATION_ORDER==4
+				printf("TSC (Triangular Shaped Cloud)\n");
+			#else
+				//this should never happen
+				printf("Unknown method (defaulting to TSC)\n");
+			#endif
+		}
+		#endif
 	#else
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions. (R^3 topological manifold)\n");
@@ -447,10 +495,10 @@ int main(int argc, char *argv[])
 					double EWALD_omp_end_time = omp_get_wtime(); //Timing
 					printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
 				#endif
-				#ifndef USE_GPU
+				#ifndef USE_CUDA
 					printf("Ewald lookup table interpolation order: %i\n\n", EWALD_INTERPOLATION_ORDER);
 				#else
-					printf("Ewald lookup table interpolation order is always 4 on GPUs.\n\n");
+					printf("Ewald lookup table interpolation order is always 4 on GPUs in T^3 topological manifolds.\n\n");
 				#endif
 			}
 			//Bcasting the N_EWALD_FORCE_GRID variable to all MPI threads
@@ -469,7 +517,8 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			printf("Quasi-periodic boundary conditions. (No Ewald force correction)\n");
+			if(rank == 0)
+				printf("Quasi-periodic boundary conditions. (No Ewald force correction)\n");
 			//To avoid errors, we set N_EWALD_FORCE_GRID to 1 and allocate a dummy ewald table with 0 forces
 			N_EWALD_FORCE_GRID = 1;
 			//Allocating memory for the dummy ewald lookup table in all MPI threads
@@ -489,7 +538,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic and periodic simulations in z direction only.\nExiting.\n");
 			return (-2);
 		}
-		#ifdef USE_BH
+		#if defined(USE_BH) && defined(PERIODIC_Z_NOLOOKUP)
 			REAL MaxNodeSize;
 			if(2*Rsim < L)
 			{
@@ -510,19 +559,176 @@ int main(int argc, char *argv[])
 				}
 			}
 		#endif
-		if(IS_PERIODIC>= 2)
+		if(IS_PERIODIC> 1)
 		{
-			printf("Ewald summation is on in z direction. Using %i images. (Boundary condition %i)\n\n", 2*IS_PERIODIC+1, IS_PERIODIC);
+			#if !defined(PERIODIC_Z_NOLOOKUP)
+				//Building the periodic lookup table.
+				if(rank == 0)
+				{
+					//rank 0 MPI thread is calculating the ewald lookup table
+					char EwaldTableFile[] = "S1R2_Ewald_table_lowres.hdf5";
+					#if !defined(PERIODIC_Z_RSPACELOOKUP)
+					//variables only used in periodic ewald force calculation
+					double EWALD_alpha; //Ewald alpha parameter
+					int rel_cut, rec_cut; //real and reciprocal space cutoffs
+					if(IS_PERIODIC==2)
+					{
+						printf("S^1 x R^2 Ewald force calculation is on. (Ewald cut is 4*L in real and 10 in reciprocal space)\nCalculating Ewald lookup tables...\n\n");
+						rel_cut = 4;
+						rec_cut = 10;
+						EWALD_alpha = 0.787875/L; //Optimal alpha based on numerical tests, if rel_cut=4L and rec_cut=10
+						Nz_EWALD_FORCE_GRID = 128; //size of the ewald force lookup table in the z direction
+						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the ewald force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
+					}
+					else if(IS_PERIODIC==3)
+					{
+						printf("Medium precision S^1 x R^2 Ewald force calculation is on. (Ewald cut is 5*L in real and 12 in reciprocal space)\nCalculating Ewald lookup tables...\n\n");
+						rel_cut = 5;
+						rec_cut = 12;
+						EWALD_alpha = 0.71805/L; //Optimal alpha based on numerical tests, if rel_cut=5L and rec_cut=12
+						Nz_EWALD_FORCE_GRID = 256; //size of the ewald force lookup table in the z direction
+						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the ewald force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
+						strcpy(EwaldTableFile, "S1R2_Ewald_table_medres.hdf5");
+					}
+					else
+					{
+						rel_cut = IS_PERIODIC+2;
+						rec_cut = IS_PERIODIC+9;
+						printf("High precision S^1 x R^2 Ewald force calculation is on. (Ewald cut is %i*L in real and %i in reciprocal space)\nCalculating Ewald lookup tables...\n\n", rel_cut, rec_cut);
+						EWALD_alpha = 0.6642/L; //Optimal alpha based on numerical tests, if rel_cut==6L and rec_cut==13
+						Nz_EWALD_FORCE_GRID = 512; //size of the ewald force lookup table in the z direction
+						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the ewald force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
+						strcpy(EwaldTableFile, "S1R2_Ewald_table_higres.hdf5");
+					}
+					#else
+					//If TORNBERG2015 method is not defined, we use direct summation to build the Ewald table
+					int rel_cut;
+					if(IS_PERIODIC==2)
+					{
+						printf("Calculating S^1 x R^2 periodic lookup table... (10^3*L in real space)\n\n");
+						rel_cut = 1000;
+						Nz_EWALD_FORCE_GRID = 128; //size of the periodic force lookup table in the z direction
+						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the periodic force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
+					}
+					else if(IS_PERIODIC==3)
+					{
+						printf("Calculating medium precision S^1 x R^2 periodic lookup table... (10^4*L in real space)\n\n");
+						rel_cut = 10000;
+						Nz_EWALD_FORCE_GRID = 256; //size of the periodic force lookup table in the z direction
+						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the periodic force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
+						strcpy(EwaldTableFile, "S1R2_Ewald_table_medres.hdf5");
+					}
+					else
+					{
+						printf("Calculating high precision S^1 x R^2 periodic lookup table... (10^5*L in real space)\n\n");
+						rel_cut = 100000;
+						Nz_EWALD_FORCE_GRID = 512; //size of the periodic force lookup table in the z direction
+						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the periodic force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
+						strcpy(EwaldTableFile, "S1R2_Ewald_table_higres.hdf5");
+					}
+					#endif
+					//Allocating memory for the ewald lookup table in the rank 0 MPI thread
+					printf("MPI task %i: Allocating memory for the Ewald lookup table with %i*%i=%i grid points...\n", rank, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, Nrho_EWALD_FORCE_GRID*Nz_EWALD_FORCE_GRID);
+					if(!(S1R2_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)Nz_EWALD_FORCE_GRID*Nrho_EWALD_FORCE_GRID*2*sizeof(REAL))))
+					{
+						fprintf(stderr, "MPI task %i: failed to allocate memory for The Ewald lookup table.\n", rank);
+						exit(-2);
+					}
+					#ifdef HAVE_HDF5
+						//if we have HDF5, we save/load the Ewald table in HDF5 format				
+						if(snprintf(ewaldfilepath, sizeof(ewaldfilepath), "%s%s", OUT_DIR, EwaldTableFile) < 0)
+						{
+							fprintf(stderr, "Error: The name of the ewald table got truncated.\nAborting.\n");
+							abort();
+						}
+						if(file_exist(ewaldfilepath) == 0)
+						{
+							printf("Ewald lookup table file (%s) not found.\nCalculating new lookup table...\n", ewaldfilepath);
+							double EWALD_omp_start_time = omp_get_wtime(); //Timing
+							#if !defined(PERIODIC_Z_RSPACELOOKUP)
+							calculate_S1R2ewald_correction_table(Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, L, EWALD_alpha, rel_cut, rec_cut, S1R2_EWALD_FORCE_TABLE);
+							#else
+							calculate_S1R2ewald_correction_table(Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, L, 0.0, rel_cut, 0, S1R2_EWALD_FORCE_TABLE);
+							#endif
+							double EWALD_omp_end_time = omp_get_wtime(); //Timing
+							printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+							printf("Ewald lookup table calculated.\nSaving into %s\n", ewaldfilepath);
+							save_s1r2_ewald_lookup_table(ewaldfilepath, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, S1R2_EWALD_FORCE_TABLE);
+						}
+						else
+						{
+							printf("Ewald lookup table file (%s) found.\nLoading lookup table from file...\n", ewaldfilepath);
+							double EWALD_omp_start_time = omp_get_wtime(); //Timing
+							int Nrho_EWALD_FORCE_GRID_file, Nz_EWALD_FORCE_GRID_file;
+							//loading the table
+							if(load_s1r2_ewald_lookup_table(ewaldfilepath, &Nrho_EWALD_FORCE_GRID_file, &Nz_EWALD_FORCE_GRID_file, &S1R2_EWALD_FORCE_TABLE)!=0)
+							{
+								fprintf(stderr, "Error: Failed to load the Ewald lookup table from file %s\nAborting.\n", ewaldfilepath);
+								return(-2);
+							}
+							printf("Ewald lookup table loaded from file %s with grid size %i x %i.\n", ewaldfilepath, Nrho_EWALD_FORCE_GRID_file, Nz_EWALD_FORCE_GRID_file);
+							if(Nrho_EWALD_FORCE_GRID_file != Nrho_EWALD_FORCE_GRID || Nz_EWALD_FORCE_GRID_file != Nz_EWALD_FORCE_GRID)
+							{
+								fprintf(stderr, "Error: The loaded Ewald lookup table size (%i x %i) does not match the expected size (%i x %i).\nPlease delete the old lookup table file and run the simulation again.\nAborting.\n", Nrho_EWALD_FORCE_GRID_file, Nz_EWALD_FORCE_GRID_file, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID);
+								return(-2);
+							}
+							double EWALD_omp_end_time = omp_get_wtime(); //Timing
+							printf("Ewald lookup table loading finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+						}
+					#else
+						printf("HDF5 support not compiled in.\nCalculating new Ewald lookup table...\n");
+						double EWALD_omp_start_time = omp_get_wtime(); //Timing
+						#if !defined(PERIODIC_Z_RSPACELOOKUP)
+						calculate_S1R2ewald_correction_table(Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, L, EWALD_alpha, rel_cut, rec_cut, S1R2_EWALD_FORCE_TABLE);
+						#else
+						calculate_S1R2ewald_correction_table(Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, L, 0.0, rel_cut, 0, S1R2_EWALD_FORCE_TABLE);
+						#endif
+						double EWALD_omp_end_time = omp_get_wtime(); //Timing
+						printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+					#endif
+					printf("Ewald lookup table interpolation order: %i\n\n", EWALD_INTERPOLATION_ORDER);
+				}
+				//Bcasting the Nz_EWALD_FORCE_GRID and Nrho_EWALD_FORCE_GRID variables to all MPI threads
+				MPI_Bcast(&Nz_EWALD_FORCE_GRID, 1, MPI_INT, 0, MPI_COMM_WORLD);
+				MPI_Bcast(&Nrho_EWALD_FORCE_GRID, 1, MPI_INT, 0, MPI_COMM_WORLD);
+				if(rank != 0)
+				{
+					//Allocating memory for the ewald lookup table in all other MPI threads
+					S1R2_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)Nz_EWALD_FORCE_GRID*Nrho_EWALD_FORCE_GRID*2*sizeof(REAL));
+				}
+				//bcasting the ewald lookup table to all MPI threads
+				#ifdef USE_SINGLE_PRECISION
+					MPI_Bcast(S1R2_EWALD_FORCE_TABLE, Nz_EWALD_FORCE_GRID*Nrho_EWALD_FORCE_GRID*2, MPI_FLOAT, 0, MPI_COMM_WORLD);
+				#else
+					MPI_Bcast(S1R2_EWALD_FORCE_TABLE, Nz_EWALD_FORCE_GRID*Nrho_EWALD_FORCE_GRID*2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+				#endif
+			#endif
 		}
 		else
 		{
-			printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n\n");
+			if(rank == 0)
+			{
+				printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n\n");
+			}
+			#if !defined(PERIODIC_Z_NOLOOKUP)
+				//To avoid errors, we set Nz_EWALD_FORCE_GRID and Nrho_EWALD_FORCE_GRID to 1 and allocate a dummy ewald table with 0 forces
+				Nz_EWALD_FORCE_GRID = 1;
+				Nrho_EWALD_FORCE_GRID = 1;
+				//Allocating memory for the dummy ewald lookup table in all MPI threads
+				if(!(S1R2_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)Nz_EWALD_FORCE_GRID*Nrho_EWALD_FORCE_GRID*2*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for The Ewald lookup table.\n", rank);
+					exit(-2);
+				}
+				S1R2_EWALD_FORCE_TABLE[0]=0.0;
+				S1R2_EWALD_FORCE_TABLE[1]=0.0;
+			#endif
 		}
 	#else
 		if(IS_PERIODIC  != 0)
 		{
 			if(rank == 0)
-				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run non-periodic (spherical) simulations only.\nExiting.\n");
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run non-periodic (R^3 spherical) simulations only.\nExiting.\n");
 			return (-2);
 		}
 	#endif
@@ -688,21 +894,24 @@ int main(int argc, char *argv[])
 		// Calculating cylindrical or spherical radial forces of the last pixel (mass_in_unit_sphere)
 		a = 1.0; //Setting the scale factor to 1.
 		rho_crit = 3.0*H0*H0/(8.0*pi); //Calculating the critical density
-		#if defined(PERIODIC_Z)
+		// Calculating the lookup table for the radial force calculation
+		if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+		{
+			RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
+		}
+		#if defined(PERIODIC_Z) && defined(PERIODIC_Z_NOLOOKUP)
+			printf("Calculating the lookup table for the radial force calculation...\n");
 			if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
 			{
-				// in cylindrically symmetric simulations, the radial force is proportional to the mass in a unit cylinder
-				mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+				// Calculating the radial force in a finite cylinder
+				mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m); // in cylindrically symmetric simulations, the radial force is proportional to the mass in a unit cylinder
 				ewald_max = IS_PERIODIC+1;
-				ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the ewald summation
-				// Calculating the lookup table for the radial force calculation
-				printf("Calculating the lookup table for the radial force calculation...\n");
-				RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
+				ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the direct real-space periodic summation
 				if(IS_PERIODIC==1)
 				{
-					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,0.5*L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
 					if(rank==0)
-						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=0.5Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
 				}
 				else
 				{
@@ -711,9 +920,43 @@ int main(int argc, char *argv[])
 						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=%.1fLsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, 2*ewald_cut, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
 				}
 				CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
+				//saving the lookup table to a file
+				char CYLINDRICAL_LOOKUP_TABLE_FILENAME[] = "radial_force_table_chang.dat";
+				char CYLINDRICAL_LOOKUP_TABLE_HEADER[128];
+				sprintf(CYLINDRICAL_LOOKUP_TABLE_HEADER, "# Radial force compensation table based on Chang (1988)\n# r[Mpc]    F_r(r,L=%.1f*Lsim)/F_r(L=inf)", 2*ewald_cut);
+				if(snprintf(CYLINDRICAL_LOOKUP_TABLE_PATH, sizeof(CYLINDRICAL_LOOKUP_TABLE_PATH), "%s%s", OUT_DIR, CYLINDRICAL_LOOKUP_TABLE_FILENAME) < 0)
+				{
+					fprintf(stderr, "Error: The name of the ewald table got truncated.\nAborting.\n");
+					abort();
+				}
+				printf("Saving the radial BH force correction table into %s\n\n", CYLINDRICAL_LOOKUP_TABLE_PATH);
+				save_function_to_ascii_table(CYLINDRICAL_LOOKUP_TABLE_PATH, Rsim/(REAL)RADIAL_FORCE_TABLE_SIZE, Rsim, Rsim/(REAL)RADIAL_FORCE_TABLE_SIZE, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, CYLINDRICAL_LOOKUP_TABLE_HEADER);
+				}
+		#elif defined(PERIODIC_Z)
+			// in cylindrically symmetric (S^1xR^2) simulations, the radial force is proportional to the mass in a unit cylinder
+			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+			if(IS_PERIODIC==1)
+			{
+				if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+				{
+					printf("Calculating the lookup table for the radial force calculation...\n");
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,0.5*L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					if(rank==0)
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=0.5Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+					CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
+				}
+			}
+			else
+			{
+				//setting up the lookup table with zero elements
+				if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+				{
+					set_REAL_array_to_zero(RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
+					CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
+				}
 			}
 		#else
-			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
+			// in spherically symmetric (R^3) simulations, the radial force is proportional to the mass in a unit sphere
 			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		#endif
 		// Allocating memory for the radial BH force correction table on all threads
@@ -825,11 +1068,15 @@ int main(int argc, char *argv[])
 					printf("Warning: No particles in shell %d, setting force to zero.\n", i);
 				}
 			}
-			printf("Table values:\nBin\tR[Mpc]\t\tForce\t\tRADIAL_BH_N_TABLE\n-------------------------------------\n");
-			for(i=0; i<RADIAL_BH_FORCE_TABLE_SIZE; i++)
+			char radial_bh_force_table_filename[] = "radial_bh_force_table.dat";
+			char RADIAL_BH_FORCE_CORRECTION_HEADER[] = "# Radial BH force correction table\n# r[Mpc]    F_correction[internal units]";
+			if(snprintf(RADIAL_BH_FORCE_CORRECTION_PATH, sizeof(RADIAL_BH_FORCE_CORRECTION_PATH), "%s%s", OUT_DIR, radial_bh_force_table_filename) < 0)
 			{
-				printf("%i\t%f\t%f\t %i\n", i, ((double) i + 0.5) * (Rsim / (double) RADIAL_BH_FORCE_TABLE_SIZE), RADIAL_BH_FORCE_TABLE[i], RADIAL_BH_N_TABLE[i]);
+				fprintf(stderr, "Error: The name of the ewald table got truncated.\nAborting.\n");
+				abort();
 			}
+			printf("Saving the radial BH force correction table into %s\n\n", RADIAL_BH_FORCE_CORRECTION_PATH);
+			save_function_to_ascii_table(RADIAL_BH_FORCE_CORRECTION_PATH, 0.5*Rsim/(REAL)RADIAL_BH_FORCE_TABLE_SIZE, Rsim, Rsim/(REAL)RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_CORRECTION_HEADER);
 			fflush(stdout);
 		}
 		#ifdef SINGLE_PRECISION
@@ -1008,21 +1255,23 @@ int main(int argc, char *argv[])
 		Omega_dm = Omega_m-Omega_b;
 		Omega_k = 1.-Omega_m-Omega_lambda-Omega_r;
 		rho_crit = 3.0*H0*H0/(8.0*pi);
-		#if defined(PERIODIC_Z)
+		// Calculating the lookup table for the radial force calculation
+		if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+		{
+			RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
+		}
+		#if defined(PERIODIC_Z) && defined(PERIODIC_Z_NOLOOKUP)
+			printf("Calculating the lookup table for the radial force calculation...\n");
 			if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
 			{
-				// in cylindrically symmetric simulations, the radial force is proportional to the mass in a unit cylinder
-				mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+				mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m); // in cylindrically symmetric simulations, the radial force is proportional to the mass in a unit cylinder
 				ewald_max = IS_PERIODIC+1;
-				ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the ewald summation
-				// Calculating the lookup table for the radial force calculation
-				printf("Calculating the lookup table for the radial force calculation...\n");
-				RADIAL_FORCE_TABLE = (REAL*)malloc(RADIAL_FORCE_TABLE_SIZE*sizeof(REAL)); //Allocating the lookup table
+				ewald_cut = ((REAL) ewald_max)-0.4; //cutoff radius for the direct real-space periodic summation
 				if(IS_PERIODIC==1)
 				{
-					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,0.5*L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
 					if(rank==0)
-						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=2.0Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=0.5Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
 				}
 				else
 				{
@@ -1032,8 +1281,31 @@ int main(int argc, char *argv[])
 				}
 				CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
 			}
+		#elif defined(PERIODIC_Z)
+			// in cylindrical symmetric (S^1xR^2) simulations, the radial force is proportional to the mass in a unit cylinder
+			mass_in_unit_sphere = (REAL) (2.0*pi*rho_crit*Omega_m);
+			if(IS_PERIODIC==1)
+			{
+				if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+				{
+					printf("Calculating the lookup table for the radial force calculation...\n");
+					get_cylindrical_force_table(RADIAL_FORCE_TABLE, Rsim,0.5*L,RADIAL_FORCE_TABLE_SIZE,RADIAL_FORCE_ACCURACY);
+					if(rank==0)
+						printf("Cylindrical force table calculated.\nMagnitude of the gravitational pull correction of the finite Ewald cylinder at r = %.1f Mpc is |F(Lz=0.5Lsim)|/|F(Lz=inf)| = %.7f \n\n", Rsim, RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1]);
+					CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
+				}
+			}
+			else
+			{
+				//setting up the lookup table with zero elements
+				if(CYLINDRICAL_LOOKUP_TABLE_CALCULATED == false)
+				{
+					set_REAL_array_to_zero(RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
+					CYLINDRICAL_LOOKUP_TABLE_CALCULATED = true;
+				}
+			}
 		#else
-			// in spherical simmetrical simulations, the radial force is proportional to the mass in a unit sphere
+			// in spherically symmetric (R^3) simulations, the radial force is proportional to the mass in a unit sphere
 			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		#endif
 		M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
