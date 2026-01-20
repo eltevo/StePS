@@ -28,6 +28,10 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL* x, REAL*F, int ID_min, int ID_max);
 void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max);
 
+#ifdef GLASS_MAKING
+void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean, REAL dmax, REAL V_mean, REAL V_max);
+#endif
+
 double calculate_init_h()
 {
 	//calculating the initial timesep length
@@ -102,12 +106,14 @@ void step(REAL* x, REAL* v, REAL* F)
 	REAL disp;
 	#ifdef GLASS_MAKING
 	//Variables used for glass making
-	REAL dmax,dmean,Force_abs,Fmax, A_max, A_abs, V_max, V_abs, V_mean;
+	REAL dmax,dmean,Force_abs, Fmax, F_mean, A_max, A_mean, A_abs, V_max, V_abs, V_mean;
 	dmax = 0.0; //maximal displacement
 	dmean = 0.0; //mean displacement
 	Force_abs = 0.0; //absolute force
 	Fmax = 0.0; //maximal force
+	F_mean = 0.0; //mean force
 	A_max = 0.0; //maximal acceleration
+	A_mean = 0.0; //mean acceleration
 	A_abs = 0.0; //absolute acceleration
 	V_max = 0.0; //maximal velocity
 	V_abs = 0.0; //absolute velocity
@@ -263,11 +269,13 @@ void step(REAL* x, REAL* v, REAL* F)
 			}
 			#ifdef GLASS_MAKING
 			Force_abs = sqrt(pow(F[3*i],2) + pow(F[3*i+1],2) + pow(F[3*i+2],2));
+			F_mean += Force_abs; //mean force on a particle
 			if(Force_abs > Fmax)
 			{
 				Fmax = Force_abs; //maximal force between particles (at a=1, without Hubble drag).
 			}
 			A_abs = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2]);
+			A_mean += A_abs; //mean acceleration on a particle
 			if(A_abs > A_max)
 			{
 				A_max = A_abs; //maximal acceleration what a particle can get. Contains cosmological effects (scaling, Hubble drag, etc.).
@@ -284,10 +292,14 @@ void step(REAL* x, REAL* v, REAL* F)
 		#ifdef GLASS_MAKING
 		dmean /= ((REAL) N);
 		V_mean /= ((REAL) N);
+		A_mean /= ((REAL) N);
+		F_mean /= ((REAL) N);
 		if(dmax>1.0)
 			printf("Glass making:\tF_max=%e\tA_max = %e\n\t\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n\t\tV_mean = %e\tV_max = %e\n", Fmax, A_max,dmean,dmax,V_mean,V_max);
 		else
 			printf("Glass making:\tF_max=%e\tA_max = %e\n\t\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n\t\tV_mean = %e\tV_max = %e\n", Fmax, A_max,dmean*1000,dmax*1000,V_mean,V_max);
+		//saving the logfile for glass making
+		Log_write_glass(F_mean, Fmax, A_mean, A_max, dmean, dmax, V_mean, V_max);
 		#endif
 	}
 	//Timing

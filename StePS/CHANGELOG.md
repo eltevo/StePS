@@ -9,6 +9,8 @@ All notable changes to the StePS simulation code is documented in this file.
 - Random domain center shift and rotation option for non-periodic Barnes-Hut simulations
 - Random domain center shift and rotation in cylindrical Barnes-Hut simulations
 - Implemented S^1xR^2 topological manifold (cylindrically symmetric boundary conditions)
+- Ewald lookup table I/O (for both T^3 and S^1xR^2 topological manifolds)
+- Glass making logfile is produced during glass making
 
 ### Changed
 - Updated makefile templates
@@ -18,7 +20,7 @@ All notable changes to the StePS simulation code is documented in this file.
 ### Fixed
 - Fixed constant-resolution periodic initial condition reading from HDF5 format
 - Fixed H0 independent unit bugs
-- Fixed high-accuracy Ewald summation option in fully periodic simulations 
+- Fixed high-accuracy Ewald summation option in fully periodic (T^3) simulations
 
 ## [v1.0.2.2] - 2024-10-25
 

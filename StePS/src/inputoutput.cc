@@ -970,6 +970,70 @@ void Log_write() //Writing logfile
 	}
 	fclose(LOGFILE);
 }
+#ifdef GLASS_MAKING
+void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean, REAL dmax, REAL V_mean, REAL V_max)
+{
+	FILE *LOGFILE;
+	char A[] = "Glass_logfile.dat";
+	char filename[0x100];
+	if(snprintf(filename, sizeof(filename), "%s%s", OUT_DIR, A) < 0)
+	{
+		fprintf(stderr, "Error: The name of the glass logfile got truncated.\nAborting.\n");
+		abort();
+	}
+	if(file_exist(filename) == 0)
+	{
+		LOGFILE = fopen(filename, "a");
+		//Writing header
+		//Program information
+		fprintf(LOGFILE, "# %s glass making logfile\n# code version: %s\n# git commit: %s\n# git branch: %s\n# build date: %s\n", PROGRAMNAME, PROGRAM_VERSION, GIT_COMMIT_ID, GIT_BRANCH, BUILD_DATE);
+		//Cosmological parameters
+		if(COSMOLOGY == 1)
+		{
+			fprintf(LOGFILE, "# Cosmological parameters used:\n");
+			fprintf(LOGFILE, "# H0 = %.2f km/s/Mpc, Omega_m0 = %.5f, Omega_l0 = %.5f, Omega_r0 = %.5e", H0*UNIT_V, Omega_m, Omega_lambda, Omega_r);
+			#if COSMOPARAM==1
+			fprintf(LOGFILE, ", w0 = %.5f", w0);
+			#elif COSMOPARAM==2
+			fprintf(LOGFILE, ", w0 = %.5f, wa = %.5f", w0, wa);
+			#elif COSMOPARAM==-1
+			fprintf(LOGFILE, "\n Tabulated expansion history from %s", EXPANSION_FILE);
+			#endif
+			fprintf(LOGFILE, "\n");
+		}
+		//Topology information
+		#if defined(PERIODIC)
+			fprintf(LOGFILE, "# Topological manifold: T^3 (Periodic box)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Box size: %.3f Mpc\n", L);
+			else
+				fprintf(LOGFILE, "# Box size: %.3f Mpc/h\n", L*H0*UNIT_V/100.0);
+		#elif defined(PERIODIC_Z)
+			fprintf(LOGFILE, "# Topological manifold: S^1xR^2 (Periodic cylinder)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
+			else
+				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#else
+			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc\n", Rsim);
+			else
+				fprintf(LOGFILE, "# Simulation radius: %.3f Mpc/h\n", Rsim*H0*UNIT_V/100.0);
+		#endif
+		//Writing column headers
+		fprintf(LOGFILE, "# 1. Cosmic time[Gy]\t2. Scale factor (a/a_start)\t3. Redshift\t4. Hubble_Parameter[km/s/Mpc]\t5. Deceleration_Parameter\t6. Mean(F)\t7. Max(F)\t8. Mean(A)\t9. Max(A)\t10. Mean(disp)\t11. Max(disp)\t12. Mean(velocity)[km/s]\t13. Max(velocity)[km/s]\n");
+		//Writing first line
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\n", T*UNIT_T, a/a_start, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, F_mean, Fmax, A_mean, A_max, dmean, dmax, V_mean*UNIT_V, V_max*UNIT_V);
+	}
+	else
+	{
+		LOGFILE = fopen(filename, "a");
+		fprintf(LOGFILE, "%.15f\t%e\t%e\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\t%.15f\n", T*UNIT_T, a/a_start, 1.0/a-1.0, Hubble_param*UNIT_V, Decel_param, F_mean, Fmax, A_mean, A_max, dmean, dmax, V_mean*UNIT_V, V_max*UNIT_V);
+	}
+	fclose(LOGFILE);
+}
+#endif
 
 void save_function_to_ascii_table(char *filename, REAL x_min, REAL x_max, REAL deltax, REAL *values, int Ntable, char* header)
 {
