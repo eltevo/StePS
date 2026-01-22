@@ -1591,16 +1591,43 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	H5Sclose(hdf5_dataspace);
 
 	//BoxSize
+	double L_out;
+	#ifdef USE_SINGLE_PRECISION
+		L_out = (double)L;
+	#else
+		L_out = L;
+	#endif
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hdf5_attribute = H5Acreate(handle, "BoxSize", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	if(H0_INDEPENDENT_UNITS == 0)
 	{
-		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L); //Linear simulation size
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &L_out); //Linear simulation size
 	}
 	else
 	{
-		doublebuf = L*H0*UNIT_V/100.0; //Linear simulation size
+		doublebuf = L_out*H0*UNIT_V/100.0; //Linear simulation size
 		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &doublebuf); //Linear simulation size in Mpc/h
+	}
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+	//Simulation radius
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(handle, "SimulationiRadius", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	double Rsim_out;
+	#ifdef USE_SINGLE_PRECISION
+		Rsim_out = (double)Rsim;
+	#else
+		Rsim_out = Rsim;
+	#endif
+	if(H0_INDEPENDENT_UNITS == 0)
+	{
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &Rsim_out); //Simulation radius
+	}
+	else
+	{
+		doublebuf = Rsim_out*H0*UNIT_V/100.0; //Simulation radius
+		H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &doublebuf); //Simulation radius in Mpc/h
 	}
 	H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
