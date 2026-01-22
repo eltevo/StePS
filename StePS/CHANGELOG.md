@@ -15,12 +15,14 @@ All notable changes to the StePS simulation code is documented in this file.
 ### Changed
 - Updated makefile templates
 - w0 and wa parameter values of wCDM and w0waCDM cosmologies are saved into the hdf5 snapshots
+- Simulation radius is saved into the hdf5 snapshot header.
 - Executable info (version, git commit ID, git branch, compiler, build date) are saved into the hdf5 snapshots and logfiles.
 
 ### Fixed
 - Fixed constant-resolution periodic initial condition reading from HDF5 format
 - Fixed H0 independent unit bugs
 - Fixed high-accuracy Ewald summation option in fully periodic (T^3) simulations
+- Simulation box size is saved properly in 32bit mode.
 
 ## [v1.0.2.2] - 2024-10-25
 

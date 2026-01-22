@@ -1613,7 +1613,7 @@ void write_header_attributes_in_hdf5(hid_t handle)
 
 	//Simulation radius
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
-	hdf5_attribute = H5Acreate(handle, "SimulationiRadius", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	hdf5_attribute = H5Acreate(handle, "SimulationRadius", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	double Rsim_out;
 	#ifdef USE_SINGLE_PRECISION
 		Rsim_out = (double)Rsim;
