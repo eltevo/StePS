@@ -860,7 +860,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
 	cudaError_t cudaStatus;
 	cudaStatus = cudaSuccess;
-	double omp_start_time, omp_end_time;
+	double omp_start_time, omp_end_time, omp_gpu_end_time;
 	REAL DE = (REAL) H0*H0*Omega_lambda;
 	REAL *xx_tmp, *xy_tmp, *xz_tmp, *F_tmp;
 	REAL *dev_xx= 0;
@@ -909,7 +909,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	//timing
 	omp_set_dynamic(0);		// Explicitly disable dynamic teams
 	omp_set_num_threads(n_GPU);	// Use n_GPU threads
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_SOFT_LENGTH, dev_F)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_SOFT_LENGTH, dev_F, omp_gpu_end_time)
 {
 		#pragma omp critical
 		{
@@ -1045,6 +1045,8 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 			ForceError = true;
 			goto Error;
 		}
+		omp_gpu_end_time = omp_get_wtime();
+		printf("MPI rank %i: GPU%i: ForceKernel execution time = %fs.\n", rank, GPU_ID, omp_gpu_end_time-omp_start_time);
 		// Copy output vector from GPU buffer to host memory.
 		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N_GPU * sizeof(REAL), cudaMemcpyDeviceToHost);
 		if (cudaStatus != cudaSuccess) {
@@ -1103,7 +1105,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 	int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
 	cudaError_t cudaStatus;
 	cudaStatus = cudaSuccess;
-	double omp_start_time, omp_end_time;
+	double omp_start_time, omp_end_time, omp_gpu_end_time;
 	REAL *xx_tmp, *xy_tmp, *xz_tmp, *F_tmp;
 	REAL *dev_xx= 0;
 	REAL *dev_xy= 0;
@@ -1152,7 +1154,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
         //timing
 	omp_set_dynamic(0);             // Explicitly disable dynamic teams
 	omp_set_num_threads(n_GPU);     // Use n_GPU threads
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, omp_gpu_end_time)
 {
 		#pragma omp critical
 		{
@@ -1301,6 +1303,8 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 			ForceError = true;
 			goto Error;
 		}
+		omp_gpu_end_time = omp_get_wtime();
+		printf("MPI rank %i: GPU%i: ForceKernel_periodic execution time = %fs.\n", rank, GPU_ID, omp_gpu_end_time-omp_start_time);
 		// Copy output vector from GPU buffer to host memory.
 		cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N_GPU * sizeof(REAL), cudaMemcpyDeviceToHost);
 		if (cudaStatus != cudaSuccess) {
@@ -1359,7 +1363,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
     int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
     cudaError_t cudaStatus;
     cudaStatus = cudaSuccess;
-    double omp_start_time, omp_end_time;
+    double omp_start_time, omp_end_time, omp_gpu_end_time;
     REAL DE = (REAL) H0*H0*Omega_lambda;
     REAL *xx_tmp, *xy_tmp, *xz_tmp, *F_tmp;
 	REAL *dev_RADIAL_FORCE_TABLE = 0;
@@ -1414,7 +1418,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
     omp_set_dynamic(0);             // Explicitly disable dynamic teams
     omp_set_num_threads(n_GPU);     // Use n_GPU threads
     
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, omp_gpu_end_time)
     {
 		#if !defined(PERIODIC_Z_NOLOOKUP)
 			REAL *dev_S1R2_EwaldTable = 0;
@@ -1620,6 +1624,8 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
             ForceError = true;
             goto Error;
         }
+		omp_gpu_end_time = omp_get_wtime();
+		printf("MPI rank %i: GPU%i: ForceKernel_periodic_z execution time = %fs.\n", rank, GPU_ID, omp_gpu_end_time-omp_start_time);
         
         // Copy output vector from GPU buffer to host memory.
         cudaStatus = cudaMemcpy(F_tmp, dev_F, 3 * N_GPU * sizeof(REAL), cudaMemcpyDeviceToHost);
