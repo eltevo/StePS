@@ -937,14 +937,12 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 			F_tmp[3*i + j] = 0.0f;
 		}
 		//Checking for the GPU
-		#pragma omp critical
 		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
 
 			printf("MPI task %i: GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
 		}
-		#pragma omp critical
 		cudaStatus = cudaSetDevice(GPU_ID); //selecting the GPU
 		if (cudaStatus != cudaSuccess) {
 			fprintf(stderr, "MPI rank %i: GPU%i: cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n", rank, GPU_ID);
@@ -1077,12 +1075,12 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	free(F_tmp);
 	Error:
 		cudaFree(dev_xx);
-                cudaFree(dev_xy);
-                cudaFree(dev_xz);
-                cudaFree(dev_M);
-                cudaFree(dev_F);
+		cudaFree(dev_xy);
+		cudaFree(dev_xz);
+		cudaFree(dev_M);
+		cudaFree(dev_F);
 		cudaFree(dev_SOFT_LENGTH);
-		cudaDeviceReset();
+		//cudaDeviceReset();
 
 }
 	free(xx_tmp);
@@ -1178,7 +1176,6 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 				F_tmp[3*i + j] = 0.0f;
 		}
 		//Checking for the GPU
-		#pragma omp critical
 		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
@@ -1187,7 +1184,6 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 			else
 				printf("MPI task %i: GPU force calculation (fully periodic with Ewald correction).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
 		}
-		#pragma omp critical
 		cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
 		if (cudaStatus != cudaSuccess) {
 			fprintf(stderr, "MPI rank %i: GPU%i: cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n", rank, GPU_ID);
@@ -1341,7 +1337,8 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 		cudaFree(dev_F);
 		cudaFree(dev_SOFT_LENGTH);
 		//Free Ewald lookup table
-		cudaDeviceReset();
+		cudaFree(dev_EwaldTable);
+		//cudaDeviceReset();
 }
 	free(xx_tmp);
 	free(xy_tmp);
@@ -1418,7 +1415,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
     omp_set_dynamic(0);             // Explicitly disable dynamic teams
     omp_set_num_threads(n_GPU);     // Use n_GPU threads
     
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, omp_gpu_end_time)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, dev_RADIAL_FORCE_TABLE, omp_gpu_end_time)
     {
 		#if !defined(PERIODIC_Z_NOLOOKUP)
 			REAL *dev_S1R2_EwaldTable = 0;
@@ -1455,7 +1452,6 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         }
         
         // Check GPU properties
-        #pragma omp critical
         cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 
         if(GPU_ID == 0)
@@ -1465,7 +1461,6 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         }
         
         // Select GPU device
-        #pragma omp critical
         cudaStatus = cudaSetDevice(GPU_ID);
         if (cudaStatus != cudaSuccess) {
             fprintf(stderr, "MPI rank %i: GPU%i: cudaSetDevice failed! Do you have a CUDA-capable GPU installed?\n", rank, GPU_ID);
@@ -1660,18 +1655,18 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         free(F_tmp);
         
     Error:
-        cudaFree(dev_xx);
-        cudaFree(dev_xy);
-        cudaFree(dev_xz);
-        cudaFree(dev_M);
-        cudaFree(dev_F);
-        cudaFree(dev_SOFT_LENGTH);
+		cudaFree(dev_xx);
+		cudaFree(dev_xy);
+		cudaFree(dev_xz);
+		cudaFree(dev_M);
+		cudaFree(dev_F);
+		cudaFree(dev_SOFT_LENGTH);
 		#ifdef PERIODIC_Z_NOLOOKUP
 			cudaFree(dev_RADIAL_FORCE_TABLE);
 		#else
 			cudaFree(dev_S1R2_EwaldTable);
 		#endif
-        cudaDeviceReset();
+		//cudaDeviceReset();
     }
     
     free(xx_tmp);
