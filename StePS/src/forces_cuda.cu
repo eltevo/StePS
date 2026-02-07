@@ -652,11 +652,13 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                 dy = (xy[j] - xy[i]);
                 dz = (xz[j] - xz[i]);
                 
-                // In this case, we use only the nearest image in Z direction
-                if (fabs(dz)>0.5*L)
-                    dz = dz - L*dz / fabs(dz);
+                // In this case, we use only the nearest image in Z direction (using fabs would be slower)
+                if (dz >  0.5f * L)
+					dz -= L;
+				else if (dz < -0.5f * L)
+					dz += L;
                     
-                r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+                r = sqrt(dx*dx + dy*dy + dz*dz); //using x*x instead of pow for better performance
                 wij = M[j] * force_softening_cuda(r, beta_priv);
                 
                 Fx_tmp += wij*(dx);
@@ -668,7 +670,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+				r_xy = sqrt(xx[i]*xx[i] + xy[i]*xy[i]); //using x*x instead of pow for better performance
 				cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
                 Fx_tmp += mass_in_unit_sphere * xx[i] * cylindrical_force_correction;
                 Fy_tmp += mass_in_unit_sphere * xy[i] * cylindrical_force_correction;
@@ -704,7 +706,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                 {
 					//calculating the distance in the z direction
 					dz_ewald = dz+((REAL) m)*L;
-                    r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz_ewald, 2));
+                    r = sqrt(dx*dx + dy*dy + dz_ewald*dz_ewald); //using x*x instead of pow for better performance
                     wij = 0.0;
                     
                     if (fabs(dz_ewald) < ewald_cut)
@@ -726,7 +728,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+				r_xy = sqrt(xx[i]*xx[i] + xy[i]*xy[i]); //using x*x instead of pow for better performance
 				cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
                 F[3*(i-ID_min)] += mass_in_unit_sphere * xx[i] * cylindrical_force_correction;
                 F[3*(i-ID_min)+1] += mass_in_unit_sphere * xy[i] * cylindrical_force_correction;
@@ -762,11 +764,13 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
                 dy = (xy[j] - xy[i]);
                 dz = (xz[j] - xz[i]);
                 
-                // In this case, we use only the nearest image in Z direction
-                if (fabs(dz)>0.5*L)
-                    dz = dz - L*dz / fabs(dz);
+                // In this case, we use only the nearest image in Z direction (using fabs would be slower)
+                if (dz >  0.5f * L)
+					dz -= L;
+				else if (dz < -0.5f * L)
+					dz += L;
                     
-                r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+                r = sqrt(dx*dx + dy*dy + dz*dz); //using x*x instead of pow for better performance
                 wij = M[j] * force_softening_cuda(r, beta_priv);
                 Fx_tmp += wij*(dx);
                 Fy_tmp += wij*(dy);
@@ -777,7 +781,7 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				r_xy = sqrt(pow(xx[i], 2) + pow(xy[i], 2));
+				r_xy = sqrt(xx[i]*xx[i] + xy[i]*xy[i]); //using x*x instead of pow for better performance
 				cylindrical_force_correction = get_cylindrical_force_correction(r_xy, Rsim, RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE);
                 Fx_tmp += mass_in_unit_sphere * xx[i] * cylindrical_force_correction;
                 Fy_tmp += mass_in_unit_sphere * xy[i] * cylindrical_force_correction;
@@ -807,11 +811,13 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
                 dy = (xy[j] - xy[i]);
                 dz = (xz[j] - xz[i]);
                 
-                // In this case, we only need the nearest image in Z direction
-                if (fabs(dz)>0.5*L)
-                    dz = dz - L*dz / fabs(dz);
+                // In this case, we use only the nearest image in Z direction (using fabs would be slower)
+                if (dz >  0.5f * L)
+					dz -= L;
+				else if (dz < -0.5f * L)
+					dz += L;
                     
-                r = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+                r = sqrt(dx*dx + dy*dy + dz*dz); //using x*x instead of pow for better performance
                 wij = force_softening_cuda(r, beta_priv);
 				ewald_interpolate_D_cuda(EWALD_TABLE, EWALD_TABLE_SIZE_RHO, EWALD_TABLE_SIZE_Z, EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim, L, dx, dy, dz, D);
                 Fx_tmp += M[j] * (wij*(dx) - D[0]);
@@ -822,7 +828,6 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
             // Only include this in the X and Y directions
             if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
             {
-				//REAL cylindrical_force_correction = 0.78;
                 Fx_tmp += mass_in_unit_sphere * xx[i];
                 Fy_tmp += mass_in_unit_sphere * xy[i];
             }
