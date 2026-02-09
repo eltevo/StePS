@@ -473,31 +473,49 @@ __device__ REAL force_softening_cuda(REAL r, REAL beta)
 	//    * beta - softening length
 	//Output:
 	//    * wij - softened force coefficient (1/r^3 for non-softened force)
-	REAL betap2 = beta*0.5;
+
+	
+	// Precompute reused values
+	const REAL half_beta = beta * (REAL)0.5;
 	REAL wij;
-	wij = 0.0;
-	if(r >= beta)
+	// Precompute r powers
+	const REAL r2 = r * r;
+	const REAL r3 = r2 * r;
+	const REAL inv_r3 = (REAL)1.0 / (r3);
+
+	if (r >= beta)
 	{
-		wij = pow(r, -3);
+		wij = inv_r3;
 	}
-	else if(r > betap2 && r < beta)
+	else if (r > half_beta)
 	{
-		REAL SOFT_CONST0 = -32.0/(3.0*pow(beta, 6));
-		REAL SOFT_CONST1 = 38.4/pow(beta, 5);
-		REAL SOFT_CONST2 = -48.0/pow(beta, 4);
-		REAL SOFT_CONST3 = 64.0/(3.0*pow(beta, 3));
-		REAL SOFT_CONST4 = -1.0/15.0;
-		wij = SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2*r+SOFT_CONST3+SOFT_CONST4/pow(r, 3);
+		//powers of beta only needed for r < beta, so we compute them here
+		const REAL beta2 = beta * beta;
+		const REAL beta3 = beta2 * beta;
+		const REAL beta4 = beta2 * beta2;
+		const REAL beta5 = beta4 * beta;
+		const REAL beta6 = beta3 * beta3;
+		const REAL C0 = (REAL)(-32.0) / ( (REAL)3.0 * beta6 );
+		const REAL C1 = (REAL)(38.4)  / ( beta5 );
+		const REAL C2 = (REAL)(-48.0) / ( beta4 );
+		const REAL C3 = (REAL)(64.0)  / ( (REAL)3.0 * beta3 );
+		const REAL C4 = (REAL)(-1.0 / 15.0);
+		wij = C0 * r3 + C1 * r2 + C2 * r + C3 + C4 * inv_r3;
 	}
 	else
 	{
-		REAL SOFT_CONST0 = 32.0/pow(beta, 6);
-		REAL SOFT_CONST1 = -38.4/pow(beta, 5);
-		REAL SOFT_CONST2 = 32.0/(3.0*pow(beta, 3));
-		wij = SOFT_CONST0*pow(r, 3)+SOFT_CONST1*pow(r, 2)+SOFT_CONST2;
+		//powers of beta only needed for r < beta, so we compute them here
+		const REAL beta2 = beta * beta;
+		const REAL beta3 = beta2 * beta;
+		const REAL beta4 = beta2 * beta2;
+		const REAL beta5 = beta4 * beta;
+		const REAL beta6 = beta3 * beta3;
+		const REAL C0 = (REAL)(32.0) / beta6;
+		const REAL C1 = (REAL)(-38.4) / beta5;
+		const REAL C2 = (REAL)(32.0 / 3.0) / beta3;
+        wij = C0 * r3 + C1 * r2 + C2;
 	}
 	return wij;
-
 }
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
@@ -653,9 +671,9 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
                 dz = (xz[j] - xz[i]);
                 
                 // In this case, we use only the nearest image in Z direction (using fabs would be slower)
-                if (dz >  0.5f * L)
+                if (dz >  0.5 * L)
 					dz -= L;
-				else if (dz < -0.5f * L)
+				else if (dz < -0.5 * L)
 					dz += L;
                     
                 r = sqrt(dx*dx + dy*dy + dz*dz); //using x*x instead of pow for better performance
@@ -765,9 +783,9 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
                 dz = (xz[j] - xz[i]);
                 
                 // In this case, we use only the nearest image in Z direction (using fabs would be slower)
-                if (dz >  0.5f * L)
+                if (dz >  0.5 * L)
 					dz -= L;
-				else if (dz < -0.5f * L)
+				else if (dz < -0.5 * L)
 					dz += L;
                     
                 r = sqrt(dx*dx + dy*dy + dz*dz); //using x*x instead of pow for better performance
@@ -812,9 +830,9 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
                 dz = (xz[j] - xz[i]);
                 
                 // In this case, we use only the nearest image in Z direction (using fabs would be slower)
-                if (dz >  0.5f * L)
+                if (dz >  0.5 * L)
 					dz -= L;
-				else if (dz < -0.5f * L)
+				else if (dz < -0.5 * L)
 					dz += L;
                     
                 r = sqrt(dx*dx + dy*dy + dz*dz); //using x*x instead of pow for better performance
