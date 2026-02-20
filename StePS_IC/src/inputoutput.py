@@ -129,6 +129,10 @@ def Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=False,RETURN_IDs
             print("\tAssuming gadget-format for the inputfile. Trying to open it...")
         Coordinates = readsnap(FILENAME, 'pos', 'dm')
         Masses = readsnap(FILENAME, 'mass', 'dm')
+        if RETURN_VELOCITIES:
+            Velocities = readsnap(FILENAME, 'vel', 'dm')
+        if RETURN_IDs:
+            ParticleIDs = readsnap(FILENAME, 'pid', 'dm')
         if SILENT==False:
             print('\tMasses =%f' %np.mean(Masses))
             print("\t...done.")
@@ -144,17 +148,99 @@ def Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=False,RETURN_IDs
         else:
             return Coordinates, Velocities, Masses
 
-def Load_params_from_HDF5_snap(FILENAME):
-    if FILENAME[-4:] != 'hdf5' and FILENAME[-4:] != 'HDF5':
-        raise Exception("Error: input file %s is not in hdf5 format.\n" % FILENAME)
-    HDF5_snapshot = h5py.File(FILENAME, "r")
-    Ntot = int(HDF5_snapshot['/Header'].attrs['NumPart_Total'][1])
-    z = np.double(HDF5_snapshot['/Header'].attrs['Redshift'])
-    Om = np.double(HDF5_snapshot['/Header'].attrs['Omega0'])
-    Ol = np.double(HDF5_snapshot['/Header'].attrs['OmegaLambda'])
-    H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])*100.0
-    HDF5_snapshot.close()
-    return z, Om, Ol, H0, Ntot
+def Load_params_from_HDF5_snap(FILENAME, LEGACY_MODE=True):
+    if LEGACY_MODE:
+        '''
+        Function for reading cosmological parameters from a HDF5 snapshot file.
+        Parameters:
+            FILENAME - name of the input file
+        Returns:
+            z - redshift
+            Om - matter density
+            Ol - dark energy density
+            H0 - Hubble parameter
+            Ntot - total number of particles in the simulation
+        '''
+        if FILENAME[-4:] != 'hdf5' and FILENAME[-4:] != 'HDF5':
+            raise Exception("Error: input file %s is not in hdf5 format.\n" % FILENAME)
+        HDF5_snapshot = h5py.File(FILENAME, "r")
+        Ntot = int(HDF5_snapshot['/Header'].attrs['NumPart_Total'][1])
+        z = np.double(HDF5_snapshot['/Header'].attrs['Redshift'])
+        Om = np.double(HDF5_snapshot['/Header'].attrs['Omega0'])
+        Ol = np.double(HDF5_snapshot['/Header'].attrs['OmegaLambda'])
+        H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])*100.0
+        HDF5_snapshot.close()
+        return z, Om, Ol, H0, Ntot
+    else:
+        '''
+        Function for reading cosmological parameters from a HDF5 snapshot file.
+        Parameters:
+            FILENAME - name of the input file
+        Returns:
+            Params - dictionary containing cosmological parameters:
+                Om - matter density
+                Ol - dark energy density
+                H0 - Hubble parameter
+                z - redshift
+                Model - model name (if available)
+                w0 - dark energy equation of state parameter (if available)
+                wa - dark energy equation of state parameter (if available)
+        '''
+        if FILENAME[-4:] != 'hdf5' and FILENAME[-4:] != 'HDF5':
+            raise Exception("Error: input file %s is not in hdf5 format.\n" % FILENAME)
+        HDF5_snapshot = h5py.File(FILENAME, "r")
+        z = np.double(HDF5_snapshot['/Header'].attrs['Redshift'])
+        Om = np.double(HDF5_snapshot['/Header'].attrs['Omega0'])
+        Ol = np.double(HDF5_snapshot['/Header'].attrs['OmegaLambda'])
+        H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])
+        # Check if the model name is available
+        if 'Model' in HDF5_snapshot['/Header'].attrs:
+            Model = HDF5_snapshot['/Header'].attrs['Model']
+        else:
+            Model = 'LCDM'  # Default to LCDM if not available
+        # Check if w0 and wa are available
+        if 'w0' in HDF5_snapshot['/Header'].attrs:
+            w0 = np.double(HDF5_snapshot['/Header'].attrs['w0'])
+        else:
+            w0 = 1.0  # Default to w0 = 1.0 if not available
+        if 'wa' in HDF5_snapshot['/Header'].attrs:
+            wa = np.double(HDF5_snapshot['/Header'].attrs['wa'])
+        else:
+            wa = 0.0  # Default to wa = 0.0 if not available
+        # Check if OmegaR is available
+        if 'OmegaR' in HDF5_snapshot['/Header'].attrs:
+            Or = np.double(HDF5_snapshot['/Header'].attrs['OmegaR'])
+        else:
+            Or = 0.0  # Default to OmegaR = 0.0 if not available
+        # Read redshift
+        HDF5_snapshot.close()
+        return {"Om": Om, "Ol": Ol, "Or": Or, "h": H0, "w0": w0, "wa": wa, "Redshift": z, "Model": Model}
+
+def Load_params_from_gadget_snap(FILENAME):
+    '''
+    Function for reading cosmological parameters from a Gadget snapshot file.
+    Parameters:
+        FILENAME - name of the input file
+    Returns:
+        z - redshift
+        Om - matter density
+        Ol - dark energy density
+        H0 - Hubble parameter
+        Lbox - box size in internal units
+        Ntot - total number of particles in the simulation
+    '''
+    snap = glio.GadgetSnapshot(FILENAME)
+    snap.load()
+    part_mass_table = np.double(snap.header.mass)
+    Ntot = int(snap.header.npartTotal[1])
+    z = 1.0/np.double(snap.header.time)-1.0
+    Om = np.double(snap.header.Omega0)
+    Ol = np.double(snap.header.OmegaLambda)
+    H0 = np.double(snap.header.HubbleParam*100.0)
+    Lbox = np.double(snap.header.BoxSize)
+    del(snap)
+    return {"Redshift": z, "OmegaM": Om, "OmegaL": Ol, "HubbleParam": H0, "Lbox": Lbox, "Ntot": Ntot, "PartMassTable": part_mass_table}
+
 
 def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, OmegaL, HubbleParam, precision):
     '''
@@ -169,11 +255,11 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
         HubbleParam - Hubble parameter
         precision - Floating point precision of the IC (0: 32bit; 1: 64bit)
     '''
-    if np.int(precision) == 0:
+    if int(precision) == 0:
         HDF5datatype = 'float32'
         npdatatype = np.float32
         print("Saving in 32bit HDF5 format.")
-    if np.int(precision) == 1:
+    if int(precision) == 1:
         HDF5datatype = 'double'
         npdatatype = np.float64
         print("Saving in 64bit HDF5 format.")
@@ -189,16 +275,16 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
     header_group.attrs['Time'] = np.double(1.0/(Redshift+1))
     header_group.attrs['Redshift'] = np.double(Redshift)
     header_group.attrs['BoxSize'] = np.double(Linearsize)
-    header_group.attrs['NumFilesPerSnapshot'] = np.int(1)
+    header_group.attrs['NumFilesPerSnapshot'] = int(1)
     header_group.attrs['Omega0'] = np.double(OmegaM)
     header_group.attrs['OmegaLambda'] = np.double(OmegaL)
     header_group.attrs['HubbleParam'] = np.double(HubbleParam)
-    header_group.attrs['Flag_Sfr'] = np.int(0)
-    header_group.attrs['Flag_Cooling'] = np.int(0)
-    header_group.attrs['Flag_StellarAge'] = np.int(0)
-    header_group.attrs['Flag_Metals'] = np.int(0)
-    header_group.attrs['Flag_Feedback'] = np.int(0)
-    header_group.attrs['Flag_Entropy_ICs'] = np.int(0)
+    header_group.attrs['Flag_Sfr'] = int(0)
+    header_group.attrs['Flag_Cooling'] = int(0)
+    header_group.attrs['Flag_StellarAge'] = int(0)
+    header_group.attrs['Flag_Metals'] = int(0)
+    header_group.attrs['Flag_Feedback'] = int(0)
+    header_group.attrs['Flag_Entropy_ICs'] = int(0)
     #Header created.
     #Creating datasets for the particle data
     particle_group = HDF5_snapshot.create_group("/PartType1")

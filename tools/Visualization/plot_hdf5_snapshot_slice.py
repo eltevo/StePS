@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  plot_hdf5_snapshot_slice.py - A snapshot plotting script for                 #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2019-2022 Gabor Racz                                         #
+#    Copyright (C) 2019-2025 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -16,6 +16,9 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
+__author__ = "Gabor Racz"
+__version__ = "0.1.0"
+__year__ = "2019-2025"
 
 import matplotlib
 matplotlib.use('Qt5Agg')
@@ -28,6 +31,8 @@ import yaml
 # %matplotlib inline
 
 #Beginning of the script
+#Welcome message
+print("plot_hdf5_snapshot_slice.py v%s\n Copyright (C) %s %s\n\tAn visualization tool for StePS cosmological simulations.\n" % (__version__, __year__, __author__))
 if len(sys.argv)!=2 and len(sys.argv)!=4 and len(sys.argv)!=5 :
     print("Error:")
     print("usage:\n\t./plot_hdf5_snapshot_slice.py <input hdf5 snapshot file> <maximal plotted radius in Mpc> <0:4degree slice  1: 20Mpc thick slice> <(optional)quantity for plotting 0: particle coordinates; 1: velocity field>\nor\n\t./plot_hdf5_snapshot_slice.py <input yaml file>\nExiting.")
@@ -52,6 +57,8 @@ if len(sys.argv)!=2:
         quantity = 0 #only plotting particle coordinates
     outfilename = "None"
     slice_axis = "Z"
+    topology = "SPHERICAL"
+    slice_z_coord   = 0.0
     infilename = str(sys.argv[1])
     figsize=6
     title="Auto"
@@ -95,6 +102,8 @@ else:
     arrow_scale     = Params["ARROW_SCALE"]
     cmap            = Params["CMAP"]
     logvelcols      = Params["LOG_VELOCITY_COLORS"]
+    topology        = str(Params["TOPOLOGY"]) # "SPHERICAL" or "CYLINDRICAL"
+    slice_z_coord   = Params["SLICE_Z_COORD"] # only used in CYLINDRICAL topology
     if slice_axis != "X" and slice_axis != "Y" and slice_axis != "Z":
         print("WARNING: Unknown Axis. Setting \"Z\".")
         slice_axis = "Z"
@@ -128,24 +137,27 @@ print("Calculating map...")
 start = time.time()
 if plot_mode == 0:
     N_StePS_slice=0
-    for i in range(0,N_StePS):
-        if StePS_coordinates[i,plot_indexes[2]]>-alpha*np.sqrt(StePS_coordinates[i,plot_indexes[0]]**2 + StePS_coordinates[i,plot_indexes[1]]**2) and StePS_coordinates[i,plot_indexes[2]]<alpha*np.sqrt(StePS_coordinates[i,plot_indexes[0]]**2 + StePS_coordinates[i,plot_indexes[1]]**2) and R_cutoff>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 +  StePS_coordinates[i,2]**2):
-            N_StePS_slice+=1
+    #for i in range(0,N_StePS):
+    #    if StePS_coordinates[i,plot_indexes[2]]>-alpha*np.sqrt(StePS_coordinates[i,plot_indexes[0]]**2 + StePS_coordinates[i,plot_indexes[1]]**2) and StePS_coordinates[i,plot_indexes[2]]<alpha*np.sqrt(StePS_coordinates[i,plot_indexes[0]]**2 + StePS_coordinates[i,plot_indexes[1]]**2) and R_cutoff>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 +  StePS_coordinates[i,2]**2):
+    #        N_StePS_slice+=1
+    if topology == "SPHERICAL":
+        mask = np.logical_and(np.abs(StePS_coordinates[:,plot_indexes[2]])<alpha*np.sqrt(StePS_coordinates[:,plot_indexes[0]]**2 + StePS_coordinates[:,plot_indexes[1]]**2), R_cutoff>np.sqrt(StePS_coordinates[:,0]**2 + StePS_coordinates[:,1]**2 +  StePS_coordinates[:,2]**2))
+    elif topology == "CYLINDRICAL":
+        mask = np.logical_and(np.abs(StePS_coordinates[:,plot_indexes[2]]-slice_z_coord)<alpha*np.sqrt(StePS_coordinates[:,plot_indexes[0]]**2 + StePS_coordinates[:,plot_indexes[1]]**2), R_cutoff>np.sqrt(StePS_coordinates[:,0]**2 + StePS_coordinates[:,1]**2))
+    N_StePS_slice = np.sum(np.array(mask, dtype=int))
+    print("Number of particles in the slice: %d" % N_StePS_slice)
 
     StePS_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
     if quantity == 1:
         StePS_vel_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
-    j=0
-    for i in range(0,N_StePS):
-        if StePS_coordinates[i,plot_indexes[2]]>-alpha*np.sqrt(StePS_coordinates[i,plot_indexes[0]]**2 + StePS_coordinates[i,plot_indexes[1]]**2) and StePS_coordinates[i,plot_indexes[2]]<alpha*np.sqrt(StePS_coordinates[i,plot_indexes[0]]**2 + StePS_coordinates[i,plot_indexes[1]]**2) and R_cutoff>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 +  StePS_coordinates[i,2]**2):
-            StePS_slice[j,0] = StePS_coordinates[i,plot_indexes[0]]
-            StePS_slice[j,1] = StePS_coordinates[i,plot_indexes[1]]
-            StePS_slice[j,2] = StePS_coordinates[i,3]
-            if quantity == 1:
-                StePS_vel_slice[j,0] = StePS_velocities[i,plot_indexes[0]]
-                StePS_vel_slice[j,1] = StePS_velocities[i,plot_indexes[1]]
-                StePS_vel_slice[j,2] = StePS_velocities[i,plot_indexes[2]]
-            j+=1
+
+    StePS_slice[:,0] = StePS_coordinates[mask,plot_indexes[0]]
+    StePS_slice[:,1] = StePS_coordinates[mask,plot_indexes[1]]
+    StePS_slice[:,2] = StePS_coordinates[mask,3]
+    if quantity == 1:
+        StePS_vel_slice[:,0] = StePS_velocities[mask,plot_indexes[0]]
+        StePS_vel_slice[:,1] = StePS_velocities[mask,plot_indexes[1]]
+        StePS_vel_slice[:,2] = StePS_velocities[mask,plot_indexes[2]]
 
     end = time.time()
     print("..done in %fs. \n\n" % (end-start))
@@ -185,25 +197,23 @@ if plot_mode == 0:
         plt.savefig(outfilename)
     plt.show()
 else:
-    N_StePS_slice=0
-    for i in range(0,N_StePS):
-        if StePS_coordinates[i,plot_indexes[2]]>-alpha and StePS_coordinates[i,plot_indexes[2]]<alpha and R_cutoff>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 +  StePS_coordinates[i,2]**2):
-            N_StePS_slice+=1
+    if topology == "SPHERICAL":
+        mask = np.logical_and(np.sqrt(StePS_coordinates[:,0]**2 + StePS_coordinates[:,1]**2 + StePS_coordinates[:,2]**2)<=R_cutoff, np.abs(StePS_coordinates[:,plot_indexes[2]])<=alpha)
+    elif topology == "CYLINDRICAL":
+        mask = np.logical_and(np.sqrt(StePS_coordinates[:,0]**2 + StePS_coordinates[:,1]**2)<=R_cutoff, np.abs(StePS_coordinates[:,plot_indexes[2]]-slice_z_coord)<=alpha)
+    N_StePS_slice = np.sum(np.array(mask, dtype=int))
+    print("Number of particles in the slice: %d" % N_StePS_slice)
 
     StePS_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
     if quantity == 1:
         StePS_vel_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
-    j=0
-    for i in range(0,N_StePS):
-        if StePS_coordinates[i,plot_indexes[2]]>-alpha and StePS_coordinates[i,plot_indexes[2]]<alpha and R_cutoff>np.sqrt(StePS_coordinates[i,0]**2 + StePS_coordinates[i,1]**2 + StePS_coordinates[i,2]**2):
-            StePS_slice[j,0] = StePS_coordinates[i,plot_indexes[0]]
-            StePS_slice[j,1] = StePS_coordinates[i,plot_indexes[1]]
-            StePS_slice[j,2] = StePS_coordinates[i,3]
-            if quantity == 1:
-                StePS_vel_slice[j,0] = StePS_velocities[i,plot_indexes[0]]
-                StePS_vel_slice[j,1] = StePS_velocities[i,plot_indexes[1]]
-                StePS_vel_slice[j,2] = StePS_velocities[i,plot_indexes[2]]
-            j+=1
+    StePS_slice[:,0] = StePS_coordinates[mask,plot_indexes[0]]
+    StePS_slice[:,1] = StePS_coordinates[mask,plot_indexes[1]]
+    StePS_slice[:,2] = StePS_coordinates[mask,3]
+    if quantity == 1:
+        StePS_vel_slice[:,0] = StePS_velocities[mask,plot_indexes[0]]
+        StePS_vel_slice[:,1] = StePS_velocities[mask,plot_indexes[1]]
+        StePS_vel_slice[:,2] = StePS_velocities[mask,plot_indexes[2]]
 
     end = time.time()
     print("..done in %fs. \n\n" % (end-start))

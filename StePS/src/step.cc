@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                            */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -26,6 +26,11 @@
 
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL* x, REAL*F, int ID_min, int ID_max);
+void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max);
+
+#ifdef GLASS_MAKING
+void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean, REAL dmax, REAL V_mean, REAL V_max);
+#endif
 
 double calculate_init_h()
 {
@@ -47,6 +52,19 @@ double calculate_init_h()
 			{
 				x[3*i+k] = x[3*i+k] - L;
 			}
+		}
+	}
+	#elif defined(PERIODIC_Z)
+	//Periodic boundary conditions in the z direction
+	for(i=0;i<N;i++)
+	{
+		if(x[3*i+2]<0)
+		{
+			x[3*i+2] = x[3*i+2] + L;
+		}
+		if(x[3*i+2]>=L)
+		{
+			x[3*i+2] = x[3*i+2] - L;
 		}
 	}
 	#endif
@@ -87,9 +105,19 @@ void step(REAL* x, REAL* v, REAL* F)
 	int i, j, k;
 	REAL disp;
 	#ifdef GLASS_MAKING
-	REAL dmax,dmean;
-	dmax = 0.0;
-	dmean = 0.0;
+	//Variables used for glass making
+	REAL dmax,dmean,Force_abs, Fmax, F_mean, A_max, A_mean, A_abs, V_max, V_abs, V_mean;
+	dmax = 0.0; //maximal displacement
+	dmean = 0.0; //mean displacement
+	Force_abs = 0.0; //absolute force
+	Fmax = 0.0; //maximal force
+	F_mean = 0.0; //mean force
+	A_max = 0.0; //maximal acceleration
+	A_mean = 0.0; //mean acceleration
+	A_abs = 0.0; //absolute acceleration
+	V_max = 0.0; //maximal velocity
+	V_abs = 0.0; //absolute velocity
+	V_mean = 0.0; //mean velocity
 	#endif
 	#ifdef USE_CUDA
 		omp_set_dynamic(0);		// Explicitly disable dynamic teams
@@ -136,6 +164,19 @@ void step(REAL* x, REAL* v, REAL* F)
 				}
 			}
 		}
+		#elif defined(PERIODIC_Z)
+		//Periodic boundary conditions in the z direction
+		for(i=0; i<N; i++)
+		{
+			if(x[3*i+2]<0)
+			{
+				x[3*i+2] = x[3*i+2] + L;
+			}
+			else if(x[3*i+2]>=L)
+			{
+				x[3*i+2] = x[3*i+2] - L;
+			}
+		}
 		#endif
 	}
 	//Bcasting the particle coordinates
@@ -147,10 +188,12 @@ void step(REAL* x, REAL* v, REAL* F)
 	//Force calculation
 	if(rank == 0)
 		printf("Calculating Forces...\n");
-	#ifndef PERIODIC
-		forces(x, F, ID_MPI_min, ID_MPI_max);
-	#else
+	#if defined(PERIODIC)
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+	#elif defined(PERIODIC_Z)
+		forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+	#else
+		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
 	if(rank !=0)
@@ -173,6 +216,7 @@ void step(REAL* x, REAL* v, REAL* F)
 #else
 				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 #endif
+				//Copying the received forces into F
 				for(j=0; j<(N/numtasks); j++)
 				{
 					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
@@ -223,14 +267,39 @@ void step(REAL* x, REAL* v, REAL* F)
 			{
 				errmax = err;
 			}
+			#ifdef GLASS_MAKING
+			Force_abs = sqrt(pow(F[3*i],2) + pow(F[3*i+1],2) + pow(F[3*i+2],2));
+			F_mean += Force_abs; //mean force on a particle
+			if(Force_abs > Fmax)
+			{
+				Fmax = Force_abs; //maximal force between particles (at a=1, without Hubble drag).
+			}
+			A_abs = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2]);
+			A_mean += A_abs; //mean acceleration on a particle
+			if(A_abs > A_max)
+			{
+				A_max = A_abs; //maximal acceleration what a particle can get. Contains cosmological effects (scaling, Hubble drag, etc.).
+			}
+			V_abs = sqrt(pow(v[3*i],2) + pow(v[3*i+1],2) + pow(v[3*i+2],2));
+			V_mean += V_abs; //mean velocity of a particle
+			if(V_abs > V_max)
+			{
+				V_max = V_abs; //maximal velocity of a particle
+			}
+			#endif
 		}
 		printf("KDK Leapfrog integration...done.\n");
 		#ifdef GLASS_MAKING
-		dmean = dmean/((REAL) N);
+		dmean /= ((REAL) N);
+		V_mean /= ((REAL) N);
+		A_mean /= ((REAL) N);
+		F_mean /= ((REAL) N);
 		if(dmax>1.0)
-			printf("Glass making: A_max = %e\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n", errmax/pow(a, 2.0),dmean,dmax);
+			printf("Glass making:\tF_max=%e\tA_max = %e\n\t\tdisp-mean=%fMpc\tdisp-maximum = %fMpc\n\t\tV_mean = %e\tV_max = %e\n", Fmax, A_max,dmean,dmax,V_mean,V_max);
 		else
-			printf("Glass making: A_max = %e\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n", errmax/pow(a, 2.0),dmean*1000,dmax*1000);
+			printf("Glass making:\tF_max=%e\tA_max = %e\n\t\tdisp-mean=%fkpc\tdisp-maximum = %fkpc\n\t\tV_mean = %e\tV_max = %e\n", Fmax, A_max,dmean*1000,dmax*1000,V_mean,V_max);
+		//saving the logfile for glass making
+		Log_write_glass(F_mean, Fmax, A_mean, A_max, dmean, dmax, V_mean, V_max);
 		#endif
 	}
 	//Timing

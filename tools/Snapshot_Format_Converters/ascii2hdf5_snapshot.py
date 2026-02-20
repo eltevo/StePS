@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  ascii2hdf5_snapshot.py - An ASCII to hdf5 file converter for StePS           #
 #     (STEreographically Projected cosmological Simulations) snapshots.         #
-#    Copyright (C) 2017-2022 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -23,9 +23,9 @@ import time
 # %matplotlib inline
 
 #Beginning of the script
-if len(sys.argv) != 4:
+if len(sys.argv) != 4 and len(sys.argv) != 5:
     print("Error:")
-    print("usage: ./ascii2hdf5_snapshot.py <input ASCII snapshot> <output HDF5 snapshot> <precision 0: 32bit 1: 64bit>\nExiting.")
+    print("usage: ./ascii2hdf5_snapshot.py <input ASCII snapshot> <output HDF5 snapshot> <precision 0: 32bit 1: 64bit> <Boxsize (optional)>\nExiting.")
     sys.exit(2)
 
 if int(sys.argv[3]) != 0 and int(sys.argv[3]) != 1:
@@ -41,6 +41,9 @@ N=len(ASCII_snapshot)
 M_min = np.min(ASCII_snapshot[:,6])
 R_max = np.max(np.abs(ASCII_snapshot[:,0:3]))
 print("Number of particles:\t%i\nMinimal mass:\t%f*10e11M_sol\nMaximal radius:\t%fMpc" % (N,M_min,R_max))
+if len(sys.argv) == 5:
+    Lbox = float(sys.argv[4])
+    print("Boxsize: %f Mpc" % (Lbox))
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
 
@@ -57,6 +60,8 @@ header_group.attrs['MassTable'] = np.array([0,0,0,0,0,0],dtype=np.float64)
 header_group.attrs['Time'] = np.double(1.0)
 header_group.attrs['Redshift'] = np.double(0.0)
 header_group.attrs['Lbox'] = np.double(R_max*2.01)
+if len(sys.argv) == 5:
+    header_group.attrs['BoxSize'] = np.double(Lbox)
 header_group.attrs['NumFilesPerSnapshot'] = int(1)
 header_group.attrs['Omega0'] = np.double(1.0)
 header_group.attrs['OmegaLambda'] = np.double(0.0)

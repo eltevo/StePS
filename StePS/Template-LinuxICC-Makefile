@@ -1,11 +1,12 @@
 
 #-----------------------------------------------------------------------------------------------#
 # StePS Makefile
-# Copyright (C) 2017-2024 Gabor Racz
+# Copyright (C) 2017-2026 Gabor Racz
+#		Department of Physics, University of Helsinki | Helsinki, Finland
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
-# 	Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
-# 	Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v1.0.2.2"'
+# 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+# 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+VERSION='"v2.0.0.0"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -22,13 +23,21 @@ VERSION='"v1.0.2.2"'
 USING_CUDA = YES
 OPT += -DUSE_SINGLE_PRECISION
 
-#------------------------------- Option for periodic boundary condition
-#OPT += -DPERIODIC
+#------------------------------- Options for the force calculation method (if everthing is commented out, direct summation is used)
+#OPT += -DUSE_BH=0.25 # Use the Barnes-Hut (OctTree) method for force calculation with an opening angle of 0.25. (Recommended value is 0.25)
+#OPT += -DRANDOMIZE_BH=123456 # Randomize the BH tree to avoid artifacts. Only works with the BH method, and it is highly recommended to use it.
 
-#------------------------------- Option of HDF5
+#------------------------------- Options for boundary conditions
+#OPT += -DPERIODIC # Periodic boundary conditions (T^3 topological manifold)
+#OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only (S^1 x R^2 topological manifold)
+#OPT += -DPERIODIC_Z_RSPACELOOKUP # Using direct real-space summation with large cutoff (N>10^3) to generate the periodic lookup table. Otherwise, Tornberg (2015) Ewald summation method will be used for lookup table calculation (only for cylindrical periodic BCs).
+#OPT += -DPERIODIC_Z_NOLOOKUP # Enable direct periodic real-space summation without using a lookup table (only for cylindrical periodic BCs), otherwise lookup table method is used.
+EWALD_INTERPOLATION_ORDER=2# Interpolation order for the Ewald force correction table (0: NGP, 2: CIC, 4: TSC). Higher order = more accurate but slower. Recommended: 4 (TSC)
+
+#------------------------------- Option for enabling HDF5 I/O
 OPT += -DHAVE_HDF5
 
-#------------------------------- Glass making option
+#------------------------------- Option for turning on glass making mode
 #OPT += -DGLASS_MAKING
 
 #------------------------------- Parametrization of the background cosmology
@@ -58,19 +67,49 @@ BUILD_DIR = ./build
 
 MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
 
-SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc
+SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc
 DEPS = $(SRC_DIR)/global_variables.h
-OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o
+OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o $(BUILD_DIR)/utils.o
 
 COMPILERVERSION=$(shell $(CXX) --version | head -1)
+GITCOMMIT_ID=$(shell git rev-parse HEAD)
+GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
-BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"'
+BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"'
 CFLAGS = -Wno-long-long -Wall -ansi -pedantic -O3 -std=gnu++98 -fopenmp -lgomp -qopenmp
 
 IMPI_COMPILE_FLAGS = $(shell mpiicpc -compile-info)
 MPI_COMPILE_FLAGS = $(subst icpc, ,$(IMPI_COMPILE_FLAGS))
 IMPI_LINK_FLAGS = $(shell mpiicpc -link-info)
 MPI_LINK_FLAGS = $(subst icpc, ,$(IMPI_LINK_FLAGS))
+
+#------------------------------- Printing out some info
+$(info This is the StePS $(VERSION) Makefile.)
+$(info ----------------------------------------)
+$(info Basic compilation settings:)
+ifeq ($(USING_CUDA), YES)
+$(info Compiling StePS with $(CXX) ($(COMPILERVERSION)) with CUDA support from $(CUDA_PATH))
+else
+$(info Compiling StePS with $(CXX) ($(COMPILERVERSION)) without CUDA support (CPU only mode))
+endif
+$(info MPI compile flags: $(MPI_COMPILE_FLAGS))
+$(info MPI link flags: $(MPI_LINK_FLAGS))
+$(info C++ compiler flags: $(CFLAGS))
+$(info Build options: $(OPT))
+$(info ----------------------------------------)
+$(info )
+
+#------------------------------- Ewald interpolation order setting
+ifeq ($(EWALD_INTERPOLATION_ORDER),0)
+OPT += -DEWALD_INTERPOLATION_ORDER=0
+else ifeq ($(EWALD_INTERPOLATION_ORDER),2)
+OPT += -DEWALD_INTERPOLATION_ORDER=2
+else ifeq ($(EWALD_INTERPOLATION_ORDER),4)
+OPT += -DEWALD_INTERPOLATION_ORDER=4
+else
+$(info Warning: Unsupported EWALD_INTERPOLATION_ORDER value ($(EWALD_INTERPOLATION_ORDER)). Supported values are 0, 2, and 4. Setting to default value of 4. (TSC))
+OPT += -DEWALD_INTERPOLATION_ORDER=4
+endif
 
 ifeq ($(USING_CUDA), YES)
 #------------------------------- Location of the CUDA Toolkit

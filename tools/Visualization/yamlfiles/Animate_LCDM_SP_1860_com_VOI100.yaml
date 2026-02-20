@@ -1,5 +1,8 @@
 INFILE_BASENAME: "../../StePS/examples/LCDM_SP_1860_com_VOI100/snapshot"
 ICFILE: "../../StePS/examples/ic/IC_LCDM_SP_1860Mpc_Nr224_Nhp32_ds105_z63_VOI100.hdf5"
+MODE: "3D"  # "2D" or "3D"
+TOPOLOGY: "SPHERICAL"  # "SPHERICAL" or "CYLINDRICAL"
+SLICE_THICKNESS: 10.0 # only for 2D mode or CYLINDRICAL topology
 COMOVING: True
 OUTFILE_BASENAME: "./animation_com/frame"
 CENTER:
