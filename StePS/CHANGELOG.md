@@ -19,6 +19,10 @@ All notable changes to the StePS simulation code is documented in this file.
 - Fixed gadget2 binary loading
 - Fixed output list loading bug on newer libc libraries.
 
+### Fixed
+- Fixed gadget2 binary loading
+- Fixed output list loading bug on newer libc libraries.
+
 ## [v2.0.0.0] - 2026-02-20
 
 ### Added
