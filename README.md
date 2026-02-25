@@ -9,9 +9,9 @@ StePS provides a direct $\mathcal{O}(N^2)$ multi-GPU‑accelerated gravity solve
 Example $\mathrm{S}^1\times\mathbb{R}^2$ simulation data: [eltevo.github.io](https://eltevo.github.io/projects/cylindrical-simulations/)
 
 If you plan to publish an academic paper using this software or data, please consider citing the following publications:
-- G. Rácz, I. Szapudi, I. Csabai, and L. Dobos "*Compactified Cosmological Simulations of the Infinite Universe*": MNRAS, Volume 477, Issue 2, p.1949-1957 (2018) [astro-ph](https://arxiv.org/abs/1711.04959) [NASA adsabs](https://ui.adsabs.harvard.edu/abs/2018MNRAS.477.1949R/abstract)
-- G. Rácz, I. Szapudi, L. Dobos, I. Csabai, and A. S. Szalay "*StePS: A multi-GPU cosmological N-body Code for compactified simulations*": Astron. Comput. 28, 100303 (2019) [astro-ph](https://arxiv.org/abs/1811.05903) [NASA adsabs](https://ui.adsabs.harvard.edu/abs/2019A%26C....2800303R/abstract)
-- G. Rácz, V. H. Varga, B. Pál, I. Szapudi, I. Csabai, and T. Sawala "*Cylindrical cosmological simulations with StePS*": In prep. (2026) 
+- G. Rácz, I. Szapudi, I. Csabai, and L. Dobos "*Compactified Cosmological Simulations of the Infinite Universe*": MNRAS, Volume 477, Issue 2, p.1949-1957 (2018) [[MNRAS](https://academic.oup.com/mnras/article/477/2/1949/4944906)] [[astro-ph](https://arxiv.org/abs/1711.04959)] [[NASA adsabs](https://ui.adsabs.harvard.edu/abs/2018MNRAS.477.1949R/abstract)]
+- G. Rácz, I. Szapudi, L. Dobos, I. Csabai, and A. S. Szalay "*StePS: A multi-GPU cosmological N-body Code for compactified simulations*": Astron. Comput. 28, 100303 (2019) [[Astronomy and Computing](https://www.sciencedirect.com/science/article/pii/S2213133718301938)] [[astro-ph](https://arxiv.org/abs/1811.05903)] [[NASA adsabs](https://ui.adsabs.harvard.edu/abs/2019A%26C....2800303R/abstract)]
+- G. Rácz, V. H. Varga, B. Pál, I. Szapudi, I. Csabai, and T. Sawala "*Cylindrical cosmological simulations with StePS*": In prep. (2026) [[astro-ph](https://arxiv.org/abs/2602.20787)]
 
 ## Visualizations
 
