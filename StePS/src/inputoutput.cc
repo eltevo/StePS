@@ -896,6 +896,12 @@ void Log_write() //Writing logfile
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
 			else
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#elif defined(POINCARE_DODECAHEDRAL)
+			fprintf(LOGFILE, "# Topological manifold: S^3/I* (Poincare Dodecahedral Space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc\tSimulation radius: %.3f Mpc\n", (double)PDS_R_CURV, Rsim);
+			else
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc/h\tSimulation radius: %.3f Mpc/h\n", (double)PDS_R_CURV*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
 		#else
 			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
 			if (H0_INDEPENDENT_UNITS == 0)
@@ -959,6 +965,12 @@ void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
 			else
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#elif defined(POINCARE_DODECAHEDRAL)
+			fprintf(LOGFILE, "# Topological manifold: S^3/I* (Poincare Dodecahedral Space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc\tSimulation radius: %.3f Mpc\n", (double)PDS_R_CURV, Rsim);
+			else
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc/h\tSimulation radius: %.3f Mpc/h\n", (double)PDS_R_CURV*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
 		#else
 			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
 			if (H0_INDEPENDENT_UNITS == 0)
@@ -1294,6 +1306,101 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	H5Tclose(datatype);
 	H5Sclose(dataspace_in_file);
 	H5Dclose(dataset);
+
+#ifdef POINCARE_DODECAHEDRAL
+	// Allocate 4D quaternion position array
+	if(allocate_memory)
+	{
+		if(!(PDS_Q = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_Q.\n", rank);
+			exit(-2);
+		}
+		#ifdef PDS_INTRINSIC
+		//Tangent velocity state, allocated alongside PDS_Q.  Integration is serial on
+		//rank 0 and the force kernels never read U, so it is not MPI-broadcast.
+		if(!(PDS_U = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_U.\n", rank);
+			exit(-2);
+		}
+		#endif
+	}
+	// Load precomputed quaternions if present, otherwise convert from Cartesian
+	if(H5Lexists(IC, "/PartType1/Quaternions", H5P_DEFAULT) > 0)
+	{
+		printf("\tReading /PartType1/Quaternions\n");
+		fflush(stdout);
+		dataset = H5Dopen2(IC, "/PartType1/Quaternions", H5P_DEFAULT);
+		dataspace_in_file = H5Dget_space(dataset);
+		datatype = H5Dget_type(dataset);
+#ifdef USE_SINGLE_PRECISION
+		if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+		{
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, PDS_Q);
+		}
+		else
+		{
+			printf("\t\tData stored in doubles.\n");
+			double *qbuffer;
+			if(!(qbuffer = (double*)malloc(4*N*sizeof(double))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate PDS_Q buffer.\n", rank);
+				exit(-2);
+			}
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, qbuffer);
+			for(int i = 0; i < 4*N; i++) PDS_Q[i] = (REAL)qbuffer[i];
+			free(qbuffer);
+		}
+#else
+		if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+		{
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, PDS_Q);
+		}
+		else
+		{
+			printf("\t\tData stored in floats.\n");
+			float *qbuffer;
+			if(!(qbuffer = (float*)malloc(4*N*sizeof(float))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate PDS_Q buffer.\n", rank);
+				exit(-2);
+			}
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, qbuffer);
+			for(int i = 0; i < 4*N; i++) PDS_Q[i] = (REAL)qbuffer[i];
+			free(qbuffer);
+		}
+#endif
+		H5Tclose(datatype);
+		H5Sclose(dataspace_in_file);
+		H5Dclose(dataset);
+		// The IC's own quaternions are authoritative: pds_wrap_ic() must wrap THESE
+		// rather than silently rebuilding q from the (float-rounded) Cartesian x[].
+		PDS_Q_FROM_IC = 1;
+	}
+	else
+	{
+		// Inverse stereographic projection: q = (R²-r², 2Rx, 2Ry, 2Rz) / (R²+r²)
+		printf("\tConverting Cartesian IC to S^3 unit quaternions (inverse stereographic projection)...\n");
+		fflush(stdout);
+		double R = (double)PDS_R_CURV;
+		double R2 = R * R;
+		for(int i = 0; i < N; i++)
+		{
+			double cx = (double)x[3*i];
+			double cy = (double)x[3*i+1];
+			double cz = (double)x[3*i+2];
+			double r2 = cx*cx + cy*cy + cz*cz;
+			double denom = R2 + r2;
+			PDS_Q[4*i]   = (REAL)((R2 - r2) / denom);
+			PDS_Q[4*i+1] = (REAL)(2.0 * R * cx / denom);
+			PDS_Q[4*i+2] = (REAL)(2.0 * R * cy / denom);
+			PDS_Q[4*i+3] = (REAL)(2.0 * R * cz / denom);
+		}
+		printf("\t\t...done.\n");
+		fflush(stdout);
+	}
+#endif
 
 	H5Fclose(IC);
 	printf("...done\n\n");
@@ -1743,6 +1850,32 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, str_type, (const void*)"S^1xR^2");
 	H5Aclose(hdf5_attribute);
+	#elif defined(POINCARE_DODECAHEDRAL)
+	//Poincare Dodecahedral Space S^3/I* topology
+	H5Tset_size(str_type, strlen("S^3/I*") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"S^3/I*");
+	H5Aclose(hdf5_attribute);
+	{
+		//R_curvature_Mpc: curvature radius of S^3 in Mpc
+		hid_t ds_scalar = H5Screate(H5S_SCALAR);
+		double r_curv_mpc = (double)PDS_R_CURV;
+		if(H0_INDEPENDENT_UNITS != 0)
+			r_curv_mpc *= H0*UNIT_V/100.0; //convert to Mpc/h
+		hid_t attr_rcurv = H5Acreate(handle, "R_curvature_Mpc", H5T_NATIVE_DOUBLE, ds_scalar, H5P_DEFAULT, H5P_DEFAULT);
+		H5Awrite(attr_rcurv, H5T_NATIVE_DOUBLE, &r_curv_mpc);
+		H5Aclose(attr_rcurv);
+		//Omega_k: curvature density parameter
+		hid_t attr_ok = H5Acreate(handle, "Omega_k", H5T_NATIVE_DOUBLE, ds_scalar, H5P_DEFAULT, H5P_DEFAULT);
+		H5Awrite(attr_ok, H5T_NATIVE_DOUBLE, &Omega_k);
+		H5Aclose(attr_ok);
+		//PDS_I_star_order: order of the binary icosahedral group I*
+		int pds_order = 120;
+		hid_t attr_order = H5Acreate(handle, "PDS_I_star_order", H5T_NATIVE_INT, ds_scalar, H5P_DEFAULT, H5P_DEFAULT);
+		H5Awrite(attr_order, H5T_NATIVE_INT, &pds_order);
+		H5Aclose(attr_order);
+		H5Sclose(ds_scalar);
+	}
 	#else
 	//Free boundary conditions (R^3 topological manifold)
 	H5Tset_size(str_type, strlen("R^3") + 1);
@@ -2440,6 +2573,11 @@ int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_g
     H5Fclose(f);
     return 0;
 }
+#elif defined(POINCARE_DODECAHEDRAL)
+//The PDS Ewald lookup table I/O (save_pds_ewald_lookup_table /
+//load_pds_ewald_lookup_table) has been removed: PDS forces are computed by
+//exact 120-image summation with the background-compensated kernel, so no
+//lookup table exists any more.  See pds_group.h and forces.cc.
 #endif
 
 
@@ -2510,5 +2648,42 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
 	}
 	#endif
+#ifdef POINCARE_DODECAHEDRAL
+	// For non-HDF5 IC formats, PDS_Q is not yet allocated or filled.
+	// read_hdf5_ic() handles HDF5; here we handle ASCII and Gadget formats.
+	if(IC_FORMAT != 2)
+	{
+		if(!(PDS_Q = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "Failed to allocate memory for PDS_Q.\nExiting.\n");
+			return (-1);
+		}
+		#ifdef PDS_INTRINSIC
+		if(!(PDS_U = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "Failed to allocate memory for PDS_U.\nExiting.\n");
+			exit(-2);
+		}
+		#endif
+		printf("Converting Cartesian IC to S^3 unit quaternions (inverse stereographic projection)...\n");
+		fflush(stdout);
+		double R = (double)PDS_R_CURV;
+		double R2 = R * R;
+		for(int i = 0; i < N; i++)
+		{
+			double cx = (double)x[3*i];
+			double cy = (double)x[3*i+1];
+			double cz = (double)x[3*i+2];
+			double r2 = cx*cx + cy*cy + cz*cz;
+			double denom = R2 + r2;
+			PDS_Q[4*i]   = (REAL)((R2 - r2) / denom);
+			PDS_Q[4*i+1] = (REAL)(2.0 * R * cx / denom);
+			PDS_Q[4*i+2] = (REAL)(2.0 * R * cy / denom);
+			PDS_Q[4*i+3] = (REAL)(2.0 * R * cz / denom);
+		}
+		printf("...done.\n");
+		fflush(stdout);
+	}
+#endif
 	return 0;//Return 0 if the IC file was loaded successfully
 }

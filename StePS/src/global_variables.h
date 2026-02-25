@@ -24,6 +24,14 @@
 #define G 1.0 //Normal gravity
 #endif
 
+/* PDS_INTRINSIC selects the intrinsic S^3 geodesic integrator.  It is meaningless
+ * without the PDS topology, so make it inert rather than a compile error when the two
+ * are combined (e.g. a test harness that appends -DPDS_INTRINSIC to every variant,
+ * including the R^3 regression build). */
+#if defined(PDS_INTRINSIC) && !defined(POINCARE_DODECAHEDRAL)
+#undef PDS_INTRINSIC
+#endif
+
 #ifdef USE_SINGLE_PRECISION
 typedef float REAL;
 #define PRECISION_STR  "float32"
@@ -86,9 +94,27 @@ extern int BUFFER_start_ID;
     extern REAL *S1R2_EWALD_FORCE_TABLE; //lookup table for the ewald force calculation in S^1 x R^2 topology (Nz_EWALD_FORCE_GRID * Nrho_EWALD_FORCE_GRID * 2 size)
     extern int Nz_EWALD_FORCE_GRID; //size of the ewald force lookup table in the z direction
     extern int Nrho_EWALD_FORCE_GRID; //size of the ewald force lookup table in the radial direction
+#elif defined(POINCARE_DODECAHEDRAL)
+    // Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
+    // Particle positions are stored as 4D unit quaternions in the separate q[] array.
+    // Forces use exact 120-image summation (no Ewald lookup table on the compact S^3).
+    extern REAL *PDS_Q;                 // 4D quaternion positions for PDS mode (4*N REAL values)
+    extern int PDS_Q_FROM_IC;           // 1 if PDS_Q was read from /PartType1/Quaternions
+                                        // (authoritative), 0 if reconstructed from x[]
+    #ifdef PDS_INTRINSIC
+    extern REAL *PDS_U;                 // 4D tangent peculiar velocity (4*N), U _|_ q.
+                                        // Canonical state with PDS_Q; x[] and v[] become
+                                        // derived output buffers.  Rank 0 only -- never
+                                        // MPI-broadcast (integration happens on rank 0).
+    #endif
+    extern REAL  PDS_R_CURV;           // curvature radius of S^3 in internal length units (Mpc)
 #endif
 
 extern REAL x4, err, errmax, ACC_PARAM; //variables used for error calculations
+extern int HOST_OMP_THREADS; //OpenMP threads available on the host for the rank-0 serial
+                             //loops (KDK, wrap). Captured at startup BEFORE the CUDA code
+                             //calls omp_set_num_threads(n_GPU), which would otherwise pin
+                             //those loops to n_GPU (=1 on a single-GPU run).
 extern double h, h_min, h_max,  t_next; //actual stepsize, minimal and maximal stepsize, next time for output
 extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 
@@ -157,6 +183,11 @@ extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, e
 //Functions
 //Initial timestep length calculation
 double calculate_init_h();
+#ifdef POINCARE_DODECAHEDRAL
+//Wrapping the initial conditions into the PDS fundamental domain (rank 0 only,
+//must run before the initial force calculation; caller broadcasts x and PDS_Q)
+void pds_wrap_ic();
+#endif
 //Functions used for the Friedmann-equation
 double friedmann_solver_step(double a0, double h);
 double CALCULATE_Hubble_param(double a);

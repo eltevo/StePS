@@ -24,6 +24,9 @@
 #include <cstring>
 #include "mpi.h"
 #include "global_variables.h"
+#ifdef POINCARE_DODECAHEDRAL
+#include "pds_group.h"
+#endif
 #ifdef HAVE_HDF5
 #include <hdf5.h>
 #endif
@@ -51,6 +54,7 @@ bool ForceError = false;
 int N_saved_ics = 0; //number of saved ICs, only used for naming the output files when testing the force accuracy.
 
 int n_GPU; //number of cuda capable GPUs
+int HOST_OMP_THREADS = 1; //see global_variables.h
 int numtasks, rank; //Variables for MPI
 
 MPI_Status Stat;
@@ -109,6 +113,15 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 	REAL *T3_EWALD_FORCE_TABLE; //Ewald force correction lookup table for T^3 topology
 	char ewaldfilepath[0x100];
 	int N_EWALD_FORCE_GRID; //size of the ewald force lookup table
+#endif
+#if defined(POINCARE_DODECAHEDRAL)
+	//Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
+	REAL *PDS_Q;                 //4D quaternion positions (4*N REAL values)
+	int   PDS_Q_FROM_IC = 0;     //1 if PDS_Q came from /PartType1/Quaternions (authoritative)
+	#ifdef PDS_INTRINSIC
+	REAL *PDS_U;                 //4D tangent peculiar velocity (4*N), U _|_ q
+	#endif
+	REAL  PDS_R_CURV;            //curvature radius of S^3 in internal length units (Mpc)
 #endif
 #if defined(PERIODIC_Z)
 	//Variables only used in S^1 x R^2 simulations
@@ -184,6 +197,10 @@ void calculate_S1R2ewald_correction_table(int Nrho, int Nz, REAL rho_max, REAL L
 int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_grid, REAL **table_out);
 int save_s1r2_ewald_lookup_table(const char *filename, int Nrho_grid, int Nz_grid, const REAL *S1R2_EWALD_FORCE_TABLE);
 #endif
+#elif defined(POINCARE_DODECAHEDRAL)
+//Functions for S^3/I* (Poincare Dodecahedral Space) simulations
+//(exact 120-image summation; no Ewald lookup table is needed on the compact S^3)
+void forces_pds(REAL *q, REAL *F, int ID_min, int ID_max);
 #endif
 #if defined(PERIODIC_Z)
 //Functions for direct periodic S^1 x R^2 real space force calculation
@@ -257,12 +274,16 @@ int main(int argc, char *argv[])
 	{
 		printf("\tUsing CUDA capable GPUs for force calculation.\n");
 	}
-	#ifdef USE_BH
+	#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
 	if(rank == 0)
 	{
-		fprintf(stderr,"\nError: Barnes-Hut octree force calculation is not (yet) implemented on CUDA capable GPUs.\nPlease recompile StePS without the USE_BH or USE_CUDA option.\nExiting...\n");
+		fprintf(stderr,"\nError: Barnes-Hut octree force calculation is not (yet) implemented on CUDA capable GPUs for this topology.\nIt is only available on the GPU for the Poincare Dodecahedral Space (POINCARE_DODECAHEDRAL) topology.\nPlease recompile StePS without the USE_BH or USE_CUDA option.\nExiting...\n");
 	}
 	return (-1);
+	#endif
+	#if defined(USE_BH) && defined(POINCARE_DODECAHEDRAL)
+	if(rank == 0)
+		printf("\tForce calculation: PDS Barnes-Hut tree on GPU(s).\n");
 	#endif
 	#endif
 	#ifdef GLASS_MAKING
@@ -317,6 +338,25 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions. (R^3 topological manifold)\n");
 	#endif
+	// Warn if IS_PERIODIC in the parameter file is inconsistent with the compiled topology.
+	// IS_PERIODIC > 0 in a non-periodic binary, or IS_PERIODIC == 0 in a periodic binary,
+	// will silently use the wrong force kernel.
+	if(rank == 0)
+	{
+		#if defined(PERIODIC)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for T^3 (PERIODIC). The T^3 force kernel will be used.\n\n");
+		#elif defined(PERIODIC_Z)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^1 x R^2 (PERIODIC_Z). The cylindrical force kernel will be used.\n\n");
+		#elif defined(POINCARE_DODECAHEDRAL)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^3/I* (POINCARE_DODECAHEDRAL). The PDS force kernel will be used.\n\n");
+		#else
+		if(IS_PERIODIC > 0)
+			printf("\nWARNING: IS_PERIODIC=%d in the parameter file, but this binary was compiled for open boundaries (R^3). Periodic forces will NOT be applied.\n\n", IS_PERIODIC);
+		#endif
+	}
 	#if defined(USE_BH)
 	THETA = (REAL) USE_BH; //Opening angle for the octree
 	#if !defined(RANDOMIZE_BH)
@@ -799,6 +839,31 @@ int main(int argc, char *argv[])
 				S1R2_EWALD_FORCE_TABLE[1]=0.0;
 			#endif
 		}
+	#elif defined(POINCARE_DODECAHEDRAL)
+		// Initialise the binary icosahedral group I* (120 unit quaternions).
+		// pds_init() is idempotent; must be called before any pds_wrap / pds_in_domain.
+		pds_init();
+		if(IS_PERIODIC < 1)
+		{
+			if(rank == 0)
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable runs Poincare Dodecahedral Space (S^3/I*) simulations only.\nExiting.\n");
+			fflush(stdout);
+			return (-2);
+		}
+		if(IS_PERIODIC >= 2)
+		{
+			//Exact image summation: S^3 is compact, the 120-element I* image sum is
+			//finite and exact, so no Ewald lookup table is needed.  The background-
+			//compensated kernel is used (the bare kernel sum over the antipodal +-g
+			//image pairs would cancel identically; see pds_group.h).
+			if(rank == 0)
+				printf("PDS (S^3/I*) exact 120-image force summation is on (background-compensated kernel).\n");
+		}
+		else
+		{
+			if(rank == 0)
+				printf("PDS (S^3/I*) nearest-image-only mode (background-compensated kernel, no image summation).\n");
+		}
 	#else
 		if(IS_PERIODIC  != 0)
 		{
@@ -1174,9 +1239,6 @@ int main(int argc, char *argv[])
 					{
 						MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 						mpi_time_array[i] = force_calc_time;
-						//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
-						if(i==1 || force_calc_time > force_calc_time)
-							force_calc_time = force_calc_time;
 					}
 					//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
 					force_calc_time = 0.0;
@@ -1359,7 +1421,8 @@ int main(int argc, char *argv[])
 			mpi_particle_range[i][2] = N/numtasks;
 		}
 	}
-	#ifdef USE_CUDA
+		HOST_OMP_THREADS = omp_get_max_threads();  //capture BEFORE any omp_set_num_threads(n_GPU)
+#ifdef USE_CUDA
 	if(argc == 3)
 	{
 		n_GPU = atoi( argv[2] );
@@ -1403,14 +1466,28 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
 			exit(-2);
 		}
+		#ifdef POINCARE_DODECAHEDRAL
+		//Allocating memory for the 4D quaternion positions
+		if(!(PDS_Q = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_Q.\n", rank);
+			exit(-2);
+		}
+		#endif
 	}
 	//Bcasting the ICs to the rank!=0 threads
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
   	MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+	#ifdef POINCARE_DODECAHEDRAL
+	MPI_Bcast(PDS_Q,4*N,MPI_FLOAT,0,MPI_COMM_WORLD);
+	#endif
 #else
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	#ifdef POINCARE_DODECAHEDRAL
+	MPI_Bcast(PDS_Q,4*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	#endif
 #endif
 #ifdef GLASS_MAKING
 	//setting all velocities to zero
@@ -1537,19 +1614,30 @@ int main(int argc, char *argv[])
 				#endif
 			}
 		#else
-			//Non-periodic cosmological simulations 
+			//Non-periodic cosmological simulations
 			REAL rho_mean_full_sphere;
 
 			rho_mean_full_sphere = kahan_sum(M, N);
+			#ifdef POINCARE_DODECAHEDRAL
+			//In PDS the simulation volume is the fundamental domain of S^3/I*:
+			//V = Vol(S^3)/|I*| = 2*pi^2*R^3/120 = pi^2*R^3/60
+			rho_mean_full_sphere /= (REAL)(pi*pi*pow((double)PDS_R_CURV, 3.0)/60.0);
+			#else
 			rho_mean_full_sphere /= (4.0/3.0*pi*pow(Rsim, 3.0)); //dividing the total mass by the simulation volume
+			#endif
 			if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-5)
 			{
 				#if COSMOPARAM>=0 || !defined(COSMOPARAM)
 				if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-2)
 				{
-					if(rank == 0)
-						fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					#ifdef POINCARE_DODECAHEDRAL
+					//PDS topology is EXPERIMENTAL: do not abort, so deliberately
+					//non-cosmological particle loads (validation test runs) remain possible.
+					printf("Warning: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nContinuing without rescaling (EXPERIMENTAL PDS topology).\nMake sure the particle masses in the IC are intentional!\n\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					#else
+					fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
 					return (-1);
+					#endif
 				}
 				else
 				{
@@ -1779,6 +1867,20 @@ int main(int argc, char *argv[])
 	//Timing
 	SIM_omp_start_time = omp_get_wtime();
 	//Timing
+	#ifdef POINCARE_DODECAHEDRAL
+	// Wrap the IC into the fundamental domain BEFORE the initial force
+	// calculation, so the first forces are computed on wrapped positions,
+	// and broadcast the wrapped coordinates to all MPI ranks.
+	if(rank == 0)
+		pds_wrap_ic();
+	#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(x,    3*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
+	MPI_Bcast(PDS_Q,4*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
+	#else
+	MPI_Bcast(x,    3*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(PDS_Q,4*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	#endif
+	#endif
 	if(rank == 0)
 		printf("Initial force calculation...\n");
 
@@ -1789,6 +1891,8 @@ int main(int argc, char *argv[])
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
 	#elif defined(PERIODIC_Z)
 		forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+	#elif defined(POINCARE_DODECAHEDRAL)
+		forces_pds(PDS_Q, F, ID_MPI_min, ID_MPI_max);
 	#else
 		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif
@@ -1849,9 +1953,6 @@ int main(int argc, char *argv[])
 			{
 				MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 				mpi_time_array[i] = force_calc_time;
-				//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
-				if(i==1 || force_calc_time > force_calc_time)
-					force_calc_time = force_calc_time;
 			}
 			//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
 			force_calc_time = 0.0;
@@ -1918,6 +2019,8 @@ int main(int argc, char *argv[])
 		}
 	}
 	MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	// (PDS IC wrapping and the broadcast of the wrapped coordinates happen
+	//  BEFORE the initial force calculation above, in pds_wrap_ic().)
 	if(rank == 0)
 		printf("The simulation is starting...\n");
 	REAL T_prev,Hubble_param_prev;

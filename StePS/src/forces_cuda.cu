@@ -18,6 +18,10 @@
 #include <math.h>
 #include <omp.h>
 #include <time.h>
+#include <vector>
+#include <algorithm>
+#include <cstdint>
+#include <parallel/algorithm>   /* __gnu_parallel::sort (OpenMP parallel sort) */
 #include "mpi.h"
 #include "global_variables.h"
 #include "cuda_runtime.h"
@@ -29,6 +33,13 @@
 extern int e[2202][4];
 extern REAL w[3];
 extern int N, el;
+
+#ifdef POINCARE_DODECAHEDRAL
+/* pds_group.h provides the static PDS_I_STAR[120][4] array and pds_init().
+ * Each translation unit that includes this header gets its own copy; call
+ * pds_init() before use to fill it via BFS. */
+#include "pds_group.h"
+#endif
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
@@ -885,6 +896,891 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
 #endif
 #endif
 
+#ifdef POINCARE_DODECAHEDRAL
+
+/* 120 I* unit quaternions in GPU constant memory (copied from host PDS_I_STAR after pds_init()) */
+__constant__ double PDS_I_STAR_DEV[120][4];
+
+/* ── Device helpers ─────────────────────────────────────────────────────────── */
+__device__ static inline double pds_dot4_dev(const double a[4], const double b[4])
+{ return a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]; }
+
+__device__ static inline void pds_quat_mult_dev(const double p[4], const double q[4], double out[4])
+{
+    out[0] = p[0]*q[0] - p[1]*q[1] - p[2]*q[2] - p[3]*q[3];
+    out[1] = p[0]*q[1] + p[1]*q[0] + p[2]*q[3] - p[3]*q[2];
+    out[2] = p[0]*q[2] - p[1]*q[3] + p[2]*q[0] + p[3]*q[1];
+    out[3] = p[0]*q[3] + p[1]*q[2] - p[2]*q[1] + p[3]*q[0];
+}
+
+__device__ static inline double pds_chi_dev(const double p[4], const double q[4])
+{
+    double d = pds_dot4_dev(p, q);
+    if(d >  1.0) d =  1.0;
+    if(d < -1.0) d = -1.0;
+    return acos(d);
+}
+
+__device__ static inline void pds_force_dir_dev(const double p[4], const double q[4], double t[4])
+{
+    double d = pds_dot4_dev(p, q);
+    double len2 = 0.0;
+    for(int k = 0; k < 4; k++) { t[k] = q[k] - d*p[k]; len2 += t[k]*t[k]; }
+    if(len2 < 1.0e-24) { for(int k=0;k<4;k++) t[k]=0.0; return; }
+    double inv = rsqrt(len2);
+    for(int k = 0; k < 4; k++) t[k] *= inv;
+}
+
+/* Softened compensated kernel -- device mirror of pds_green_softened() in pds_group.h.
+ * Keep the two in sync: Test 6 and the CPU/GPU cross-check compare them directly. */
+__device__ static inline double pds_spline_factor_dev(double A, double beta)
+{
+    if(A >= beta) return 1.0/(A*A*A);
+    double b2 = beta*beta, b3 = b2*beta, b4 = b3*beta, b5 = b4*beta, b6 = b5*beta;
+    double A2 = A*A, A3 = A2*A;
+    if(A > 0.5*beta)
+        return -32.0/(3.0*b6)*A3 + 38.4/b5*A2 - 48.0/b4*A + 64.0/(3.0*b3) - (1.0/15.0)/A3;
+    return 32.0/b6*A3 - 38.4/b5*A2 + 32.0/(3.0*b3);
+}
+
+/*  Variants that take the cosine of the separation, which the tree walk has
+ *  already computed as the 4-dot of the two unit quaternions.  Using
+ *      sin(chi)  = sqrt((1-d)(1+d)),   sin(2 chi) = 2 d sin(chi)
+ *  removes the two double-precision sin() calls from every accepted
+ *  interaction -- and the factored form sqrt((1-d)(1+d)) is as well
+ *  conditioned as sin(acos(d)) near d = +-1 (both are limited by the
+ *  conditioning of d itself, not by cancellation).                            */
+__device__ static inline void pds_force_dir_d_dev(const double p[4], const double q[4],
+                                                  double d, double t[4])
+{
+    double len2 = 0.0;
+    for(int k = 0; k < 4; k++) { t[k] = q[k] - d*p[k]; len2 += t[k]*t[k]; }
+    if(len2 < 1.0e-24) { for(int k=0;k<4;k++) t[k]=0.0; return; }
+    double inv = rsqrt(len2);
+    for(int k = 0; k < 4; k++) t[k] *= inv;
+}
+
+__device__ static inline double pds_green_soft_cd_dev(double chi, double d,
+                                                      double R, double beta)
+{
+    if(chi < 1.0e-12 || chi > 3.14159265358979 - 1.0e-12) return 0.0;
+    double s = sin(chi);
+    double A = R * s;
+    /*  sin(2 chi) = 2 cos(chi) sin(chi), and cos(chi) is the 4-dot the traversal
+     *  already computed -- so this second sine is free.  The first one is kept:
+     *  A = R sin(chi) is what the softened kernel actually evaluates, and the
+     *  alternative sqrt((1-d)(1+d)) is no better conditioned than sin(acos(d)) as
+     *  d -> 1, so for the closest pairs the two forms disagree at the level of the
+     *  code's own uncertainty (up to ~4e-5 relative, measured on a z=0 field).
+     *  Keeping sin(chi) makes A bit-identical to the previous kernel; the residual
+     *  difference in `frac` is harmless because frac << 1 and only (1-frac) is
+     *  used.                                                                       */
+    double frac = (2.0*chi - 2.0*d*s) / (2.0*3.14159265358979);
+    if(chi >= 0.5*3.14159265358979 || A >= beta) return (1.0 - frac) / (A * A);
+    return (1.0 - frac) * A * pds_spline_factor_dev(A, beta);
+}
+
+__device__ static inline double pds_green_soft_dev(double chi, double R, double beta)
+{
+    if(chi < 1.0e-12 || chi > 3.14159265358979 - 1.0e-12) return 0.0;
+    double s = sin(chi);
+    double A = R * s;
+    double frac = (2.0*chi - sin(2.0*chi)) / (2.0*3.14159265358979);
+    if(chi >= 0.5*3.14159265358979 || A >= beta) return (1.0 - frac) / (A * A);
+    return (1.0 - frac) * A * pds_spline_factor_dev(A, beta);
+}
+
+__device__ static inline double pds_green_comp_dev(double chi, double R)
+{
+    /* Background-compensated S^3 kernel: [1 - V(chi)/V_S3] / (R^2 sin^2 chi).
+     * REQUIRED for image summation: the bare kernel cancels identically over
+     * the antipodal +-g image pairs of I* (see pds_group.h). */
+    if(chi < 1.0e-12 || chi > 3.14159265358979 - 1.0e-12) return 0.0;
+    double s = sin(chi);
+    double frac = (2.0*chi - sin(2.0*chi)) / (2.0*3.14159265358979);
+    return (1.0 - frac) / (R * R * s * s);
+}
+
+/*  PDS force kernel.
+ *
+ *  Each thread handles one field particle i.
+ *  IS_PERIODIC >= 2: EXACT summation over all 120 I* images of every source j
+ *  (including the 119 non-trivial self-images for j == i) with the
+ *  background-compensated kernel.  S^3 is compact, so the image sum is exact
+ *  and no Ewald table is needed.
+ *  IS_PERIODIC == 1: nearest-image-only mode (same compensated kernel).
+ *
+ *  Force is stored as the last 3 components of the 4D tangent vector.        */
+__global__ void ForceKernel_pds(
+    int n, const int N,
+    const REAL* pds_q,          /* 4*N quaternion positions */
+    REAL* F,                    /* 3*N force output (zeroed by caller)          */
+    const int IS_PERIODIC,
+    const REAL* Mdev,
+    const REAL* soft_dev,
+    const double R_curv,
+    int ID_min, int ID_max)
+{
+    const int tid    = blockIdx.x * blockDim.x + threadIdx.x;
+    const int stride = blockDim.x * gridDim.x;
+
+    for(int ii = tid; ii < n; ii += stride)
+    {
+        int i = ID_min + ii;
+        if(i > ID_max) break;
+
+        double qi[4];
+        for(int k=0;k<4;k++) qi[k] = (double)pds_q[4*i+k];
+
+        double F0 = 0.0, Fx = 0.0, Fy = 0.0, Fz = 0.0;
+
+        for(int j = 0; j < N; j++)
+        {
+            double qj[4];
+            for(int k=0;k<4;k++) qj[k] = (double)pds_q[4*j+k];
+
+            double soft = (double)(soft_dev[i] + soft_dev[j]);
+
+            if(IS_PERIODIC >= 2)
+            {
+                /* Exact summation over all 120 I* images (incl. self-images for j == i) */
+                for(int g = 0; g < 120; g++) {
+                    double gq[4];
+                    double g_elem[4] = { PDS_I_STAR_DEV[g][0], PDS_I_STAR_DEV[g][1],
+                                         PDS_I_STAR_DEV[g][2], PDS_I_STAR_DEV[g][3] };
+                    pds_quat_mult_dev(g_elem, qj, gq);
+                    double chi_g = pds_chi_dev(qi, gq);
+                    /* skip the trivial identity self-image / exact antipode
+                     * BEFORE applying the softening floor */
+                    if(chi_g < 1.0e-12 || chi_g > 3.14159265358979 - 1.0e-12) continue;
+                    double t4[4];
+                    pds_force_dir_dev(qi, gq, t4);
+                    double fmag = (double)Mdev[j] * pds_green_soft_dev(chi_g, R_curv, soft);
+                    F0 += fmag * t4[0];
+                    Fx += fmag * t4[1];
+                    Fy += fmag * t4[2];
+                    Fz += fmag * t4[3];
+                }
+            }
+            else
+            {
+                /* Nearest-image-only mode */
+                if(j == i) continue;
+                double chi_nearest = 1.0e30;
+                double qn[4] = {1.0, 0.0, 0.0, 0.0};
+                for(int g = 0; g < 120; g++) {
+                    double gq[4];
+                    double g_elem[4] = { PDS_I_STAR_DEV[g][0], PDS_I_STAR_DEV[g][1],
+                                         PDS_I_STAR_DEV[g][2], PDS_I_STAR_DEV[g][3] };
+                    pds_quat_mult_dev(g_elem, qj, gq);
+                    double chi_g = pds_chi_dev(qi, gq);
+                    if(chi_g < chi_nearest) { chi_nearest = chi_g; for(int k=0;k<4;k++) qn[k]=gq[k]; }
+                }
+                if(chi_nearest >= 3.14159265358979 - 1.0e-10) continue;
+
+                double t4[4];
+                pds_force_dir_dev(qi, qn, t4);
+                double fmag = (double)Mdev[j] * pds_green_soft_dev(chi_nearest, R_curv, soft);
+
+                F0 += fmag * t4[0];
+                Fx += fmag * t4[1];
+                Fy += fmag * t4[2];
+                Fz += fmag * t4[3];
+            }
+        }
+
+        /* Stereographic pushforward of the 4D geodesic tangent (see forces.cc):
+         *     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,  Omega = 2R^2/(R^2+r^2) = 1+q0,
+         * with the overall R absorbed into the kernel normalization and
+         * x_i/R = q_{i+1}/(1+q0). */
+#ifdef PDS_INTRINSIC
+        atomicAdd(&F[3*ii],   (REAL)Fx);      /* raw tangent: see forces.cc */
+        atomicAdd(&F[3*ii+1], (REAL)Fy);
+        atomicAdd(&F[3*ii+2], (REAL)Fz);
+#else
+        double invOmega = 1.0/(1.0 + qi[0]);
+        double c0 = F0 * invOmega;
+        atomicAdd(&F[3*ii],   (REAL)((Fx - qi[1]*c0)*invOmega));
+        atomicAdd(&F[3*ii+1], (REAL)((Fy - qi[2]*c0)*invOmega));
+        atomicAdd(&F[3*ii+2], (REAL)((Fz - qi[3]*c0)*invOmega));
+#endif
+    }
+}
+
+#if defined(USE_BH)
+/* ════════════════════════════════════════════════════════════════════════════
+ *  PDS Barnes-Hut tree force on the GPU.
+ *
+ *  The octree is built and flattened on the host (cheap, O(N log N)); the GPU
+ *  does the expensive traversal.  The flattened tree is stored in DFS preorder
+ *  with an "escape" (skip) pointer per node, so each GPU thread walks it
+ *  iteratively (no recursion, no per-thread stack):
+ *      idx = 0
+ *      while idx < nnodes:
+ *          if leaf or opening-test passes:  accumulate; idx = node.escape
+ *          else:                            idx = idx + 1   (descend: preorder)
+ *  As on the CPU (forces_pds_bh in forces.cc) the opening test is evaluated
+ *  PER I* image in the geodesic metric, so each thread does 120 walks; the
+ *  ~107 genuinely-far images terminate near the root.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* Flattened octree node for the GPU (POD, SoA-free for simplicity). */
+/*  Device-side node.  The host precomputes the node's *unit quaternion* qc
+ *  (inverse stereographic image of its COM) and its opening angle `ang`, both
+ *  of which are independent of the particle and of the group element -- the
+ *  original kernel recomputed them from com[] inside the 120-image loop, i.e.
+ *  once per (particle, image, node visit).                                    */
+struct PDSNodeDev {
+    double qc[4];    /* inverse-stereographic COM on S^3 (unit)               */
+    double ang;      /* 2*R*nodesize/(R^2+r^2): the Barnes-Hut opening angle  */
+    double mass;
+    double soft;
+    int    escape;
+    int    is_leaf;
+};
+
+struct PDSNodeGPU {
+    REAL com[3];     /* centre of mass in stereographic coords */
+    REAL mass;
+    REAL soft;       /* mass-weighted softening length          */
+    REAL nodesize;   /* cube side                               */
+    int  escape;     /* index of next node after this subtree   */
+    int  is_leaf;    /* 1 if a single-particle leaf             */
+};
+
+/* ── Morton-code (Z-order) tree build ───────────────────────────────────────
+ *  Builds the SAME flattened octree as a recursive insert (same cubic dyadic
+ *  cells of the root box, same per-node COM/mass/softening, same DFS order and
+ *  escape pointers — up to floating-point associativity in the COM sums), but
+ *  far faster: O(N log N) with a tiny constant and no per-node allocation.
+ *  Particles sorted by Morton code are already in octree DFS order, so each
+ *  internal node is a contiguous range that splits into <=8 contiguous child
+ *  ranges by the next 3 Morton bits.  The dominant cost (the sort) parallelises.
+ *
+ *  The Morton bit order matches the recursive build's octant() convention
+ *  (bit0=x, bit1=y, bit2=z), so the trees are structurally identical.          */
+#define PDS_MORTON_LEVELS 21          /* 21 bits/axis -> 63-bit key in a uint64 */
+
+static inline uint64_t pds_expand_bits21(uint64_t v)
+{
+    v &= 0x1fffffULL;
+    v = (v | v << 32) & 0x1f00000000ffffULL;
+    v = (v | v << 16) & 0x1f0000ff0000ffULL;
+    v = (v | v << 8)  & 0x100f00f00f00f00fULL;
+    v = (v | v << 4)  & 0x10c30c30c30c30c3ULL;
+    v = (v | v << 2)  & 0x1249249249249249ULL;
+    return v;
+}
+static inline uint64_t pds_morton3(uint32_t xi, uint32_t yi, uint32_t zi)
+{
+    return pds_expand_bits21(xi) | (pds_expand_bits21(yi)<<1) | (pds_expand_bits21(zi)<<2);
+}
+
+struct PDSMortonKey { uint64_t key; int idx; };
+struct PDSAgg { double m, mx, my, mz, ms; };   /* mass and mass-weighted sums   */
+
+/*  Recursive range split.  keys[lo,hi) is sorted by Morton code; emits this
+ *  node and its subtree into out[] in DFS preorder and returns the range's
+ *  mass-weighted aggregate so the parent can accumulate its own COM.           */
+static PDSAgg pds_morton_build(const PDSMortonKey* keys, int lo, int hi, int level,
+                               const REAL* X, const REAL* Mass, const REAL* Soft,
+                               double nodesize, std::vector<PDSNodeGPU>& out)
+{
+    int me = (int)out.size();
+    out.push_back(PDSNodeGPU());                  /* reserve slot */
+    PDSAgg a = {0,0,0,0,0};
+    bool leaf = (hi - lo <= 1) || (level >= PDS_MORTON_LEVELS);
+
+    if(leaf) {
+        for(int p=lo; p<hi; p++) {
+            int i = keys[p].idx;  double m = (double)Mass[i];
+            a.m+=m; a.mx+=m*(double)X[3*i]; a.my+=m*(double)X[3*i+1];
+            a.mz+=m*(double)X[3*i+2]; a.ms+=m*(double)Soft[i];
+        }
+    } else {
+        int shift = 3*(PDS_MORTON_LEVELS-1-level);
+        int p = lo;
+        while(p < hi) {                            /* split into <=8 child ranges */
+            int child = (int)((keys[p].key >> shift) & 7);
+            int q = p+1;
+            while(q < hi && (int)((keys[q].key >> shift) & 7) == child) q++;
+            PDSAgg ca = pds_morton_build(keys, p, q, level+1, X, Mass, Soft, nodesize*0.5, out);
+            a.m+=ca.m; a.mx+=ca.mx; a.my+=ca.my; a.mz+=ca.mz; a.ms+=ca.ms;
+            p = q;
+        }
+    }
+
+    double inv = (a.m > 0.0) ? 1.0/a.m : 0.0;
+    PDSNodeGPU g;
+    g.com[0]=(REAL)(a.mx*inv); g.com[1]=(REAL)(a.my*inv); g.com[2]=(REAL)(a.mz*inv);
+    g.mass=(REAL)a.m; g.soft=(REAL)(a.ms*inv); g.nodesize=(REAL)nodesize;
+    g.is_leaf = leaf?1:0;
+    g.escape  = (int)out.size();
+    out[me] = g;
+    return a;
+}
+
+/* ── Parallel flatten ───────────────────────────────────────────────────────
+ *  The DFS above is inherently sequential: a node's index and its escape
+ *  pointer both depend on how many nodes precede it in the output.  Splitting
+ *  it into a small serial "top" skeleton plus independent subtrees rooted at a
+ *  fixed level makes the bulk of the work parallel while keeping the flattened
+ *  tree *bit-identical* to the serial build -- each subtree is flattened by the
+ *  same recursion, and every top node still accumulates its child aggregates
+ *  left-to-right, so the COM/softening sums associate in exactly the same
+ *  order.  (Validate with PDS_TREE_SERIAL=1, which restores the serial path.)  */
+#define PDS_TREE_SPLIT_LEVEL 4        /* <= 8^4 = 4096 independent subtrees    */
+
+struct PDSSubtree { int lo, hi, level; double nodesize; size_t base, nnode; PDSAgg agg; };
+struct PDSTopNode { size_t idx; PDSNodeGPU node; };
+
+/*  Phase A (serial, <=4096 steps): record the subtree roots in DFS preorder.  */
+static void pds_morton_collect(const PDSMortonKey* keys, int lo, int hi, int level,
+                               double nodesize, std::vector<PDSSubtree>& subs)
+{
+    bool leaf = (hi - lo <= 1) || (level >= PDS_MORTON_LEVELS);
+    if(leaf || level >= PDS_TREE_SPLIT_LEVEL) {
+        PDSSubtree t;
+        t.lo=lo; t.hi=hi; t.level=level; t.nodesize=nodesize;
+        t.base=0; t.nnode=0; t.agg.m=t.agg.mx=t.agg.my=t.agg.mz=t.agg.ms=0.0;
+        subs.push_back(t);
+        return;
+    }
+    int shift = 3*(PDS_MORTON_LEVELS-1-level);
+    int p = lo;
+    while(p < hi) {
+        int child = (int)((keys[p].key >> shift) & 7);
+        int q = p+1;
+        while(q < hi && (int)((keys[q].key >> shift) & 7) == child) q++;
+        pds_morton_collect(keys, p, q, level+1, nodesize*0.5, subs);
+        p = q;
+    }
+}
+
+/*  Phase C (serial, top skeleton only): assign output slots now that every
+ *  subtree's node count is known, and stage the top nodes for writing.        */
+static PDSAgg pds_morton_layout(const PDSMortonKey* keys, int lo, int hi, int level,
+                                double nodesize, std::vector<PDSSubtree>& subs,
+                                size_t& sub_i, size_t& pos,
+                                std::vector<PDSTopNode>& tops)
+{
+    bool leaf = (hi - lo <= 1) || (level >= PDS_MORTON_LEVELS);
+    if(leaf || level >= PDS_TREE_SPLIT_LEVEL) {
+        subs[sub_i].base = pos;
+        pos += subs[sub_i].nnode;
+        return subs[sub_i++].agg;
+    }
+    size_t me = pos++;
+    PDSAgg a = {0,0,0,0,0};
+    int shift = 3*(PDS_MORTON_LEVELS-1-level);
+    int p = lo;
+    while(p < hi) {
+        int child = (int)((keys[p].key >> shift) & 7);
+        int q = p+1;
+        while(q < hi && (int)((keys[q].key >> shift) & 7) == child) q++;
+        PDSAgg ca = pds_morton_layout(keys, p, q, level+1, nodesize*0.5,
+                                      subs, sub_i, pos, tops);
+        a.m+=ca.m; a.mx+=ca.mx; a.my+=ca.my; a.mz+=ca.mz; a.ms+=ca.ms;
+        p = q;
+    }
+    double inv = (a.m > 0.0) ? 1.0/a.m : 0.0;
+    PDSTopNode tn; tn.idx = me;
+    tn.node.com[0]=(REAL)(a.mx*inv); tn.node.com[1]=(REAL)(a.my*inv);
+    tn.node.com[2]=(REAL)(a.mz*inv);
+    tn.node.mass=(REAL)a.m; tn.node.soft=(REAL)(a.ms*inv);
+    tn.node.nodesize=(REAL)nodesize;
+    tn.node.is_leaf = 0;
+    tn.node.escape  = (int)pos;
+    tops.push_back(tn);
+    return a;
+}
+
+static void pds_morton_build_par(const PDSMortonKey* keys, int N,
+                                 const REAL* X, const REAL* Mass, const REAL* Soft,
+                                 double nodesize, std::vector<PDSNodeGPU>& out)
+{
+    static std::vector<PDSSubtree>               subs;
+    static std::vector<std::vector<PDSNodeGPU> > bufs;   /* reused: keeps capacity */
+    static std::vector<PDSTopNode>               tops;
+
+    subs.clear(); tops.clear();
+    pds_morton_collect(keys, 0, N, 0, nodesize, subs);
+    const long ns = (long)subs.size();
+    if((long)bufs.size() < ns) bufs.resize(ns);
+
+    /* Phase B: flatten each subtree independently. */
+    #pragma omp parallel for schedule(dynamic,1)
+    for(long t=0; t<ns; t++) {
+        bufs[t].clear();
+        subs[t].agg   = pds_morton_build(keys, subs[t].lo, subs[t].hi, subs[t].level,
+                                         X, Mass, Soft, subs[t].nodesize, bufs[t]);
+        subs[t].nnode = bufs[t].size();
+    }
+
+    size_t pos = 0, sub_i = 0;
+    pds_morton_layout(keys, 0, N, 0, nodesize, subs, sub_i, pos, tops);
+
+    out.resize(pos);          /* note: no clear() -- avoids re-zeroing each step */
+
+    /* Phase D: splice the subtrees in, rebasing their escape pointers. */
+    #pragma omp parallel for schedule(dynamic,1)
+    for(long t=0; t<ns; t++) {
+        const size_t b = subs[t].base;
+        const std::vector<PDSNodeGPU>& v = bufs[t];
+        for(size_t j=0; j<v.size(); j++) {
+            PDSNodeGPU g = v[j];
+            g.escape += (int)b;
+            out[b+j] = g;
+        }
+    }
+    for(size_t t=0; t<tops.size(); t++) out[tops[t].idx] = tops[t].node;
+}
+
+/*  PDSNodeGPU -> PDSNodeDev, on the device.
+ *  The node quaternion and opening angle depend only on the node, so hoisting them
+ *  out of the (particle, image, visit) loop is a pure win -- but the arithmetic has
+ *  to stay on the GPU.  Computing it on the host instead lets gcc and nvcc contract
+ *  the `cx*cx + cy*cy + cz*cz` sum into FMAs differently, which perturbs r2 in the
+ *  last bit and flips the Barnes-Hut acceptance test for nodes sitting exactly on
+ *  the opening-angle threshold.  Done here, the expressions are compiled by the same
+ *  compiler for the same target as the original in-kernel code, so the acceptance
+ *  test stays bit-identical.                                                       */
+__global__ void PDSTreeConvertKernel(int nnodes, const PDSNodeGPU* __restrict__ in,
+                                     PDSNodeDev* __restrict__ out, const double R_curv)
+{
+    const double R2 = R_curv*R_curv;
+    for(int j = blockIdx.x*blockDim.x + threadIdx.x; j < nnodes; j += blockDim.x*gridDim.x)
+    {
+        const PDSNodeGPU nd = in[j];
+        double cx=(double)nd.com[0], cy=(double)nd.com[1], cz=(double)nd.com[2];
+        double r2 = cx*cx + cy*cy + cz*cz;
+        double dn = R2 + r2;
+        PDSNodeDev o;
+        o.qc[0] = (R2-r2)/dn;
+        o.qc[1] = 2.0*R_curv*cx/dn;
+        o.qc[2] = 2.0*R_curv*cy/dn;
+        o.qc[3] = 2.0*R_curv*cz/dn;
+        o.ang     = 2.0*R_curv*(double)nd.nodesize / dn;
+        o.mass    = (double)nd.mass;
+        o.soft    = (double)nd.soft;
+        o.escape  = nd.escape;
+        o.is_leaf = nd.is_leaf;
+        out[j] = o;
+    }
+}
+
+/*  Barnes-Hut traversal over the 120 images of the binary icosahedral group.
+ *
+ *  The image rotation `qg = g (x) qc` is kept *inside* the walk, where the original
+ *  kernel had it.  It can be lifted out -- left multiplication by a unit quaternion
+ *  is an isometry, so chi(qi, g (x) qc) = chi(gbar (x) qi, qc), and the tangents can
+ *  then be summed in the image frame and rotated back once per image instead of
+ *  transforming every node.  That was implemented and measured: ~4% faster, exact
+ *  algebraically -- and not kept, because the reassociation perturbs the dot product
+ *  for *every* interaction, which moves every particle by ~2.5e-13.  Leaving the
+ *  rotation here keeps ~84% of particles bit-identical to the pre-2026-09 kernel.
+ *  4% is not worth giving that up.                                                */
+__global__ void ForceKernel_pds_bh(
+    int n, const REAL* pds_q, REAL* F,
+    const REAL* soft, const PDSNodeDev* tree, int nnodes,
+    const double R_curv, const double theta2,
+    int ID_min, int ID_max, const int* perm)
+{
+    const int tid    = blockIdx.x * blockDim.x + threadIdx.x;
+    const int stride = blockDim.x * gridDim.x;
+
+    /*  Round the grid-stride loop up to a whole number of strides so that every
+     *  thread of a warp executes the same iteration count and can take part in
+     *  the __any_sync() below; out-of-range threads are inert.                 */
+    const int nround = ((n + stride - 1)/stride)*stride;
+
+    for(int ii = tid; ii < nround; ii += stride)
+    {
+        const bool valid = (ii < n) && (ID_min + ii <= ID_max);
+        int i = valid ? (perm ? perm[ID_min + ii] : ID_min + ii) : ID_min;
+        const int o = ii;                 /* contiguous per-GPU output slot */
+
+        double qi[4]; for(int k=0;k<4;k++) qi[k]=(double)pds_q[4*i+k];
+        double soft_i = (double)soft[i];
+        double F0=0.0, Fx=0.0, Fy=0.0, Fz=0.0;
+
+        for(int g=0; g<120; g++)
+        {
+
+            /*  Warp-cooperative walk.  The warp advances through the *union* of
+             *  its threads' traversals, so tree[idx] is a single broadcast load
+             *  rather than 32 scattered ones and the loop never diverges.  A
+             *  thread that has accepted a node parks at that node's escape
+             *  pointer and idles until the warp reaches it, so each thread still
+             *  sums exactly the same nodes, in the same increasing-index order:
+             *  the result is bit-identical to the per-thread walk.  Threads of a
+             *  warp handle Z-order-adjacent particles, so the paths largely
+             *  coincide and little work is wasted.                             */
+            int idx = 0;
+            int skipto = valid ? 0 : nnodes;    /* inert threads never activate */
+            while(idx < nnodes)
+            {
+                const PDSNodeDev nd = tree[idx];
+                bool open_it = false;
+                if(idx >= skipto) {
+                    double qg[4]; pds_quat_mult_dev(PDS_I_STAR_DEV[g], nd.qc, qg);
+                    double d = pds_dot4_dev(qi, qg);
+                    if(d >  1.0) d =  1.0;
+                    if(d < -1.0) d = -1.0;
+                    double chi = acos(d);
+                    double ang = nd.ang;
+
+                    if(nd.is_leaf || ang*ang < theta2*chi*chi) {
+                        if(chi > 1e-12 && chi < 3.14159265358979 - 1e-12) {
+                            double t[4]; pds_force_dir_d_dev(qi, qg, d, t);
+                            double beta_pair = soft_i + nd.soft;
+                            double fm = nd.mass * pds_green_soft_cd_dev(chi, d, R_curv, beta_pair);
+                            F0 += fm*t[0];
+                            Fx += fm*t[1]; Fy += fm*t[2]; Fz += fm*t[3];
+                        }
+                        skipto = nd.escape;
+                    } else {
+                        open_it = true;
+                    }
+                }
+                idx = __any_sync(0xffffffffu, open_it) ? (idx + 1) : nd.escape;
+            }
+        }
+        /* Stereographic pushforward of the 4D geodesic tangent (see forces.cc):
+         *     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,  Omega = 2R^2/(R^2+r^2) = 1+q0,
+         * with the overall R absorbed into the kernel normalization and
+         * x_i/R = q_{i+1}/(1+q0). */
+        if(!valid) continue;
+#ifdef PDS_INTRINSIC
+        F[3*o]   = (REAL)Fx;                 /* raw tangent: see forces.cc */
+        F[3*o+1] = (REAL)Fy;
+        F[3*o+2] = (REAL)Fz;
+#else
+        double invOmega = 1.0/(1.0 + qi[0]);
+        double c0 = F0 * invOmega;
+        F[3*o]   = (REAL)((Fx - qi[1]*c0)*invOmega);
+        F[3*o+1] = (REAL)((Fy - qi[2]*c0)*invOmega);
+        F[3*o+2] = (REAL)((Fz - qi[3]*c0)*invOmega);
+#endif
+    }
+}
+
+/* Persistent state, reused across force evaluations to avoid per-step
+ * cudaMalloc/cudaFree and host (re)allocation. */
+#define PDS_MAXGPU 64
+static REAL*       g_dq[PDS_MAXGPU]    = {0};   /* device field quaternions (4N) */
+static REAL*       g_dsoft[PDS_MAXGPU] = {0};   /* device softening (N)          */
+static REAL*       g_dF[PDS_MAXGPU]    = {0};   /* device forces (3N)            */
+/*  The device tree is built by streaming the host-layout nodes through a small
+ *  staging buffer and converting them on the GPU, rather than mirroring the whole
+ *  raw array in device memory.  At 1024^3 the full mirror would be ~50 GB per GPU
+ *  -- most of the headroom on a 143 GB H200 -- while the stage below is ~0.4 GB.
+ *  Two buffers on two streams so the next chunk's H2D overlaps the current
+ *  chunk's conversion; reuse of a buffer is ordered by its own stream.          */
+#define PDS_TREE_CHUNK_NODES (4u << 20)          /* 4M nodes -> 224 MB per buffer */
+static PDSNodeGPU*  g_dstage[PDS_MAXGPU][2] = {{0}};
+static cudaStream_t g_cstream[PDS_MAXGPU][2] = {{0}};
+static size_t g_capStage[PDS_MAXGPU] = {0};
+static PDSNodeDev* g_dtree[PDS_MAXGPU] = {0};   /* device tree, kernel layout    */
+static size_t g_capN[PDS_MAXGPU]   = {0};       /* N for which dq/dsoft/dF sized  */
+static size_t g_capTree[PDS_MAXGPU]= {0};       /* node capacity of dtree         */
+static PDSNodeGPU* g_htree = NULL;              /* pinned host tree staging       */
+static size_t g_capHtree = 0;
+static void*  g_reg_q = NULL;                   /* pinned-registered host arrays  */
+static void*  g_reg_soft = NULL;
+static int*   g_dperm[PDS_MAXGPU] = {0};        /* device Morton permutation      */
+static size_t g_capPerm[PDS_MAXGPU] = {0};
+static int*   g_hperm = NULL;                   /* pinned host Morton permutation */
+static size_t g_capHperm = 0;
+
+cudaError_t forces_pds_bh_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_max)
+{
+    cudaError_t cudaStatus = cudaSuccess;
+    int N_total = ID_max - ID_min + 1;
+    double omp_start_time = omp_get_wtime();
+
+    pds_init();
+    double theta2 = (double)THETA * (double)THETA;
+
+    /* ── Build the flattened octree on the host via a Morton sort (parallel) ── */
+    REAL Max_radius = 0.0;
+    #pragma omp parallel for reduction(max:Max_radius)
+    for(int i=0;i<N;i++) {
+        REAL r = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] + x[3*i+2]*x[3*i+2]);
+        if(r > Max_radius) Max_radius = r;
+    }
+    double S0 = 2.00002 * (double)Max_radius;          /* root cube side          */
+    double boxlo = -0.5*S0;
+    const uint32_t CELLS = (uint32_t)1u << PDS_MORTON_LEVELS;
+    double scale = (S0 > 0.0) ? (double)CELLS / S0 : 0.0;
+
+    static std::vector<PDSMortonKey> keys;
+    static std::vector<PDSNodeGPU>  tree;
+    keys.resize(N);
+    /*  The multi-GPU loops below leave the OpenMP thread count pinned at n_GPU,
+     *  which would otherwise make the key fill, the sort and the flatten run
+     *  single-threaded from the second step onward.  Borrow all host cores for
+     *  the tree build and hand the setting back.                              */
+    const int omp_saved = omp_get_max_threads();
+    omp_set_num_threads(HOST_OMP_THREADS);
+    #pragma omp parallel for
+    for(int i=0;i<N;i++) {
+        double ux = ((double)x[3*i]   - boxlo)*scale;
+        double uy = ((double)x[3*i+1] - boxlo)*scale;
+        double uz = ((double)x[3*i+2] - boxlo)*scale;
+        uint32_t xi = (ux<=0)?0:((ux>=CELLS-1)?CELLS-1:(uint32_t)ux);
+        uint32_t yi = (uy<=0)?0:((uy>=CELLS-1)?CELLS-1:(uint32_t)uy);
+        uint32_t zi = (uz<=0)?0:((uz>=CELLS-1)?CELLS-1:(uint32_t)uz);
+        keys[i].key = pds_morton3(xi,yi,zi);
+        keys[i].idx = i;
+    }
+    __gnu_parallel::sort(keys.begin(), keys.end(),
+              [](const PDSMortonKey& a, const PDSMortonKey& b){ return a.key < b.key; });
+    double t_rec0 = omp_get_wtime();
+    if(N > 0) {
+        if(getenv("PDS_TREE_SERIAL")) {
+            tree.clear();
+            pds_morton_build(keys.data(), 0, N, 0, x, M, SOFT_LENGTH, S0, tree);
+        } else {
+            pds_morton_build_par(keys.data(), N, x, M, SOFT_LENGTH, S0, tree);
+        }
+    } else tree.clear();
+    double t_rec = omp_get_wtime() - t_rec0;
+    omp_set_num_threads(omp_saved);
+    int nnodes = (int)tree.size();
+    double t_build = omp_get_wtime() - omp_start_time;
+    if(rank==0 && getenv("PDS_TREE_PROF"))
+        printf("      [tree: keys+sort %.4fs, flatten %.4fs, %d nodes]\n",
+               t_build-t_rec, t_rec, nnodes);
+
+    /* Stage the tree in pinned host memory (faster, async-capable H2D), and
+     * register the field/softening arrays as pinned (one-time). */
+    if(g_capHtree < (size_t)nnodes) {
+        if(g_htree) cudaFreeHost(g_htree);
+        size_t cap = (size_t)(nnodes*1.3) + 1024;
+        cudaMallocHost((void**)&g_htree, cap*sizeof(PDSNodeGPU));
+        g_capHtree = cap;
+    }
+    /*  Morton permutation: thread ii handles the ii-th particle in Z-order, so
+     *  that the threads of a warp walk nearly the same path through the tree.  */
+    /*  The Z-order runs over all N particles and does not respect an MPI
+     *  decomposition, so this reassignment is only valid when the rank owns the
+     *  whole array.  Multi-GPU within a rank is fine: the GPUs split the sorted
+     *  order into contiguous slices.                                           */
+    const bool use_perm = (getenv("PDS_NO_MORTON_THREADS") == NULL)
+                          && (ID_min == 0) && (ID_max == N-1);
+    if(use_perm) {
+        if(g_capHperm < (size_t)N) {
+            if(g_hperm) cudaFreeHost(g_hperm);
+            g_capHperm = (size_t)(N*1.05) + 1024;
+            cudaMallocHost((void**)&g_hperm, g_capHperm*sizeof(int));
+        }
+        #pragma omp parallel for schedule(static) num_threads(HOST_OMP_THREADS)
+        for(int j=0;j<N;j++) g_hperm[j] = keys[j].idx;
+    }
+
+    memcpy(g_htree, tree.data(), nnodes*sizeof(PDSNodeGPU));
+
+    if(g_reg_q != (void*)pds_q) {
+        if(g_reg_q) cudaHostUnregister(g_reg_q);
+        if(cudaHostRegister(pds_q, 4*(size_t)N*sizeof(REAL), cudaHostRegisterDefault) == cudaSuccess)
+            g_reg_q = (void*)pds_q;
+        else { cudaGetLastError(); g_reg_q = NULL; }
+    }
+    if(g_reg_soft != (void*)SOFT_LENGTH) {
+        if(g_reg_soft) cudaHostUnregister(g_reg_soft);
+        if(cudaHostRegister(SOFT_LENGTH, (size_t)N*sizeof(REAL), cudaHostRegisterDefault) == cudaSuccess)
+            g_reg_soft = (void*)SOFT_LENGTH;
+        else { cudaGetLastError(); g_reg_soft = NULL; }
+    }
+    double t_gpu_start = omp_get_wtime();
+
+    #pragma omp parallel num_threads(n_GPU)
+    {
+        int GPU_ID = omp_get_thread_num();
+        cudaSetDevice(GPU_ID);
+        /* __constant__ I* table is per device */
+        cudaError_t cpy = cudaMemcpyToSymbol(PDS_I_STAR_DEV, PDS_I_STAR, 120*4*sizeof(double));
+        if(cpy != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpyToSymbol PDS_I_STAR_DEV failed on GPU %i: %s\n", GPU_ID, cudaGetErrorString(cpy));
+            cudaStatus = cpy;
+        }
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, GPU_ID);
+        int mprocessors = deviceProp.multiProcessorCount;
+
+        int N_GPU = N_total / n_GPU;
+        int GPU_index_min = ID_min + GPU_ID * N_GPU;
+        if(GPU_ID == n_GPU - 1) N_GPU = ID_max - GPU_index_min + 1;
+        int nthreads = 32 * mprocessors * BLOCKSIZE;
+
+        /* (Re)allocate persistent device buffers only when they need to grow. */
+        if(g_capN[GPU_ID] < (size_t)N) {
+            if(g_dq[GPU_ID])    cudaFree(g_dq[GPU_ID]);
+            if(g_dsoft[GPU_ID]) cudaFree(g_dsoft[GPU_ID]);
+            if(g_dF[GPU_ID])    cudaFree(g_dF[GPU_ID]);
+            cudaMalloc((void**)&g_dq[GPU_ID],    4*(size_t)N*sizeof(REAL));
+            cudaMalloc((void**)&g_dsoft[GPU_ID],   (size_t)N*sizeof(REAL));
+            cudaMalloc((void**)&g_dF[GPU_ID],    3*(size_t)N*sizeof(REAL));
+            g_capN[GPU_ID] = (size_t)N;
+        }
+        if(g_capTree[GPU_ID] < (size_t)nnodes) {
+            if(g_dtree[GPU_ID]) cudaFree(g_dtree[GPU_ID]);
+            size_t cap = (size_t)(nnodes*1.3) + 1024;
+            cudaMalloc((void**)&g_dtree[GPU_ID], cap*sizeof(PDSNodeDev));
+            g_capTree[GPU_ID] = cap;
+        }
+        size_t chunk = (size_t)PDS_TREE_CHUNK_NODES;
+        if((size_t)nnodes < chunk) chunk = (size_t)nnodes;
+        if(g_capStage[GPU_ID] < chunk) {
+            for(int b=0; b<2; b++) {
+                if(g_dstage[GPU_ID][b]) cudaFree(g_dstage[GPU_ID][b]);
+                cudaMalloc((void**)&g_dstage[GPU_ID][b], chunk*sizeof(PDSNodeGPU));
+                if(!g_cstream[GPU_ID][b]) cudaStreamCreate(&g_cstream[GPU_ID][b]);
+            }
+            g_capStage[GPU_ID] = chunk;
+        }
+
+        double tp0 = omp_get_wtime();
+        cudaMemcpy(g_dq[GPU_ID],    pds_q,       4*(size_t)N*sizeof(REAL),         cudaMemcpyHostToDevice);
+        cudaMemcpy(g_dsoft[GPU_ID], SOFT_LENGTH,   (size_t)N*sizeof(REAL),         cudaMemcpyHostToDevice);
+        double tp1 = omp_get_wtime();
+        for(size_t j0 = 0, b = 0; j0 < (size_t)nnodes; j0 += chunk, b ^= 1) {
+            size_t m = (size_t)nnodes - j0; if(m > chunk) m = chunk;
+            cudaMemcpyAsync(g_dstage[GPU_ID][b], g_htree + j0, m*sizeof(PDSNodeGPU),
+                            cudaMemcpyHostToDevice, g_cstream[GPU_ID][b]);
+            PDSTreeConvertKernel<<<256, 256, 0, g_cstream[GPU_ID][b]>>>(
+                (int)m, g_dstage[GPU_ID][b], g_dtree[GPU_ID] + j0, (double)PDS_R_CURV);
+        }
+        cudaStreamSynchronize(g_cstream[GPU_ID][0]);
+        cudaStreamSynchronize(g_cstream[GPU_ID][1]);
+        if(use_perm) {
+            if(g_capPerm[GPU_ID] < (size_t)N) {
+                if(g_dperm[GPU_ID]) cudaFree(g_dperm[GPU_ID]);
+                cudaMalloc((void**)&g_dperm[GPU_ID], (size_t)N*sizeof(int));
+                g_capPerm[GPU_ID] = (size_t)N;
+            }
+            cudaMemcpy(g_dperm[GPU_ID], g_hperm, (size_t)N*sizeof(int), cudaMemcpyHostToDevice);
+        }
+        double tp2 = omp_get_wtime();
+
+        /* Loop bound is the per-GPU PARTICLE count N_GPU (not nthreads): the grid-stride
+         * loop `for(ii=tid; ii<N_GPU; ii+=stride)` then covers ALL of this GPU's
+         * particles.  Passing nthreads froze the last (N_GPU - nthreads) particles per
+         * GPU whenever N_GPU > nthreads (~N > 4.3M on 4 GPUs). */
+        ForceKernel_pds_bh<<<32*mprocessors, BLOCKSIZE>>>(
+            N_GPU, g_dq[GPU_ID], g_dF[GPU_ID], g_dsoft[GPU_ID], g_dtree[GPU_ID], nnodes,
+            (double)PDS_R_CURV, theta2,
+            GPU_index_min, GPU_index_min + N_GPU - 1,
+            use_perm ? g_dperm[GPU_ID] : NULL);
+        cudaDeviceSynchronize();
+        double tp3 = omp_get_wtime();
+
+        cudaMemcpy(&F[3*(GPU_index_min - ID_min)], g_dF[GPU_ID], 3*N_GPU*sizeof(REAL), cudaMemcpyDeviceToHost);
+        if(GPU_ID==0 && rank==0 && getenv("PDS_GPU_PROF"))
+            printf("      [gpu: H2D q+soft %.4fs, H2D tree %.4fs (%.0f MB), kernel %.4fs, D2H F %.4fs]\n",
+                   tp1-tp0, tp2-tp1, nnodes*sizeof(PDSNodeGPU)/1048576.0, tp3-tp2,
+                   omp_get_wtime()-tp3);
+    }
+
+    if(use_perm) {
+        /*  F came back in Z-order; put it back in particle order. */
+        static std::vector<REAL> Fs;
+        size_t nf = 3*(size_t)N_total;
+        if(Fs.size() < nf) Fs.resize(nf);
+        #pragma omp parallel for schedule(static) num_threads(HOST_OMP_THREADS)
+        for(int pp=0; pp<N_total; pp++) {
+            int o = g_hperm[ID_min + pp] - ID_min;
+            Fs[3*(size_t)o] = F[3*(size_t)pp];
+            Fs[3*(size_t)o+1] = F[3*(size_t)pp+1];
+            Fs[3*(size_t)o+2] = F[3*(size_t)pp+2];
+        }
+        memcpy(F, Fs.data(), nf*sizeof(REAL));
+    }
+
+    double omp_end_time = omp_get_wtime();
+    printf("PDS Barnes-Hut force calculation finished on MPI task %i (theta = %.3f, %d tree nodes). Wall-clock time = %fs  [host tree build %.4fs (%.0f%%), GPU section %.4fs].\n",
+           rank, (double)THETA, nnodes, omp_end_time - omp_start_time,
+           t_build, 100.0*t_build/(omp_end_time - omp_start_time), omp_end_time - t_gpu_start);
+    return cudaStatus;
+}
+#endif /* USE_BH */
+
+cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_max)
+{
+    int mprocessors, GPU_ID, nthreads;
+    int N_GPU, GPU_index_min;
+    cudaError_t cudaStatus = cudaSuccess;
+
+    int N_total = ID_max - ID_min + 1;
+    double omp_start_time = omp_get_wtime();
+
+    /* Ensure the I* group table is filled before copying it to the GPUs */
+    pds_init();
+
+    #pragma omp parallel num_threads(n_GPU) private(GPU_ID, mprocessors, nthreads, N_GPU, GPU_index_min)
+    {
+        GPU_ID = omp_get_thread_num();
+        cudaSetDevice(GPU_ID);
+        /* Copy I* group elements to constant memory. __constant__ symbols are
+         * per-device, so this must run on every GPU, not just device 0. */
+        cudaError_t cpyStatus = cudaMemcpyToSymbol(PDS_I_STAR_DEV, PDS_I_STAR, 120*4*sizeof(double));
+        if(cpyStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpyToSymbol PDS_I_STAR_DEV failed on GPU %i: %s\n", GPU_ID, cudaGetErrorString(cpyStatus));
+            cudaStatus = cpyStatus;
+        }
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, GPU_ID);
+        mprocessors = deviceProp.multiProcessorCount;
+
+        N_GPU = N_total / n_GPU;
+        GPU_index_min = ID_min + GPU_ID * N_GPU;
+        if(GPU_ID == n_GPU - 1) N_GPU = ID_max - GPU_index_min + 1;
+        nthreads = 32 * mprocessors * BLOCKSIZE;
+
+        /* Allocate and copy particle positions */
+        REAL *dev_q = NULL, *dev_F = NULL, *dev_M = NULL, *dev_soft = NULL;
+
+        cudaMalloc((void**)&dev_q,    4*N*(size_t)sizeof(REAL));
+        cudaMalloc((void**)&dev_F,    3*N_GPU*(size_t)sizeof(REAL));
+        cudaMalloc((void**)&dev_M,    N*(size_t)sizeof(REAL));
+        cudaMalloc((void**)&dev_soft, N*(size_t)sizeof(REAL));
+
+        cudaMemcpy(dev_q,    pds_q,        4*N*sizeof(REAL),   cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_M,    M,            N*sizeof(REAL),     cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_soft, SOFT_LENGTH,  N*sizeof(REAL),     cudaMemcpyHostToDevice);
+        cudaMemset(dev_F, 0, 3*N_GPU*sizeof(REAL));
+
+        /* Loop bound = per-GPU PARTICLE count N_GPU (not nthreads); see forces_pds_bh_cuda. */
+        ForceKernel_pds<<<32*mprocessors, BLOCKSIZE>>>(
+            N_GPU, N, dev_q, dev_F, IS_PERIODIC,
+            dev_M, dev_soft, (double)PDS_R_CURV,
+            GPU_index_min, GPU_index_min + N_GPU - 1);
+
+        cudaDeviceSynchronize();
+
+        cudaMemcpy(&F[3*(GPU_index_min - ID_min)], dev_F, 3*N_GPU*sizeof(REAL), cudaMemcpyDeviceToHost);
+
+        cudaFree(dev_soft); cudaFree(dev_M);
+        cudaFree(dev_F);    cudaFree(dev_q);
+    }
+
+    double omp_end_time = omp_get_wtime();
+    printf("PDS force calculation finished on MPI task %i. Wall-clock time = %fs.\n", rank, omp_end_time - omp_start_time);
+    return cudaStatus;
+}
+
+void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
+{
+#if defined(USE_BH)
+    forces_pds_bh_cuda(pds_q, F, n_GPU, ID_min, ID_max);
+#else
+    forces_pds_cuda(pds_q, F, n_GPU, ID_min, ID_max);
+#endif
+}
+
+#endif /* POINCARE_DODECAHEDRAL */
+
 void recalculate_softening()
 {
 	beta = ParticleRadi;
@@ -1070,7 +1966,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU
-		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, dev_SOFT_LENGTH, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, dev_SOFT_LENGTH, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
 		if (cudaStatus != cudaSuccess) {
@@ -1637,12 +2533,12 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         
         // Launch a kernel on the GPU
 		#ifdef PERIODIC_Z_NOLOOKUP
-        ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(32*mprocessors*BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, 
+        ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F,
                                                             IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
                                                             mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, DE, COSMOLOGY, COMOVING_INTEGRATION,
                                                             GPU_index_min, GPU_index_min+N_GPU-1);
         #else
-		ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(32*mprocessors*BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, 
+		ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F,
 															IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
 															mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, dev_S1R2_EwaldTable, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, DE, COSMOLOGY, COMOVING_INTEGRATION,
 															GPU_index_min, GPU_index_min+N_GPU-1);

@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <cstring>
 #ifdef PERIODIC_Z
@@ -1049,3 +1050,14 @@ void ewald_interpolate_D( const REAL* T, int Nrho, int Nz, REAL rho_max, REAL Lz
 #endif
 
 #endif // PERIODIC_Z
+
+/* ─── PDS (Poincaré Dodecahedral Space) ─────────────────────────────────────── */
+/*  The former 1D Ewald/image correction table (calculate_pds_ewald_lookup_table,
+ *  pds_ewald_interpolate) has been REMOVED.  With the bare 1/(R²sin²χ) kernel
+ *  it was an exact cancellation of the nearest-image force, not a correction:
+ *  I* is closed under negation, so the images come in antipodal ±g pairs whose
+ *  bare forces cancel one by one, making the tabulated 119-image "correction"
+ *  identically equal to −pds_green(χ_nearest).  PDS forces are now computed by
+ *  exact summation over all 120 I* images with the background-compensated
+ *  kernel directly in forces.cc / forces_cuda.cu (no lookup table is needed on
+ *  the compact S³).  See pds_group.h and docs/PDS_guide.md. */

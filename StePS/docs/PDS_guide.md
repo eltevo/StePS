@@ -1,0 +1,1461 @@
+# Poincaré Dodecahedral Space (PDS) Topology in StePS
+
+## Overview
+
+StePS v2.1 adds experimental support for **Poincaré Dodecahedral Space** (PDS) as a fourth
+topology option alongside R³, T³, and S¹×R².  PDS is the quotient manifold S³/I* — a compact,
+positively curved 3-manifold constructed by identifying opposite faces of a spherical dodecahedron
+with a π/5 (36°) twist.  The isometry group I* is the **binary icosahedral group**, which has
+120 elements.
+
+PDS has historically been proposed as a candidate topology for the observable Universe (Luminet
+et al. 2003, *Nature* 425, 593), where a total density Ω_tot ≈ 1.018 implies positive curvature
+and a characteristic cell size of about 3.1 Gpc.  Running N-body simulations in PDS topology
+allows direct tests of this hypothesis by computing the clustering statistics in the correct
+background geometry.
+
+> **Status:** EXPERIMENTAL.  The code compiles and runs, but the time integrator is still
+> approximate (see [Known Limitations](#known-limitations)).  Do not use PDS results for
+> publication without first running the suggested validation tests.
+
+---
+
+## Physics
+
+### Geometry of S³/I*
+
+Particles live on the 3-sphere S³ ⊂ ℝ⁴.  Their positions are stored as **unit quaternions**
+q = (q₀, q₁, q₂, q₃) in the separate array `PDS_Q[4*N]`.
+
+The binary icosahedral group I* has 120 elements — generated at runtime by BFS closure from two
+known generators in `src/pds_group.h`.  Each particle in the **fundamental domain** of S³/I* has
+119 image copies at other locations on S³, making I* the group of periodic images analogous to
+lattice translations in T³.
+
+The **fundamental domain** is the Voronoi cell of the identity element e₀ = (1,0,0,0):
+```
+q ∈ domain  ⟺  q₀ = max_{g ∈ I*} (q · g)
+```
+Boundary wrapping is equivalent to finding the nearest domain centre and left-multiplying by its
+conjugate.
+
+### Force Law
+
+The gravitational force on S³ uses the **background-compensated kernel** (per unit
+source mass, curvature radius R):
+
+```
+|F| = G M [1 − V(χ)/V_S³] / (R² sin²χ),     V(χ)/V_S³ = (2χ − sin 2χ) / (2π)
+```
+
+i.e. a point mass plus a uniform *negative* background of equal total mass.  On a
+compact space a bare point mass is inconsistent (its flux has nowhere to end), and
+in comoving cosmological simulations the homogeneous mean density is already part
+of the Friedmann expansion — peculiar forces must be sourced by fluctuations only.
+This is the exact analogue of dropping the k = 0 mode in T³ Ewald summation.
+
+The compensated kernel reduces to the Newtonian G M/r² as χ → 0 (r = Rχ) and goes
+smoothly to zero at the antipode.  The direction is the unit geodesic tangent at
+the field particle pointing toward the source.  The geodesic distance is
+`χ = arccos(p · q)` where p and q are unit quaternions.
+
+> **Conformal Jacobian (the force→drift mapping).** The kernel above is the
+> *physical geodesic* acceleration, but the integrator drifts particles in the
+> flat stereographic chart (`x_stereo += v·dt`, see Known Limitations). The
+> stereographic map is conformal, `ds² = Ω²·dx_stereo²`, with
+> `Ω = 2R²/(R² + r²)`, so the correct **coordinate** acceleration is `a_phys/Ω`.
+> Each PDS force is therefore divided by `Ω(r_i)` for its target particle `i`,
+> using the identity **`Ω = 1 + q₀`** (q₀ = quaternion scalar part of `i`).
+> Omitting this made gravity ~Ω ≈ 2× too strong throughout the domain and caused
+> a runaway over-growth (`D ∝ a^1.6` instead of `a`); fixed in v2.2.3.0. Ω varies
+> only ~3.5% across the domain (2.00 at the centre → 1.93 at r_in = 960 Mpc), so
+> the per-particle factor captures the effect to a few percent.
+
+> **Why not the bare 1/(R² sin²χ) kernel?**  I* is closed under negation, the bare
+> kernel satisfies G(π−χ) = G(χ), and antipodal images pull in exactly opposite
+> directions — so the bare force from the full 120-image system of any source
+> **cancels identically**.  (StePS ≤ v2.1.1.0 used the bare kernel with a 1D
+> "Ewald correction" table; that table was exactly −G(χ_nearest), and Ewald-mode
+> runs had essentially zero gravity.  Fixed in v2.2.0.0.)
+
+### Exact Image Summation
+
+S³ is compact: every source has exactly 119 non-trivial I* images, so — unlike the
+infinite lattice sums of T³ — the image sum is **finite and exact**.  For
+IS_PERIODIC ≥ 2 StePS sums the compensated force over **all 120 images of every
+source**, including the particle's own self-images.  No Ewald table is involved.
+
+Two structural facts worth knowing:
+
+- **Homogeneity / zero self-force:** the self-image distances
+  χ(q, g·q) = arccos(Re g) do not depend on q, and each image shell is symmetric
+  around the particle, so the self-image force vanishes identically everywhere
+  (validated by Test 4 of the test suite).
+- **Anisotropy:** the 119-image correction is *not* isotropic — its radial part
+  varies with direction by up to 0.45·F_nearest and it has a transverse component
+  up to 0.19·F_nearest near the domain boundary (see
+  `data/pds_anisotropy/REPORT.md`).  This is why no 1D table can replace the
+  exact sum; the directional residual scales as (r/R)⁵ near the centre, matching
+  Roukema & Różański (2009).
+
+For IS_PERIODIC = 1 (nearest-image mode, fast tests / glass making) only the
+single closest I* image of each source contributes, with the same compensated
+kernel.
+
+---
+
+## Building StePS with PDS Support
+
+Enable PDS by uncommenting one line in your Makefile:
+
+```makefile
+OPT += -DPOINCARE_DODECAHEDRAL  # Poincare Dodecahedral Space (S^3/I*). EXPERIMENTAL.
+```
+
+No other Makefile changes are needed.  PDS is mutually exclusive with `-DPERIODIC` and
+`-DPERIODIC_Z` — compile a separate binary for PDS runs.
+
+### Recommended Makefile settings
+
+```makefile
+OPT += -DPOINCARE_DODECAHEDRAL
+OPT += -DHAVE_HDF5
+OPT += -DCOSMOPARAM=0          # standard ΛCDM
+EWALD_INTERPOLATION_ORDER=2    # not used in PDS, safe to leave at default
+```
+
+---
+
+## Parameter File
+
+PDS simulations use the same `.param` format as other StePS modes.  The key parameters are:
+
+| Parameter | Meaning | Typical value |
+|---|---|---|
+| `IS_PERIODIC` | 1 = nearest-image only; ≥ 2 = exact 120-image summation | 2 |
+| `COSMOLOGY` | 1 for cosmological integration | 1 |
+| `Omega_m` | Matter density | 0.3111 |
+| `Omega_lambda` | Cosmological constant | 0.6889 |
+| `Omega_r` | Radiation density | 0.0 |
+| `HubbleConstant` | H₀ in km s⁻¹ Mpc⁻¹ | 67.66 |
+| `PDS_R_CURV` | Curvature radius of S³ in Mpc | 3100.0 |
+| `L_BOX` | Not used in PDS mode; set equal to 2×PDS_R_CURV | 6200.0 |
+| `R_SIM` | Simulation radius (= inscribed radius of dodecahedron ≈ 0.31 R_curv) | 960.0 |
+| `PARTICLE_RADII` | Plummer softening length in Mpc | (from IC generator) |
+| `ACC_PARAM` | Relative force accuracy parameter | 0.005 |
+| `STEP_MIN` | Minimum time step | 0.00002 |
+| `STEP_MAX` | Maximum time step | 0.03125 |
+
+### Setting PDS_R_CURV
+
+The curvature radius R is set from the cosmological constraint that the volume of S³/I* equals
+the observed universe volume.  For the Luminet et al. (2003) best-fit:
+
+```
+Ω_total ≈ 1.018  →  Ω_k = −0.018  →  R ≈ 3100 Mpc
+```
+
+More generally: R = c / (H₀ √(Ω_k)) (for negative Ω_k = 1 − Ω_total).
+
+The **inscribed radius** of the dodecahedral fundamental domain (the inradius) is:
+```
+r_in ≈ R · arccos(1/√5) ≈ 0.3094 R
+```
+Set `R_SIM` to this value so that all particles inside the fundamental domain are covered.
+
+---
+
+## Quick Start Example
+
+### 1 · Compile
+
+```bash
+# cp Template-LinuxGCC-Makefile Makefile
+# Edit Makefile: uncomment -DPOINCARE_DODECAHEDRAL, set library paths
+# make
+# or create PDS-LinuxGCC-Makefile and
+make -f PDS-LinuxGCC-Makefile
+```
+
+### 2 · Prepare a parameter file - done
+
+Save the following as `examples/PDS_test.param`:
+
+```
+# Poincare Dodecahedral Space test simulation
+# LCDM cosmology, Luminet et al. (2003) best-fit curvature
+
+Cosmological parameters:
+------------------------
+Omega_b         0.0
+Omega_lambda    0.6889
+Omega_m         0.3111
+Omega_r         0.0
+HubbleConstant  67.66
+a_start         0.03125
+a_max           1.0
+
+Simulation parameters:
+-----------------------
+COSMOLOGY               1
+IS_PERIODIC             2
+COMOVING_INTEGRATION    1
+PDS_R_CURV              3100.0
+L_BOX                   6200.0
+R_SIM                   960.0
+IC_FILE                 ./examples/ic/pds_test_n1000_cubical_Lx1919_Ly1919_Lz1919_Ng10_Nm64_z31_LPT1_cic/ic.hdf5
+IC_FORMAT               2
+OUT_DIR                 ./examples/PDS_test_output/
+OUT_LST                 ./examples/outredshifts.txt
+OUTPUT_TIME_VARIABLE    1
+OUTPUT_FORMAT           2
+REDSHIFT_CONE           0
+MIN_REDSHIFT            0.0003012504
+ACC_PARAM               0.005
+STEP_MIN                0.00002
+STEP_MAX                0.03125
+PARTICLE_RADII          10.0
+FIRST_T_OUT             1.0
+H_OUT                   1.0
+```
+
+### 3 · Generate initial conditions
+
+[stepsic](https://github.com/eltevo/stepsic) has a **native PDS geometry**
+(`GEOMETRY = "pds"`, since 2026-06-10): particles are placed on a regular
+stereographic Cartesian grid clipped to the dodecahedral fundamental domain,
+particle masses carry the conformal volume factor Ω(r)³ = (2R²/(R²+r²))³ so the
+comoving density on S³ is exactly uniform, flat-space LPT displacements are
+applied (Phase 7A approximation, valid for R_domain/R_curv ≈ 0.3), particles
+displaced out of the domain are wrapped back with the exact velocity Jacobian,
+and the IC file contains a `PartType1/Quaternions` (N, 4) dataset that StePS
+uses directly (skipping the projection + wrap at load time).
+
+Run from the stepsic repository root:
+
+```bash
+conda activate stepsic
+cd STEPSIC_ROOT
+python stepsic.py STEPS_ROOT/examples/PDS_test_ic.toml
+```
+
+The IC file will be written to:
+```
+/v/csabai/GitHub/steps_dodeca/data/ic/pds_test_pds_Rcurv3100_L1200_Ng16_Nm64_z31_LPT1_cic/ic.hdf5
+```
+This path is already set in `PDS_test.param` as `IC_FILE`.
+
+Key settings in [examples/PDS_test_ic.toml](../examples/PDS_test_ic.toml):
+
+| Parameter | Value | Meaning |
+|-----------|-------|---------|
+| `GEOMETRY` | `"pds"` | Native PDS: domain-clipped grid + quaternions |
+| `PDS_R_CURV` | `3100.0` | Curvature radius of S³ [Mpc] |
+| `LBOX` | `[1200, 1200, 1200]` | LPT mesh box; must enclose the domain (≥ 2·R·tan 10.7° ≈ 1172 Mpc) |
+| `PERIODIC` | `[0, 0, 0]` | StePS handles the S³/I* identifications |
+| `TYPE` | `"grid"` | Regular lattice clipped to the domain |
+| `NGRID` | `16` | 16³ grid → 1552 particles inside the domain (~38%) |
+| `REDSHIFT` | `31` | Matches `a_start = 0.03125` |
+| `LPTORDER` | `1` | Zel'dovich (use 2 for production) |
+| `COSMOLOGY` | `"Planck2018EE+BAO"` | Matches `PDS_test.param` ("best" values) |
+| `HINDEPENDENT` | `false` | Distances in Mpc, not Mpc/h |
+
+> **TODO — IC generation is largely single-threaded.** Generating the 1024^3 glass IC
+> (402M particles, `NMESH = 1024`, `LPTORDER = 2`) took **72 min**, most of it on a single
+> core while the other 127 sat idle. Observed phases: ~40 min for the 2LPT displacement and
+> velocity fields, then the discrete S^3/I* modes, then `pds.wrap()` and the 26 GB write.
+>
+> The FFTs are already parallel — `scipy.fft.rfftn/irfftn(..., workers=-1)` throughout
+> `stepsic/lpt.py` and `stepsic/field.py`. What is single-threaded, in rough order of cost:
+> 1. the **CIC gather** of the displacement/velocity fields onto the particle positions
+>    (`lpt1`/`lpt2` in `stepsic/lpt.py`) — embarrassingly parallel over particles, so it
+>    can be chunked across threads and stay *numerically identical* (the RNG and the FFTs
+>    are untouched; only the read-out is split);
+> 2. the elementwise passes over the 1024x1024x513 complex grid in `generate_delta_k()`
+>    and `s3lpt.highpass_delta_k()` — 8.6 GB per pass, memory-bound;
+> 3. `rng.normal(size=NMESH^3)` in `white_noise()` — 1.07e9 draws from one PCG64 stream
+>    (parallelising this changes the field unless the stream is split deterministically, so
+>    leave it alone if bit-reproducibility against existing ICs matters).
+>
+> Not urgent: 72 min of IC generation against ~3 days of integration. It becomes worth
+> doing if ICs at this resolution are generated repeatedly, or for anything beyond 1024^3.
+>
+> **Do not extrapolate small-N timings.** The identical code path at 256^3 takes 309 s, and
+> scaling that by the 64x in particles and mesh cells predicts ~5.5 h — 4.6x more than the
+> 72 min actually observed. Fixed costs (CAMB spectrum, startup, glass read) dominate the
+> small case and the FFT share is multithreaded, so the naive extrapolation is badly
+> pessimistic. Measure at the target size.
+>
+> **Memory is the harder ceiling.** `pds.wrap()` materialises a dense `(N, 120)` float64
+> array of quaternion dot products — **386 GB at N = 402M**; peak RSS was 427 GB in the
+> preglass stage and 444 GB here, against 766 GB of RAM. Chunking `wrap()` over particles
+> would remove this and is a prerequisite for going beyond 1024^3.
+
+For legacy flat-approximation ICs (`GEOMETRY = "cubical"`), StePS still converts
+Cartesian coordinates to quaternions at load time whenever
+`PartType1/Quaternions` is absent — but the cubical box tiles into 120 copies
+under wrapping and destroys the LPT correlations, so the native pds geometry
+should always be preferred.
+
+### 4 · Run
+
+The example writes its output under the workspace data folder
+(`/v/csabai/GitHub/steps_dodeca/data/pds_run_7a/`); large outputs do not belong
+in the git repositories.
+
+```bash
+mkdir -p /v/csabai/GitHub/steps_dodeca/data/pds_run_7a
+mpirun -np 4 ./build/StePS examples/PDS_test.param
+```
+
+Or on a GPU node (much faster; the trailing argument is the number of GPUs —
+see [Running on GPUs](#running-on-gpus-cuda)):
+
+```bash
+mpirun -np 1 ./build/StePS_CUDA examples/PDS_test.param 4
+```
+
+At startup, StePS will print:
+
+```
+PDS (S^3/I*) exact 120-image force summation is on (background-compensated kernel).
+PDS curvature radius		3100.000000 Mpc
+...
+	Reading /PartType1/Quaternions
+...
+The particle masses are consistent with the cosmological parameters set in the parameter file:
+rho_part/rho_cosm - 1 = -6.9e-08
+PDS: Binary icosahedral group I* generated (120 elements).
+```
+
+There is no Ewald table any more — nothing is cached between runs, and old
+`PDS_Ewald_table.hdf5` files are ignored.
+
+### 5 · Read output snapshots
+
+Output snapshots are standard StePS HDF5 files.  PDS-specific header fields:
+
+```python
+import h5py
+
+with h5py.File("snapshot_0001.hdf5", "r") as f:
+    topology = f["/Header"].attrs["TopologicalManifold"]  # "S^3/I*"
+    R_curv   = f["/Header"].attrs["R_curvature_Mpc"]
+    Omega_k  = f["/Header"].attrs["Omega_k"]
+    order    = f["/Header"].attrs["PDS_I_star_order"]     # 120
+    quats    = f["PartType1/Quaternions"][:]               # shape (N, 4)
+    print(f"Topology: {topology},  R = {R_curv:.1f} Mpc,  Ω_k = {Omega_k:.4f}")
+```
+
+---
+
+## Barnes-Hut tree force (experimental)
+
+Direct 120-image summation is O(N²) and becomes prohibitive at research-grade
+resolution (N ≳ 10⁵). Since v2.2.2.0 a **Barnes-Hut octree** force is available
+for PDS on both **CPU and GPU**, scaling as O(N log N).
+
+```bash
+conda activate stepsic
+
+# CPU build:
+make -f PDS-Linux_BH-Makefile          # builds build/StePS_BH (theta = 0.3)
+# IMPORTANT: --bind-to none, or all OpenMP threads pile onto one core (~18x slower)
+OMP_NUM_THREADS=16 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 \
+    ./build/StePS_BH <paramfile>
+
+# GPU build (much faster; <n_gpu> is the trailing argument as for StePS_CUDA):
+make -f PDS-Linux_CUDA_BH-Makefile     # builds build/StePS_CUDA_BH (theta = 0.3)
+# Use --bind-to none here too: the octree build is parallel on the host CPU, so
+# binding to one core slows it down (the GPU kernels are unaffected).
+OMP_NUM_THREADS=32 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 \
+    ./build/StePS_CUDA_BH <paramfile> 4
+```
+
+### Performance and tuning knobs
+
+On H200 NVL with 16.8M particles (`test256disc`, 1200 Mpc) the GPU Barnes-Hut force runs
+at **1.40 s/step on 1 GPU** and **0.49 s/step on 4 GPUs** (2026-09; **3.1x** and **5.1x**
+faster than the 2026-07 code). See the CHANGELOG entry for what changed, what is
+bit-identical, and how the residual difference against older runs was measured — briefly:
+84% of particles are bit-identical on a z=0 field and the worst single particle moves by
+6e-7 of its own speed, dominated by the OpenMP parallelisation of the integrator loops
+rather than by the GPU kernel.
+
+Traversal cost is ~12,200 node visits per particle, of which **55% come from the 119
+non-identity images** of I* (~56 visits each) and **85% end in acceptance**. The host-side
+tree build is ~8% of the force; the rest is the GPU walk, dominated by one `acos` per
+accepted interaction.
+
+Give the run all the host cores you can — the tree build (Morton keys, parallel sort,
+parallel flatten) and the rank-0 KDK loops are all OpenMP-parallel, which is why
+`--bind-to none` matters above.
+
+### Full-run validation (256^3 PDS glass, 2026-09)
+
+The whole `test256glass` configuration (z=31 -> 0) was re-run end to end with the optimized
+code (`/scratch/csabai/test256glass_v3`) and compared with the previous run of the *same*
+configuration (`test256glass_v2`, commit d1d644d):
+
+- **0.611 h vs 2.74 h**, 4837 steps at 0.454 s/step on 4x H200.
+- The two runs take the **same adaptive timestep path** — both reach z=14 at step 374.
+- **P(k) in the domain-fitting cube agrees to 0.06% (median), 0.3% worst bin** at z=3, 1
+  and 0, and to 5 decimal places at z=10. For scale, the same comparison against the
+  *pre-code-review* June run differs by 2.5-3.5% — the optimization changes the spectrum
+  ~40x less than the code review itself did.
+- Particle positions diverge chaotically as expected: round-off at z=30, median 0.14 Mpc
+  by z=0 (against a 4.7 Mpc mean interparticle separation), i.e. the same structures with
+  particles reshuffled inside haloes.
+
+### The 1024^3 PDS glass run (2026-09)
+
+Completed on 4x H200: **67.85 h (2.83 days), 7066 steps at 34.54 s/step**, 402M particles
+in the domain, z = 31 -> 0, 11 snapshots. Against the projection below that is 2.83 days
+versus a 2.8-day central estimate, and 34.5 versus 32 s/step.
+
+Pipeline and cost:
+
+| stage | cost |
+|---|---|
+| preglass Poisson load (stepsic, `TYPE="random"`, `LPTORDER=0`) | 67 min, peak RSS 427 GB |
+| glass making (EdS reverse gravity, `PARTICLE_RADII` 0.1 -> 0.025) | 6.59 h, 555 steps |
+| PDS glass IC (`LPTORDER=2`, `NMESH=1024`) | 72 min, peak RSS 444 GB |
+| **production run** | **67.85 h** |
+
+Health: the adaptive timestep was set by `errmax` at **every one of the 7066 steps** (never
+clamped to `STEP_MAX`), the tree grew 1.354 -> 1.746 nodes/particle, and device memory
+peaked well inside the 143.8 GB card. The relaxed glass matched the 256^3 reference
+exactly (NN spacing sd/mean 0.1075 vs 0.1070, spacing ratio 4.02x).
+
+> **Phase-matched initial conditions (fixed 2026-09).** `stepsic.field.white_noise()`
+> originally drew the phases in *configuration space* on the `NMESH^3` grid
+> (`rng.normal(size=nvox, seed=seed)`), so the same `SEED = 137` produced a **different
+> realization** at every mesh size. The 1024^3 run therefore shared nothing with the 256^3
+> set: measured z = 0 cross-correlation **r ~ 0**, against r ~ 0.95 within the 256^3 set.
+>
+> `white_noise()` now takes `ref_nvox` (toml: **`PHASE_REF_NMESH`**): the field is drawn
+> once on a `ref_nvox^3` mesh and matched to the run's own mesh in k-space, with a
+> `(M/N)^{3/2}` rescaling that restores the per-mode variance of a native draw. Absent or 0
+> keeps the legacy behaviour, so existing ICs stay reproducible. Two directions:
+>
+> * **`NMESH < PHASE_REF_NMESH` -- crop.** The reference is truncated to the coarser mesh,
+>   then re-symmetrised because cropping breaks Hermitian consistency on the Nyquist planes.
+>   Every mesh below the reference is a strict subset of one realization.
+> * **`NMESH > PHASE_REF_NMESH` -- embed (added 2026-10).** The reference's modes are
+>   transplanted into the finer mesh and the scales above its Nyquist come from a fresh
+>   `NMESH^3` draw with the same seed. This is what lets a realization first drawn at low
+>   resolution be re-run at high resolution; before it, `white_noise()` raised
+>   `ValueError` and the matching only ever worked downwards.
+>
+>   The reference's own Nyquist planes are deliberately **excluded** from the transplant: on
+>   the coarse mesh those modes are self-conjugate and therefore real, and carrying that
+>   constraint to the fine mesh -- where the partner is a distinct mode -- would be wrong.
+>   Dropping them keeps the transplanted block closed under conjugation, so the result is
+>   Hermitian-consistent by construction and needs no repair. The cost is ~`3/N` of the
+>   reference band (1.2% at `N = 256`), all of it at the very edge. Verified mode-by-mode
+>   at production size: `r = 1.000000` in every k-bin from 0.005 to the 256^3 Nyquist
+>   (0.67 /Mpc). See `stepsic/tests/test_white_noise.py`.
+>
+>   Because the embed starts from the native `NMESH^3` draw and overwrites only what the
+>   reference resolves, **two runs differing solely in `PHASE_REF_NMESH` share their
+>   small-scale modes exactly** -- which makes them a controlled experiment on the
+>   large-scale realization alone.
+>
+> **The 1024^3 run did not need redoing.** At `NMESH == PHASE_REF_NMESH` the crop is a
+> no-op, so the phase-matched IC came out *bit-identical* to the original. Only the 256^3
+> side was rebuilt (`test256glass_pm{,_run}`, ~1 h). Verified z = 0 cross-correlation with
+> the 1024^3 run: **r = 0.984 -> 0.898**, against r ~ 0 before.
+>
+> Note this leaves **two realizations** in the campaign: A, the four original 256^3 runs
+> (fine for the load-vs-topology decomposition), and B, the phase-matched pair used for
+> everything about resolution. The Gadget runs do **not** need repeating -- they only enter
+> the 256^3-internal comparison.
+>
+> **Realization A at 1024^3 (2026-10).** With the embed direction available, realization A
+> was carried to 1024^3 (`test1024glassA{,_run}`, `PHASE_REF_NMESH = 256`, 2LPT, the same
+> `glass1024_run` load; **61.88 h** / 247.5 GPU-h on 4x H200). It shares realization A
+> exactly with the four 256^3 runs, so they are now its direct resolution partners, and it
+> is the column to put beside them in `Gadget_vs_PDS_1024_comparison.ipynb` -- the
+> realization-B 1024^3 run shows a different universe and the notebook had to keep warning
+> about it. Its small-scale modes are identical to the realization-B 1024^3 run's, so the
+> two together isolate the large-scale realization with nothing else varying.
+
+#### The low-k features, and what the glass relaxation really controls
+
+Three separate things were conflated in earlier versions of this section. They have
+different causes and different cures.
+
+**1. The fundamental-bin "load noise" (F ~ 2000-2200 Mpc^3) is a COORDINATE ARTIFACT, not
+glass noise.** The glass load is uniform on S^3, so its *count* density in the
+stereographic chart carries the smooth radial Omega^3 = (2R^2/(R^2+r^2))^3 volume factor.
+`power_spectrum()` weights by raw counts, and picks that gradient up as large-scale power.
+Measured on the load itself:
+
+| load | raw counts | de-conformalized (1/Omega^3 weights) |
+|---|---|---|
+| Poisson preglass (*unrelaxed*) | 2256.7 | 145.1 |
+| glass, relaxed to a=1.01 | 2090.9 | **18.0** |
+| glass, relaxed to a=16 | 2076.3 | **9.1** |
+
+99% of it disappears under the de-conformalized weighting that `delta_slice()` already
+applies to the density slices but that `power_spectrum()` never received. It is present at
+full strength in the *unrelaxed Poisson* load, is identical at 256^3 and 1024^3 (2231 vs
+2178 -- a coordinate effect does not care about N), and a 16x longer relaxation leaves it
+untouched (2091 -> 2076). The PDS **grid** run does not show it (F = -13.9) because that
+load is a uniform *chart* lattice carrying Omega^3-weighted masses: uniform counts, no
+gradient.
+
+> Earlier text here claimed this residual was "the glass's largest-scale modes, which relax
+> slowest" and that only a longer glass-making run would fix it. That was wrong on both
+> counts. **Fixed:** `power_spectrum()` now takes per-particle weights and
+> `clustering_pk()` passes m/Omega^3 for PDS runs by default (`deconf=True`).
+
+**2. The local maximum at k = 0.0209 is set by the realization, not by the topology.**
+It is unchanged by de-conformalization (1.209 -> 1.207, 1.916 -> 1.936), by 1LPT vs 2LPT,
+by the discrete S^3/I* modes, and by a 16x longer glass relaxation (1.916 -> 2.035) --
+every knob except the initial realization.
+
+Two experiments pin this down, from opposite directions.
+
+**(i) Each realization was also run in Gadget4** (flat T^3, FMM/TreePM, its own flat glass
+load) from a cubical IC with the same `SEED` and `PHASE_REF_NMESH`, so it samples the same
+modes and shares nothing else:
+
+| realization | runs | mean P(0.0209)/P(0.0314) | spread |
+|---|---|---|---|
+| A | StePS PDS 256^3 1.209, Gadget T^3 glass 1.227, Gadget T^3 grid 1.311, **StePS PDS 1024^3 1.273** | 1.255 | 0.102 |
+| C | StePS PDS 1.597, Gadget T^3 glass 1.500 | 1.549 | 0.097 |
+| B | StePS PDS 256^3 1.916, **Gadget T^3 glass 1.833**, StePS PDS 1024^3 1.998 | 1.916 | 0.165 |
+
+Realization B is the one that matters here: it carries the strong peak, and before its
+Gadget counterpart existed every strong-peak run was a PDS run, so "realization" and
+"PDS-specific" were indistinguishable. Gadget reproduces it (1.833 vs 1.916/1.998; raw P at
+k=0.0209 is 71816 vs 73440 Mpc^3). Separations between realizations (B-A = 0.661) are
+several times the spread within one (<= 0.165), and consistent with the ~23% sample
+variance of a 62-mode bin.
+
+**(ii) The matched 1024^3 pair (2026-10) is the controlled version.** Test (i) swaps the
+realization together with the code, topology and load. `test1024glassA_run` and
+`test1024glass_run` swap **only the realization**: same code, topology, resolution, glass
+load, LPT order, parameter file, binary, and -- by construction of the `PHASE_REF_NMESH`
+embed -- the same small-scale modes. The peak goes **1.998 (B) -> 1.273 (A)**, and raw
+P(k=0.0209) from 68725 to 42957 Mpc^3, a factor 1.60. The new run lands inside realization
+A's existing range (1.209-1.311), moving its mean by 0.006 and leaving the spread at 0.102.
+
+A by-product: realization A now holds a 1LPT run (256^3, 1.209) and a 2LPT run (1024^3,
+1.273), so the LPT order is no longer confounded with the realization anywhere. It is worth
+~0.06, well inside the within-realization spread.
+
+See `tools/Visualization/PDS_glass_variance_study.ipynb`.
+
+**3. The glass anomaly IS insufficient relaxation -- and a longer run cures it.**
+Extending the reverse-gravity relaxation from a = 1.01 to a = 16 (43 min at 256^3) improves
+the load (nearest-neighbour sd/mean 0.107 -> 0.064, most of it by a = 4) and removes the
+excess small-scale power almost entirely. Controlled test: same realization, same 2LPT,
+only the glass differs.
+
+| z = 0, k > 0.18 | ratio |
+|---|---|
+| glass(a=16) / glass(a=1.01) | 0.811 |
+| glass(a=1.01) / grid | **1.208**  (the anomaly) |
+| glass(a=16) / grid | **0.979**  (cured) |
+
+So the ~21% high-k excess of the glass-IC run over the grid-IC run -- the same effect that
+shows up as ~1.7x halo abundance and ~2x matched-pair masses in `halo_catalogs/README` --
+is a glass-relaxation artifact, not a property of the glass load per se. **Relax to a >= 4
+for production glass ICs.** The runs relaxed only to a = 1 should not be used for glass-IC
+halo statistics.
+
+Data: `glass256_long_run/` (the extended relaxation), `test256glass_longrelax{,_run}`.
+
+#### What it says about the glass anomaly
+
+The `halo_catalogs` README flags an open issue: the glass-IC run shows ~1.7x halo
+abundance and ~2x matched-pair masses, "likely residual glass-load noise seeding extra
+small-scale growth". The 1024^3 run separates that into two components with opposite
+behaviour under resolution.
+
+Static load-noise floor `F(k)` (zA=30, zB=5, raw spectra), in Mpc^3:
+
+| k [1/Mpc] | PDS glass 1024 | PDS glass 256 | PDS grid 256 | Gadget glass |
+|---|---|---|---|---|
+| 0.0105 | **2178** | **2231** | -14 | -4 |
+| 0.0209 | 4.2 | 13.6 | -6 | -2 |
+| 0.0314 | 4.9 | 12.6 | 20 | 10 |
+| 0.0524 | 0.6 | 8.8 | 41 | 2.5 |
+| 0.0942 | 0.1 | 9.0 | 102 | 7.3 |
+
+- **The fundamental-bin residual is resolution-independent**: 2178 vs 2231, a ratio of
+  **0.98**, with **64x more particles**. This is the Omega^3 chart gradient described
+  above, *not* a physical residual -- see point 1. It is listed here only because the
+  count-weighted estimator produces it. It is therefore *not* discreteness — it is the glass's
+  largest-scale modes, which relax slowest and which the reverse-gravity run does not erase.
+  More resolution will never fix it; only a longer glass-making run will.
+- **Everything above the fundamental bin is discreteness** and falls by 10-40x, consistent
+  with 1/N.
+
+Consequently the small-scale half of the anomaly largely cures itself at higher resolution.
+P(k) ratios in the fitting cube at z=0, k > 0.18:
+
+| comparison | ratio | meaning |
+|---|---|---|
+| 1024 glass / 256 glass (phase-matched) | **0.83** | resolution at fixed load |
+| 256 glass / 256 grid | **1.22** | load at fixed resolution |
+
+The 256^3 glass carried excess small-scale power seeded by its own small-scale load noise;
+at 1024^3 that noise is ~64x smaller and the excess drops by ~17%. Robust to discreteness
+handling: the same ratio is 0.826 with Poisson subtraction and 0.799 with none at all, so
+it is not a subtraction artifact.
+
+#### Halo-level confirmation (2026-09)
+
+Halo catalogs were built for the realization-B pair and for the a=16 glass with the same
+StePS_HF pipeline as the flagship set (`halo_catalogs/prep_cut_new.py`,
+`postprocess_new.py`; 600 Mpc matched-frame cube, SO finder, NPARTMIN=10):
+
+| catalog | halos | glass / grid |
+|---|---|---|
+| PDS grid (real. A) | 13,719 | - |
+| PDS glass (real. A) | 25,242 | 1.84 |
+| PDS glass (real. B) | 25,141 | 1.83 |
+| **PDS glass, a=16 relaxation** | **14,329** | **1.04** |
+| Gadget T^3 glass (real. A) | 26,736 | 1.92 |
+| Gadget T^3 glass (real. B) | 26,493 | 1.90 |
+
+Two things follow. First, **the glass anomaly is not PDS-specific**: Gadget4 on a flat T^3
+torus, with its own flat glass load, shows it just as strongly (1.90-1.92 against the PDS
+runs' 1.83-1.84). It is a property of an under-relaxed glass, not of S^3/I*. Second,
+**relaxing the glass to a=16 removes it**: 25,141 -> 14,329 halos, i.e. glass/grid 1.83 ->
+1.04, matching the grid-IC abundance. N(>1e14) goes 5,836 -> 3,586 against the grid's
+3,898. This closes the follow-up that `halo_catalogs/README.md` asked for.
+
+The anisotropy stacking was re-run with all nine simulations
+(`tools/Visualization/Halo_stacking_anisotropy.ipynb`). The topology term is still
+consistent with zero, and the grid-lattice term (~+0.06 in the face cone) still stands.
+But the previously reported **residual +3-4% face excess on glass loads does not survive
+more than one glass run**: four of them now give 0.992, 1.013, 1.027 and 1.042 (mean 1.016)
+against 1.061 and 1.073 for the two grid loads, and the a=16 relaxation does not shift them
+systematically. That residual had been attributed to the cubic FFT/CIC displacement mesh;
+with a single glass run per topology the attribution was not testable, and it is not
+supported now.
+
+**Practical guidance.** Glass-IC halo masses remain unsafe for the large-scale modes at any
+resolution until the glass-making run is extended; small-scale statistics improve with
+resolution as expected. Figure: `data/pk_1024_vs_256.png`.
+
+### Projected 1024^3 run
+
+A 1024^3 cube leaves ~402M particles inside the fundamental domain (37.4% occupancy).
+Scaling from the measured run, with the exponent bracketed by the measured 128^3 -> 256^3
+value and O(N log N), and the step count by the measured resolution trend:
+
+| | s/step | steps | wall (4x H200) |
+|---|---|---|---|
+| optimistic | 26 | 6,000 | 1.8 d |
+| central | 32 | 7,700 | **2.8 d** |
+| conservative | 44 | 12,100 | 6.2 d |
+
+About **3 days** centrally (~270 GPU-hours), against ~14 days with the 2026-07 code.
+
+> **Device memory is the tightest resource.** Every GPU holds the whole tree: at
+> 1.85 nodes/particle (the z=0 value) that is **83.6 GB of the 143.8 GB** on an H200 NVL,
+> leaving ~60 GB of headroom. The host-layout nodes are streamed through a small
+> double-buffered stage (0.4 GB) and converted on the GPU by `PDSTreeConvertKernel`;
+> mirroring the whole raw array in device memory instead would add ~50 GB and cut the
+> headroom to ~10 GB. Host memory (~170 GB of 766 GB) and disk (~21 GB per snapshot) are
+> not a concern.
+
+Two environment variables exist for A/B checks; both should be left unset in production,
+and both are expected to reproduce the default results **bit-identically**:
+
+| variable | effect |
+|---|---|
+| `PDS_TREE_SERIAL=1` | flatten the octree with the original serial DFS instead of `pds_morton_build_par()` |
+| `PDS_NO_MORTON_THREADS=1` | assign particles to GPU threads in array order instead of Z-order |
+
+`PDS_TREE_PROF=1` and `PDS_GPU_PROF=1` print a per-step breakdown of the host build and
+the GPU section respectively.
+
+> The Morton thread assignment needs the rank to own the whole particle array (the Z-order
+> does not respect an MPI decomposition), so it switches itself off for multi-rank runs.
+> Multi-GPU inside one rank is fine.
+
+> **Build dir note:** all PDS makefiles share `build/` with the same object
+> names but different macros (`USE_BH`, `USE_CUDA`). Run `rm -f build/*.o` (or
+> `make -f <makefile> clean`) when switching between StePS / StePS_BH /
+> StePS_CUDA / StePS_CUDA_BH.
+
+On the GPU the octree is built on the host with a **Morton (Z-order) sort**
+(parallel: `__gnu_parallel::sort` + OpenMP) into a flattened DFS-preorder array
+with a per-node "escape"/skip pointer, then walked **iteratively** on the device
+— no recursion, no per-thread stack. Each GPU thread handles one field particle
+and does the 120 per-image stackless walks. Device buffers are persistent
+(allocated once, reused across steps) and the tree is staged through pinned host
+memory, so there is no per-step `cudaMalloc`/`cudaFree`. The field-particle range
+is split across GPUs (one OpenMP thread per device), exactly like the exact
+kernel.
+
+The per-step log line reports the split, e.g.
+`[host tree build 0.06s (…%), GPU section …]`, so you can see how much time is
+host-side tree construction vs GPU force evaluation. At N ≈ 7.8×10⁵ the parallel
+Morton build is ~0.06 s (down from ~0.30 s for the original recursive build).
+
+The opening angle θ is set by the macro value (`-DUSE_BH=0.3` in the Makefile).
+θ ≈ 0.3–0.35 gives ~0.5–1 % force accuracy; smaller θ is more accurate and
+slower. The implementation (`forces_pds_bh` in `src/forces.cc`) evaluates the
+opening test **separately for each of the 120 I\* images** in the geodesic
+metric — a node far in the identity image can be the physical neighbour across a
+shared dodecahedral face in another image, so a single opening test is wrong.
+See `examples/pds_tests/pds_bh_prototype.cc` for the standalone θ-vs-accuracy
+validator and `pds_bh_prototype_README.md` for the design notes.
+
+**Validation (test7b, N = 12 240, θ = 0.3):** the end-to-end z = 31 → 0 run
+matches the exact 120-image run with density-field cross-correlation 0.93 (z = 0)
+and power-spectrum agreement to ~5 % across all scales, in 78 s on 16 CPU cores
+(vs ~450 s for the exact run on 4× H200). Individual particle trajectories
+diverge over time (chaotic N-body), as expected; the *statistics* match.
+
+**GPU port validation (test7b):** `StePS_CUDA_BH` reproduces the CPU `StePS_BH`
+run to printed precision at every snapshot through z = 0 (RMS Δx = 0), 4-GPU and
+1-GPU runs are bit-identical, and GPU-BH vs exact gives the same density
+cross-correlation (0.935 at z = 0). Force eval ≈ 0.025 s on one GPU (vs 0.25 s on
+16 CPU cores); the whole test7b run finishes in < 60 s on a single GPU. At
+N = 7.8×10⁵ the GPU tree force is ≈ 0.35 s/eval on 4 GPUs (~9.4×10⁵ nodes) versus
+an extrapolated ~46 min/eval for exact direct summation on the same GPUs (~10⁴×).
+
+**Momentum-conservation audit:** Barnes-Hut's monopole approximation breaks
+Newton's third law in general, so the net force S = Σ_i M_i a_i was checked
+against the exact force. The exact PDS force is itself not perfectly
+pairwise-antisymmetric (the compact-S³ force projected to 3D gives an inherent
+|S|/Σ|M a| ≈ 0.17 % early, rising to ≈ 0.66 % at z = 0). The tree force stays
+within **0.91–1.04× of that exact baseline at every epoch** and converges to
+exactly 1.0× as θ → 0 — i.e. it adds no momentum drift of its own. The
+integrated run confirms this: the bulk momentum |P|/(M v_rms) of the θ = 0.3 run
+tracks the exact run (~0.2–0.5 %) and *decreases* from the IC value rather than
+accumulating. Reproduce with
+`./pds_bh_prototype <snapshot> <particle_radii> 0 momentum`.
+
+> **Status:** EXPERIMENTAL (CPU and GPU), monopole-only. Accuracy (~5 % in P(k)
+> at θ = 0.3) and momentum conservation are validated, and the GPU port
+> reproduces the CPU run to printed precision; use the exact direct summation
+> (`IS_PERIODIC ≥ 2`, no `USE_BH`) for the reference runs these are validated
+> against.
+
+---
+
+## Running on GPUs (CUDA)
+
+Since v2.2.1.0 the PDS CUDA path is validated on real hardware (4× NVIDIA
+H200): multi-GPU snapshots are bit-identical to single-GPU, and agree with the
+CPU build to RMS ≈ 10⁻¹⁰ Mpc with identical adaptive-timestep output redshifts.
+
+> **Important (fixed in v2.2.4.0).** That validation was done below ~4.3×10⁶ particles
+> (on 4 GPUs).  Above that, **all** the CUDA force kernels had a coverage bug: the
+> grid-stride loop was bounded by the thread count `nthreads = 32·SMs·BLOCKSIZE` instead
+> of the per-GPU particle count `N_GPU`, so the last `N_GPU − nthreads` particles of each
+> GPU never received a force and stayed frozen at their IC positions (visible as smooth,
+> unevolved bands in z=0 renders).  Fixed in v2.2.4.0 (the kernels now use `N_GPU` as the
+> loop bound).  Runs at or below the threshold (e.g. the test7b validation, the
+> 7.8×10⁵-particle PDS runs, the v2.2.3.0 Gadget4 comparison) were fully covered and are
+> unaffected; larger multi-GPU runs made before v2.2.4.0 should be re-run.
+
+### Build
+
+`PDS-Linux_CUDA-Makefile` builds against the **stepsic conda environment**
+(CUDA toolkit, OpenMPI and HDF5 all come from `$CONDA_PREFIX`), so activate it
+first:
+
+```bash
+conda activate stepsic
+make -f PDS-Linux_CUDA-Makefile        # produces build/StePS_CUDA
+```
+
+Set `CUDA_ARCH` for your GPU generation (default `sm_90` = Hopper/H100/H200;
+use `sm_80` for A100, `sm_86` for consumer Ampere, …).
+
+### Run
+
+`StePS_CUDA` takes an extra trailing argument: the **number of GPUs per MPI
+task**.  On a single node always use *one* MPI task and give it all the GPUs:
+
+```bash
+mpirun -np 1 ./build/StePS_CUDA <paramfile> 4     # one node, 4 GPUs
+```
+
+Inside the task one OpenMP thread drives each GPU (thread i → device i) and
+the particle range is block-split between them.  Two pitfalls:
+
+- **Do not start several MPI ranks on one node** — each rank assigns its GPUs
+  starting from device 0, so the ranks pile onto the same GPUs.  Multiple MPI
+  tasks are for multi-node runs (one task per node, each with the GPUs-per-node
+  argument).
+- If the trailing argument is omitted, the default is **one GPU per MPI task**.
+
+### Troubleshooting
+
+If `mpirun` itself segfaults instantly with no output (even
+`mpirun -np 1 hostname`), the conda-forge hwloc library may be crashing while
+serializing the node's hardware topology to XML at PMIx startup (observed with
+libhwloc 2.12–2.13 on H200 nodes; the crash is triggered by a PCI/GPU I/O
+object).  Workaround — generate an I/O-free topology once and load it via
+environment variables:
+
+```bash
+lstopo-no-graphics --no-io --of xml $CONDA_PREFIX/etc/hwloc-topology-noio.xml
+export HWLOC_XMLFILE=$CONDA_PREFIX/etc/hwloc-topology-noio.xml
+export HWLOC_THISSYSTEM=1
+```
+
+(Put the two exports in `$CONDA_PREFIX/etc/conda/activate.d/` to make them
+automatic; regenerate the XML after hardware or kernel changes.)
+
+---
+
+## Visualizing Snapshots
+
+`../tools/Visualization` contains a Millennium-simulation-style renderer that
+works directly on PDS snapshots (added in v2.2.1.0):
+
+- **`millennium_render.py`** — adaptively smoothed logarithmic projected
+  density maps (dark background, magma colormap, cosmic-age/redshift info box,
+  scale bar).  Pure numpy/scipy/matplotlib, no py-sphviewer needed.  Use as a
+  module (`render_snapshot("snapshot_0010.hdf5")`) or CLI
+  (`./millennium_render.py snapshot.hdf5 out.png`).
+- **`PDS_Millennium_View.ipynb`** — companion notebook: snapshot overview
+  table, z = 0 render, XY/XZ/YZ projections, redshift-evolution mosaic, and an
+  animated GIF of the run.  Defaults to `data/pds_tests/test7b`; point
+  `SNAP_DIR` at any other output directory.
+
+The older scatter-plot explorers (`data/pds_tests/PDS_explorer*.ipynb`) remain
+useful for per-particle diagnostics (velocities, S³ angular distributions,
+NaN screening).
+
+---
+
+## IS_PERIODIC Levels
+
+| IS_PERIODIC | Mode | Use case |
+|---|---|---|
+| 1 | Nearest image only (compensated kernel) | Fast tests, glass making |
+| ≥ 2 | Exact 120-image summation (compensated kernel) | Science runs |
+
+Since v2.2.0.0 all values ≥ 2 are equivalent: the image sum over the compact
+S³ is exact, so there are no Ewald resolution levels (and no cached table).
+The exact mode costs ≈ 2.3× a nearest-image force evaluation.
+
+---
+
+## Validation Tests
+
+The automated suite covers most of these checks (10 tests, builds the
+needed binary variants itself):
+
+```bash
+conda activate stepsic
+cd StePS/StePS
+python examples/pds_tests/run_tests.py
+```
+
+Tests: free flight / Hubble drag, boundary wrapping, two-particle Newtonian
+limit, homogeneity (zero self-image force, IS_PERIODIC = 2), multi-particle
+stability, Python/C++ exact-force cross-validation (< 10⁻⁶), end-to-end
+stepsic-PDS-IC run with growing density contrast, an R³ regression of the
+shared sources, IC quaternions governing the run, and adaptive timestep control
+being live (Test 10 — the other nine all happen to run with `h` pinned at
+`STEP_MAX`, so none of them would notice a dead `errmax`).  The force-law study `examples/pds_tests/pds_anisotropy_study.py`
+regenerates `data/pds_anisotropy/REPORT.md`.
+
+The manual sanity checks below remain useful for debugging by hand.
+
+### Test 1 — I* group closure
+
+```bash
+# A small standalone test compiled from pds_group.h
+cat > pds_test.cc << 'EOF'
+#include <stdio.h>
+#include "src/pds_group.h"
+int main() {
+    pds_init();
+    // Check: e0 at domain centre
+    double e0[4] = {1,0,0,0};
+    printf("pds_in_domain(e0) = %d  (expected 1)\n", pds_in_domain(e0));
+    // Check: all 120 elements are unit quaternions
+    int ok = 1;
+    for(int g=0; g<120; g++) {
+        double n2 = 0;
+        for(int k=0;k<4;k++) n2 += PDS_I_STAR[g][k]*PDS_I_STAR[g][k];
+        if(fabs(n2-1.0) > 1e-12) { printf("Element %d not unit!\n",g); ok=0; }
+    }
+    printf("All 120 elements are unit quaternions: %s\n", ok?"PASS":"FAIL");
+    // Check: force cancellation at centre (wrap back to origin from a small displacement)
+    double q_eps[4] = {0.9999, 0.01, 0.005, 0.002};
+    double q_out[4]; pds_normalise(q_eps);
+    pds_wrap(q_eps, q_out);
+    printf("Wrap of near-e0 point: q0=%.6f  (expected ~1)\n", q_out[0]);
+    return 0;
+}
+EOF
+g++ -std=c++11 -O2 -lm pds_test.cc -o pds_test && ./pds_test
+```
+
+Expected output:
+```
+PDS: Binary icosahedral group I* generated (120 elements).
+pds_in_domain(e0) = 1  (expected 1)
+All 120 elements are unit quaternions: PASS
+Wrap of near-e0 point: q0=0.999983  (expected ~1)
+```
+
+### Test 2 — Force law flat-space limit
+
+With a two-particle simulation (N=2), place the particles at chi ≪ 1 and verify the force
+matches G M / r²:
+
+```python
+import numpy as np
+
+R = 3100.0   # Mpc
+chi = 0.001  # ≈ r = 3.1 Mpc separation
+r   = R * chi
+
+# Gauss's law on S³
+F_S3 = 1.0 / (R**2 * np.sin(chi)**2)
+
+# Newtonian
+F_flat = 1.0 / r**2
+
+print(f"S³ force:     {F_S3:.8e}")
+print(f"Newtonian:    {F_flat:.8e}")
+print(f"Relative err: {abs(F_S3/F_flat - 1):.2e}  (expected < chi^2/6 ≈ {chi**2/6:.2e})")
+```
+
+### Test 3 — Symmetry cancellation at domain centre
+
+A particle at e₀ = (1,0,0,0) surrounded by a uniform shell of 119 image copies should
+experience zero net force.  This is automatic by the I* symmetry, but can be verified by
+running a single-particle simulation with IS_PERIODIC ≥ 2 and checking that the printed
+force magnitude is ≈ 0.
+
+### Test 4 — Energy conservation
+
+Run a small test simulation (N ≈ 100, IS_PERIODIC = 2) for 10 dynamical times and check
+that the total energy (kinetic + potential) is conserved to better than 1% over the run.
+
+### Test 5 — Regression: T³ and R³ unchanged
+
+After the code changes, verify existing T³ and R³ simulations reproduce byte-identical
+snapshots compared to a reference run.
+
+---
+
+## Validation against Gadget4 (gold standard)
+
+The end-to-end growth/clustering test compares a PDS run to a **flat Gadget4 run built
+from the same IC realization**.  Gadget4 tracks linear growth to ~1% and is the reference;
+a **StePS-T³ run is not a safe reference** — `testCubic128` (`IS_PERIODIC=2` with a
+low-res 63³ Ewald table) was found to over-grow ~3× vs Gadget at z=10, tracking `D∝a^~1.5`.
+The PDS mode is immune (exact 120-image sum, no Ewald table), but this is why the
+reference is Gadget4.
+
+Tooling lives in `examples/pds_tests/`:
+- `GADGET4_REFERENCE.md` — reproducible Gadget4 build (conda SYSTYPE, FFTW3/zlib, the
+  `CPP=mpicxx` gotcha) and run setup.
+- `rescale_ic_to_gadget.py` — converts a stepsic h-independent (Mpc) IC to the Mpc/h
+  convention Gadget4 enforces (`Hubble=100`): coords/BoxSize ×h, masses ×10h, velocities
+  unchanged.
+- `validate_growth.py` — compares **median geodesic displacement** `R·χ` (the primary,
+  coordinate-invariant growth gate), **large-scale P(k)** in the matched central physical
+  region, and counts-in-cells σ² (resolution-confounded — see below).
+
+**Result (v2.2.3.0 conformal fix, test128 vs gadget128_flat):** the PDS displacement
+growth matches Gadget to **1–2%** at every output (`PDS/Gadget = 1.00–1.02`, z=15→0).  The
+σ² appears ~3–4× high, but this is a **sampling artifact, not over-growth**: it is already
+present at the IC (z=30, where there is no real structure — the power is below shot noise),
+it is constant through evolution, and it traces to the coarser PDS particle load (see the
+matched-resolution note under "Flat-spectrum initial conditions").
+
+---
+
+## Known Limitations
+
+### Approximate time integrator
+
+The current KDK leapfrog in `step.cc` operates on the 3D `x[3*i]` and `v[3*i]` arrays using
+flat Euclidean arithmetic.  The PDS position update uses the quaternion array `PDS_Q` only
+for the force calculation and boundary wrapping; the drift phase (`x += v * dt`) is Euclidean.
+
+This is a first-order approximation valid when:
+- The simulation volume ≪ R_curv (curvature corrections ∝ r²/R²)
+- Time steps are small (so drift trajectories remain close to geodesics)
+
+> **Note (v2.2.3.0).** The *leading* conformal effect of the flat drift was **not**
+> the ~10% (r/R)² curvature correction below — it was a ~100% (factor Ω ≈ 2) error.
+> The physical geodesic force was being applied directly as the stereographic
+> coordinate acceleration without the conformal Jacobian, making peculiar gravity
+> ~2× too strong (runaway over-growth). That dominant term is now corrected by
+> dividing each force by Ω = 1 + q₀ (see [Force Law](#force-law)). What remains
+> below is the genuinely second-order residual:
+
+After the Ω correction, the leftover error is the **spatial variation** of Ω across
+the domain (~3.5%, since Ω = 2.00 at the centre → 1.93 at r_in = 960 Mpc) plus the
+velocity-dependent Christoffel terms of the conformal metric, both ∝ (r/R)².
+For Ω_k ≈ −0.018 and simulation radius r_in ≈ 960 Mpc this is
+(r_in/R)² ≈ (960/3100)² ≈ 10%, still not negligible for precision science.
+
+#### The intrinsic integrator (`-DPDS_INTRINSIC`, opt-in)
+
+This residual is what the **intrinsic S³ integrator** removes. Build with
+`-DPDS_INTRINSIC` to select it; the flag is **off by default**, so the validated
+stopgap above remains the production path until the intrinsic mode has been
+exercised on full-size runs.
+
+State becomes `(q, U)`: `q` the unit quaternion, `U` the physical peculiar velocity as a
+**4D tangent** at `q` (`U ⟂ q`, `dq/dt = U/R`, so `|U|` is a physical speed). `x[]` and
+`v[]` become *derived* buffers, refreshed by `pds_sync_stereo_for_output()` before every
+tree build, force call and snapshot write.
+
+| phase | flat / stopgap | intrinsic |
+|---|---|---|
+| kick | `v += (G·F·a⁻³ − 2H·v)·h/2` in the chart | same form on `U`, inside `T_qS³`, then re-projected |
+| drift | `x += v·h` (straight line in the chart) | `pds_exp_map()` — exact geodesic + parallel transport |
+| wrap | inverse-stereo, wrap, 3×3 Jacobian on `v` | `pds_wrap(q)` + `pds_rotate_tangent(g, U)`, `g = q_out⊗conj(q_in)` |
+| force | 4D tangent pushed into the chart (`t_{i+1} − x_i t₀/R)/Ω`) | raw 4D tangent, no chart Jacobian |
+
+Because the drift is now the geodesic flow itself, it is not an approximation to be
+refined by shorter steps — `pds_exp_map` conserves `|q| = 1`, `U·q = 0` and `|U|` to
+machine precision at *any* step size, and satisfies `exp(h₁)∘exp(h₂) = exp(h₁+h₂)`.
+
+**Force convention change.** Under `PDS_INTRINSIC` the force routines return the *raw*
+geodesic tangent — the stereographic pushforward described under
+[Force direction projection](#force-direction-projection) is deliberately **not** applied,
+because the drift no longer happens in the chart. The e₀ component is not transmitted:
+it is recovered exactly from `t·q = 0`,
+
+```
+t₀ = −( t₁q₁ + t₂q₂ + t₃q₃ ) / q₀
+```
+
+which is well conditioned (`q₀ ≥ 0.95` throughout the fundamental domain) and verified to
+`1.8e-11`. This is why no MPI or CUDA force buffer had to be widened to four components.
+
+**Measured improvement.** For a free particle released off-centre with a velocity not
+directed through the origin (the worst case for a flat chart drift), deviation from the
+exact great circle:
+
+| trajectory | flat drift | intrinsic |
+|---|---|---|
+| short (Δχ ≈ 0.011) | 3.4e-07 rad | 3.7e-11 rad |
+| long (crossing ~100 Mpc) | 3.5e-04 rad | 2.3e-09 rad |
+
+On the long trajectory the two integrators agree on the final position to 0.1%
+(375.84 vs 376.24 Mpc from the origin) while differing by five orders of magnitude in
+great-circle fidelity — the flat drift reaches nearly the right place by a visibly wrong
+path.
+
+> An earlier revision reported a 25 Mpc (6.7%) positional difference here and attributed it
+> to the (r/R)² geometric residual. That was wrong: it was the lost closing half-kick (see
+> Status below), which under-damped the Hubble drag and let the particle run on. With the
+> kick fixed the positions agree.
+
+**Status: passes the full suite; still experimental.** Helpers and kinematics are
+unit-tested (`examples/pds_tests/test_intrinsic_kinematics.cc`, 9/9 at machine precision,
+including that isometries commute with the exp map, so wrapping cannot bend a trajectory),
+the CPU direct/Barnes–Hut paths and CUDA kernels all carry the `PDS_INTRINSIC` branch, and
+the whole test suite passes against it:
+
+```bash
+PDS_TEST_EXTRA_OPT=-DPDS_INTRINSIC python3 examples/pds_tests/run_tests.py   # 10/10
+```
+
+> **Bug found and fixed during review — worth knowing if you touch this code.** KDK is
+> kick(h/2), drift(h), kick(h/2). The *closing* kick (in `step.cc`'s `errmax` loop) acted
+> on `v[]`, which under `PDS_INTRINSIC` is a **derived** buffer that
+> `pds_sync_stereo_for_output()` overwrites from `U` — so half of every step's
+> acceleration was silently thrown away, and two-particle convergence came out exactly 2×
+> low. Anything that writes to `v[]` expecting it to persist is a bug in this mode:
+> `PDS_Q`/`PDS_U` are the state, `x[]`/`v[]` are outputs.
+
+#### Validation against Gadget4 (2026-08): the drift was not the problem
+
+A full 1200 Mpc / 256³ grid-IC run to z=0 with `-DPDS_INTRINSIC` (5.22 h, +5.2% runtime)
+was compared against the stopgap run and the untouched flat `gadget256_flat`. Since the
+(r/R)² error vanishes at the domain centre and peaks at the boundary, a *global* P(k)
+averages it away; the discriminating statistic is the **radial slope** of counts-in-cells
+σ²(PDS)/σ²(Gadget) — 15 Mpc cells, shells kept inside the 491 Mpc face inradius, errors
+from 8 independent octants:
+
+| run | slope per 1000 Mpc |
+|---|---|
+| pre-review | −0.177 ± 0.062 |
+| stopgap, after the t₀ force fix | −0.063 ± 0.062 |
+| **intrinsic** | **−0.057 ± 0.061** |
+
+The intrinsic integrator changes the residual radial bias by **−0.007 ± 0.087 — 0.1σ**.
+At particle level the two integrators differ by a median **0.0054 Mpc = 0.1% of the
+interparticle spacing**, against **0.387 Mpc (8.2%)** for the t₀ force fix — a factor 70.
+
+**So the premise behind this whole section was wrong.** The residual (r/R)² error was
+attributed to the flat drift; it actually lived in the **force → chart mapping** — the Ω
+factor and the t₀ term, both of which are already in the default build and which between
+them flattened the slope by −0.113, roughly 17× anything the drift contributes. In
+hindsight this is what one should expect: the drift error per step is O((v·h/R)³), and
+StePS's adaptive timestep keeps v·h/R tiny. Curvature bites in how you map the force into
+the chart, not in how you step along it.
+
+**Practical guidance.** Leave `-DPDS_INTRINSIC` **off**. It is correct and passes the full
+suite, but it costs 5.2% and buys nothing measurable at `R_curv = 3100 Mpc`. It is the
+right foundation if the code is ever pushed to large r/R — a much smaller `R_curv`, or a
+survey-scale box where r/R → 0.3+ — because the drift error grows as (r/R)³. Every
+production result quoted in this guide came from the default (stopgap) path.
+
+### Force direction projection
+
+The 4D geodesic tangent force is projected to 3D by discarding the e₀ component and using
+(t₁, t₂, t₃).  The exact pushforward of a tangent `t` at `q` into the stereographic chart is
+
+```
+dx_i = ( R·t_{i+1} − x_i·t₀ ) / Ω,      Ω = 1 + q₀ = 2R²/(R²+r²)
+```
+
+so the code's `t_{i+1}/Ω` keeps the first term and drops the second.  (The same full
+Jacobian is already implemented correctly for velocities in `pds_stereo_vel_transform()`,
+`src/pds_group.h` — Step 3.)
+
+The dropped term scales as **(r/R)², not ∝ sin(|q₁:₄|)**, and measured over the actual
+domain (`r ≤ 0.1584·R`, the face inradius) it is:
+
+| quantity | median | max (domain boundary) |
+|---|---|---|
+| force magnitude error | 0.8 % | **4.9 %** |
+| force direction error | 0.16° | 1.4° |
+
+An earlier revision of this section quoted ~30%; that figure was wrong — it came from the
+incorrect `sin` scaling.  The independent review of 2026-07 quoted ~7%, also high.  The
+measured worst case, for a radially aligned pair at the domain boundary, is 4.9%.
+
+### Force softening
+
+The PDS force uses the **same cubic spline kernel as every other StePS geometry**, applied
+to the *areal radius* `A = R·sin(χ)` (the proper radius of the geodesic 2-sphere at
+separation χ, which → the geodesic distance `R·χ` in the flat limit):
+
+```
+G_soft(χ) = ( 1 − frac(χ) ) · A · S(A, β),      β = SOFT_LENGTH[i] + SOFT_LENGTH[j]
+```
+
+where `S` is `force_softening()` from `forces.cc` and `frac` is the background-compensation
+term. Because `A·S(A) ≡ 1/A²` for `A ≥ β`, this is *exactly* the unsoftened compensated
+kernel outside the softening radius — verified to `4.4e-16` — with no transition mismatch,
+and it goes smoothly to zero as `A → 0`.
+
+Softening lengths are per-particle and mass-dependent,
+`SOFT_LENGTH[i] = ParticleRadi · (M[i]/M_min)^(1/3)` (`utils.cc`), so β varies pair by pair.
+
+> **Superseded behaviour.** Until 2026-07 the PDS branch instead applied a *distance floor*,
+> `χ_eff = max(χ, χ_soft)`. That holds the force at its value at χ_soft all the way down to
+> χ → 0⁺ and then drops it discontinuously to zero at coincidence — the force does **not**
+> vanish as particles approach, which drives integration error and two-body heating. The
+> spline removes the discontinuity. Note the softened force now *peaks* inside β (at
+> A ≈ 0.4β) rather than being clamped, so close-pair forces differ substantially from
+> pre-2026-07 runs; the far field is unchanged to machine precision.
+
+### Softening conventions: StePS vs Gadget (read before comparing them)
+
+**The two codes parameterise softening differently, and the parameters are not
+interchangeable.** This is the single easiest way to get a spurious few-percent
+disagreement between a StePS run and a Gadget reference.
+
+| | parameter | meaning | force is exactly Newtonian beyond |
+|---|---|---|---|
+| StePS | `PARTICLE_RADII` | per-particle `SOFT_LENGTH[i] = PARTICLE_RADII·(M_i/M_min)^(1/3)`; the pair value is `β = SOFT_LENGTH[i] + SOFT_LENGTH[j]`, which is the **full spline support** | `β` = 2·`PARTICLE_RADII` (equal masses) |
+| Gadget-2/3/4 | `SofteningComoving` | the **Plummer-equivalent** softening `ε`; the spline support is `2.8·ε` | `2.8·ε` |
+
+So to give the two codes the *same* force resolution:
+
+```
+2 · PARTICLE_RADII  =  2.8 · ε_gadget      =>      PARTICLE_RADII = 1.4 · ε_gadget
+```
+
+Worked example for the 1200 Mpc / 256³ flagship pair. Gadget4 uses
+`SofteningComoving = 0.101555` in code units where lengths are Mpc/h (`BoxSize = 812.424`
+= 1200 Mpc/h — note this despite the `UnitLength_in_cm` comment claiming h-independence;
+the `x/h` matched frame is what is empirically verified by FFT phase correlation and the
+98% halo cross-match). That is ε = 0.15 Mpc, hence a spline support of **0.42 Mpc**.
+StePS was run with `PARTICLE_RADII = 0.1`, i.e. support **0.20 Mpc** — StePS was resolving
+pairs **2.1× closer than Gadget**. Matched value: `PARTICLE_RADII = 0.21`.
+
+Also note the softening is **mass-dependent** in StePS but a single constant per particle
+type in Gadget; with the near-uniform masses of these runs the difference is small, but it
+is not zero for the glass loads (masses spread ~9%).
+
+> **Match it for correctness, but do not expect it to move large-scale statistics.** A
+> control run at the matched value (`PARTICLE_RADII = 0.21`) gave counts-in-cells σ²
+> indistinguishable from `0.1` at every measurable cell size (40/25/15 Mpc, all within
+> 0.001). That is as it should be: those cells are 35–200× larger than the softening
+> scale. Matching matters for halo internal structure and close-pair dynamics, not for
+> the few-percent clustering offsets discussed under "Validation against Gadget4".
+> Practical bonus: the larger softening let the same run finish in 1.97 h instead of
+> 5.22 h (1966 vs 4996 steps), since it permits larger timesteps.
+
+### Native quaternion initial conditions
+
+If the IC contains `/PartType1/Quaternions`, **those values are the state that gets
+integrated**: `pds_wrap_ic()` wraps them directly and re-derives `x[]` from the wrapped
+quaternion, so the Cartesian array is always consistent with the quaternion actually in use.
+`/PartType1/Coordinates` is then only a convenience for visualization.
+
+If the dataset is absent, `q` is reconstructed from `x[]` by inverse stereographic
+projection, as before.
+
+> **Superseded behaviour.** Until 2026-07 `pds_wrap_ic()` rebuilt `q` from `x[]`
+> unconditionally, so the IC's quaternions were read and then discarded. The round-trip is
+> mathematically lossless (the stereographic map is a bijection on S³ minus the antipode),
+> so this was a precision loss rather than a physics error — but it also meant the IC's
+> native S³ coordinates never governed anything. Test 9 now pins this down with a
+> deliberately inconsistent IC (Coordinates and Quaternions describing different
+> configurations) and asserts which one the run follows.
+
+### Initial-condition spectrum: flat (7A) and discrete S³/I* (7B)
+
+By default the native stepsic PDS IC clips the particle load to the fundamental
+domain, weights masses with the conformal factor, and generates the LPT
+displacement from the flat-space P(k) on a box-periodic FFT mesh (the **Phase 7A**
+approximation).  The large-scale *growth* is correct (the PDS matches Gadget4 to
+1–2%, see "Validation against Gadget4"); the flat spectrum only mis-states the
+largest-mode statistics that carry the topology signature.
+
+**Phase 7B — discrete S³/I* eigenmode spectrum (implemented).** stepsic can now add
+the true discrete eigenmodes of S³/I* on top of the flat small-scale LPT.  The
+Laplacian eigenvalues are k_n = √(n(n+2))/R_curv, and only the I*-invariant modes
+survive — the first non-trivial mode is at **n=12** (then 20, 24, 30, 32, 36…), the
+famous suppression of the largest fluctuations.  Enable it with `PDS_DISCRETE_NMAX`
+in the IC config (0 = off):
+
+```toml
+GEOMETRY = "pds"
+PDS_R_CURV = 3100.0
+PDS_DISCRETE_NMAX = 24      # add I*-invariant modes up to n=24 (12, 20, 24)
+```
+
+The flat field is high-passed above k(n_max) and the discrete invariant modes supply
+all larger scales (replacing the flat — and PDS-*forbidden* — power there).  Modes are
+synthesised with the cosmological P(k_n) (variance validated to ~6% of the analytic
+m_n P/(V k_n²)).  Implementation: `stepsic/s3harmonics.py` (eigenmodes, multiplicities,
+GRF), `stepsic/s3lpt.py` (S³ Zel'dovich displacement, hybrid splice), tests in
+`tests/test_s3harmonics.py`.  Cost grows with n_max (the per-point projection is
+O((n+1)²·120)); n_max ≲ 24–30 is the practical range and captures the topology-defining
+modes.
+
+> **Choosing `NGRID` — physical vs stereographic resolution.** The particle grid is
+> regular in *stereographic* coordinates with spacing `LBOX/NGRID`, but the conformal
+> factor Ω ≈ 2 makes the *physical* spacing ≈ `Ω·LBOX/NGRID` — about **2× coarser** than
+> the same NGRID in a flat box.  To match a flat reference of physical spacing `Δ`, use
+> `NGRID ≈ Ω·LBOX/Δ` (e.g. NGRID=256 for a 1200 Mpc box matches a flat 9.4 Mpc load).
+> Under-resolving relative to a flat comparison shows up as an apparent counts-in-cells
+> σ² excess that is pure sampling noise (present already at the IC), *not* over-growth —
+> matching the resolution closes it (σ² ratio vs Gadget 4.0×→1.3× going 128→256).
+
+### Particle load: grid vs glass
+
+Orthogonal to the *spectrum* (7A/7B) is the choice of the **unperturbed particle load**.
+The default is a regular Cartesian grid in stereographic coordinates clipped to the
+fundamental domain (`TYPE = "grid"`). That grid is convenient but its rectangular lattice
+does **not** respect the S³/I* topology, and it imprints sharp **Bragg peaks** at the
+lattice frequency: in the raw IC the peak high-k power is ~3×10⁴ × shot, and ~2.5×10³ × shot
+still at z=15. The imprint washes out under non-linear growth by z≈2, but it dominates the
+*early-time* small-scale field.
+
+A **glass** load removes this. The recipe (validated as `test256glass` vs the grid run
+`test256disc`, identical except the load):
+
+1. **Poisson load** — `stepsic` with `TYPE = "random"` for `GEOMETRY = "pds"` draws `NPART`
+   points uniformly on S³ and folds them into the fundamental domain via the I* group
+   (`pds.wrap`); equal masses, no preferred directions. Set `LPTORDER = 0` to write the
+   unperturbed load.
+2. **Reverse-gravity relaxation** — build a glass-making binary
+   (`PDS-Linux_CUDA_BH-GlassMaking-Makefile`; adds `-DGLASS_MAKING` → `G = -1`, separate
+   `build_glass_bh/`) and relax the Poisson load. **Use an Einstein-de Sitter background**
+   (`.param` `Omega_m = 1, Omega_lambda = 0`; the `EdS` cosmology in stepsic) — dark energy
+   would freeze the relaxation before it reaches a glass (per G. Racz). **Use the Barnes-Hut
+   build** (theta≈0.3): direct summation is O(N²) and impractical at N~6×10⁶ (stalls for
+   hours on the first force eval), whereas BH relaxes the same load in ~18 min on 4× H200.
+   Start from **Poisson, not a grid** — a grid is already a force equilibrium under repulsive
+   gravity and keeps its lattice anisotropy. The S³/I* topology has no domain boundary
+   (the wrap makes it periodic-like), so the glass fills the cell cleanly.
+3. **Build the IC** — `stepsic` with `TYPE = "glass"`, `INPUT_GLASS = <relaxed glass snapshot>`,
+   then the usual Zel'dovich + `PDS_DISCRETE_NMAX` spectrum on top.
+
+```toml
+# 1. unperturbed Poisson load (LPTORDER=0); run reverse-gravity glass making on its output
+TYPE = "random"
+GEOMETRY = "pds"
+NPART = 6275736        # match the grid run's in-domain count
+LPTORDER = 0
+COSMOLOGY = "EdS"      # masses self-consistent with the EdS glass-making run
+
+# 3. final IC from the relaxed glass (same spectrum as the grid run)
+TYPE = "glass"
+INPUT_GLASS = "/path/to/glass_run/snapshot_<last>.hdf5"
+LPTORDER = 1
+PDS_DISCRETE_NMAX = 20
+```
+
+Quality of the result: the glass is **sub-Poisson** (counts var/mean ≈ 0.28 vs 1.0 for a
+Poisson load) with essentially **no Bragg peaks** (peak high-k P/shot ≈ 5 vs the grid's
+~3×10⁴). The two production runs agree at z=0 (large-scale P(k) within ~3%) — the glass
+mainly cleans the early-time field.
+
+> **Measuring the PDS P(k) — keep the FFT cube inside the domain.** A Cartesian P(k) cube
+> that pokes outside the fundamental domain includes hard vacuum in its corners (e.g. a
+> half=400 Mpc cube has corners at 400·√3≈693 Mpc, ~7% of its volume empty). FFT-ing that
+> bounded shape convolves the true clustering with the *shape's own* power spectrum (the
+> survey-window/mask effect), producing a huge, non-growing low-k "pedestal" that is **100%
+> geometry** — a uniform, unclustered point set in the same shape reproduces it to a few
+> percent, and it is identical for the grid and glass loads. Earlier notebook versions
+> subtracted the first snapshot to remove it (which also introduced a spurious dip near
+> k≈0.03–0.05 /Mpc at the envelope's k-space falloff). The clean fix is simply to **use a
+> cube that fits inside the domain** (`half ≤ ~350` Mpc for R_curv=3100 Mpc; the notebook
+> uses `HALF=300`, corner 520 Mpc, verified 100% inside): the window artifact and the dip
+> both vanish and the raw PDS P(k) is directly comparable to Gadget with no subtraction (low-k
+> ratio ~0.85–0.9×). Note this restricts the accessible k range — the discrete n=12,20 modes
+> (k~0.004–0.007 /Mpc) fall *below* the fitting cube's fundamental, so a Cartesian sub-cube
+> cannot probe the topology modes; use the intrinsic full-domain spectrum for those.
+
+Implementation: `stepsic/geometry.py` (`create_pds_random_particles`), the `EdS` entry in
+`stepsic/config/cosmology.toml`, and the `pds` branch of `CosmoData.rescale_snapshot_size`.
+
+### Force methods on the GPU
+
+Both kernels (and the non-PDS CUDA kernels) had the large-N multi-GPU coverage bug
+fixed in **v2.2.4.0** — see "Running on GPUs (CUDA)" above; their loop bound is now the
+per-GPU particle count `N_GPU`.
+
+Two PDS force kernels run on the GPU:
+- `ForceKernel_pds` — direct O(N²) exact compensated 120-image sum. Validated
+  since v2.2.1.0: multi-GPU bit-identical to single-GPU, agrees with the CPU
+  build to round-off. A 12 240-particle test7b run to z = 0 takes ≈ 7.5 min on
+  4× H200.
+- `ForceKernel_pds_bh` — O(N log N) Barnes-Hut tree (v2.2.2.0, `-DUSE_BH`). See
+  [Barnes-Hut tree force](#barnes-hut-tree-force-experimental).
+
+Use exact direct CUDA for reference/validation runs; use the GPU Barnes-Hut
+build for large production runs. There is still no GPU Barnes-Hut tree for the
+non-PDS topologies (R³, S¹×R², T³).
+
+---
+
+## Halo catalogs, anisotropy stacking, and the small-domain experiment
+
+Post-processing analyses of the flagship runs (2026-07). Representative, executable
+versions live in `tools/Visualization/` (see its README); full pipelines and raw outputs
+in `/scratch/csabai/halo_catalogs{,50}/` and `/scratch/csabai/stack3d/`.
+
+### Halo catalogs (StePS_HF) in the matched frame
+
+To compare Gadget and PDS halo-by-halo, catalogs are built in the **matched frame**:
+PDS stereographic coordinates (Mpc, origin-centred) and Gadget `x/h − L/2` (Mpc/h → Mpc,
+then the −L/2 shift, verified by FFT phase correlation of the density fields; do NOT use
+`np.mod(x+L/2,L)−L/2`, which is a pure relabeling and silently misaligns the frames).
+Recipe:
+
+1. cut a cube that fits inside the dodecahedral domain (±300 Mpc for R_curv=3100;
+   ±11.5 Mpc for R_curv=129.17) plus a buffer ≥ the finder search radius;
+2. **de-conformalize the PDS masses**: matched mass = m_native/Ω(r)³ at the particle's
+   *current* position (grid load → uniform, equals Gadget's m_p to 0.06%; glass load →
+   quantize to ≤32 levels, StePS_HF scans `np.unique(Masses)` and cannot handle a
+   continuous mass distribution);
+3. run StePS_HF in PERIODIC mode on the cut box (the fake periodicity only touches the
+   discarded buffer). Gotchas: `SEARCH_RADIUS` must exceed the largest R200b (else
+   IndexError at line ~192); `ParticleIDs` must be 0..N−1 (used as array indices);
+4. post-filter halo centres to the inner cube; add Ω(center), M_phys = M·Ω³, R_phys = R·Ω
+   columns for the PDS.
+
+Validation: Gadget/PDS-grid mass functions overlap and **98% of the top-500 grid-IC PDS
+halos match a Gadget halo within 5 Mpc** (median offset 2.4 Mpc, mass ratio 1.10).
+Open issue: the 1200 Mpc PDS *glass* catalog shows ~1.7× abundance and ~2× matched-pair
+masses (mirrors its ~30% high-k P(k) excess); treat its halo masses with caution.
+
+### Anisotropy stacking (octahedral-group method of Racz+2021)
+
+Stacking particle cutouts around massive halos in fixed simulation axes, folding over the
+48 operations of the octahedral group, and binning directions in the fundamental triangle
+(face [001] / edge [011] / corner [111]) against a random-rotation control (see
+`tools/Visualization/Halo_stacking_anisotropy.ipynb`):
+
+- **Grid-IC lattice memory**: blatant at z=15 (cross-hatch; lattice-phase modulation
+  >2.2×), erased near halos by z≈2 — but the octahedral fold reveals a **+7–9%
+  box-axis (face) density excess re-emerging at z=0** in both grid-IC runs (T³ and PDS
+  alike ⇒ a grid-IC artifact, not topology): collapse axes stay grid-aligned.
+- **Glass loads**: no lattice at any epoch; only a ~3% residual cubic imprint
+  (suspect: the cubic FFT mesh + CIC interpolation shared by all ICs).
+- **PDS wraparound rule (revised 2026-08).** The rule previously stated here — that
+  cutout analyses need I\* image augmentation (all 120 images q → g⊗q) whenever
+  |centre| + R√3 exceeds the **face inradius** 0.1584·R_curv — used the wrong radius.
+  The fundamental domain is bounded by its **circumradius** (≈1.26× the inradius:
+  25.3 Mpc vs 20.5 Mpc at R_curv = 129.17), and particles fill it out to there. The
+  relevant test is therefore |centre| + R√3 vs the *circumradius*, not the inradius.
+  For the 50 Mpc stacks (|centre| ≤ 10.8, R = 8 ⇒ reach 24.7 Mpc < 25.3 Mpc) the
+  augmentation is a **no-op**: measured directly, I\* images contribute
+  **1 865 of 49.3 M cutout points (0.004 %)** even with a deliberately generous 40 Mpc
+  image mask, and the octahedral cone ratios are unchanged to three decimals.
+  Augmentation is still required in principle once cutouts genuinely exceed the
+  circumradius — it is simply not triggered by the analyses run so far.
+
+### Small-domain (50 Mpc) experiment
+
+Two glass-IC runs at L=50 Mpc: Gadget4 T³ vs PDS with R_curv = 3100/24 = 129.17 Mpc —
+a deliberately **topology-dominated** box (k₁₂ = 0.100, k₂₀ = 0.162 /Mpc vs
+k_box = 0.126). Ingredients: the flat periodic glass from a 64³ tile relaxed with the new
+`T3-Linux_CUDA-GlassMaking-Makefile` (PERIODIC + GLASS_MAKING; Ewald interpolation order 2
+only; single GPU) tiled 4³; the PDS glass re-charted from the flagship relaxed glass by
+exact scale invariance (stereo coordinates × 1/24 — an S³/I* glass is a point set on the
+sphere, so it rescales with R_curv for free). Findings
+(`tools/Visualization/Gadget_vs_PDS_50Mpc_comparison.ipynb`):
+
+- the runs share the IC fine structure (corr ≈ 0.9 at z=30 in the matched frame) and
+  **physically decorrelate by z=0** — the different box-scale (topology) modes drive
+  divergent non-linear growth; halo cross-matching is impossible *by design*;
+- PDS50 develops ~1.6× more small-scale power by z=0 (topology-fed collapse) and a strong
+  topology-locked anisotropy: **face/2-fold-axis cone density ≈ 0.77–0.81× the isotropic
+  control** (paired controls, NCTRL=6; see the note on uncertainty below), against a face
+  *excess* of 1.11 in the flat T³ run — halo environments align with the icosahedral
+  eigenmode pattern. The flat T³ 50 Mpc run shows only few-% direction effects at
+  r/L ≲ 0.1 (the torus force anisotropy of Racz+2021 lives at larger r/L);
+
+  > **Uncertainty and a corrected earlier claim.** Absolute cone ratios carry a **±0.05**
+  > systematic from control-rotation realization: the control is ~240 heavily-overlapping
+  > cutouts of essentially one structure, so it converges to isotropy only as 1/√N_rot.
+  > Quote v1↔v2 or run↔run *differences* only from **paired** controls (identical rotation
+  > sequences). An earlier revision reported that the I* wraparound correction strengthened
+  > this signal from 0.801 to 0.849; that 0.048 shift was control-rotation noise, not a
+  > correction — with paired controls the augmentation changes nothing (see the wraparound
+  > rule above). The face deficit itself is robust and was never in doubt;
+- the glass **tiling** leaves only a ~1.5× median excess at the tile reciprocal vectors at
+  z=15, gone by z=0 (three orders of magnitude weaker than grid Bragg peaks).
+
+## File Reference
+
+| File | Changes |
+|---|---|
+| `src/pds_group.h` | I* group (BFS generation), quaternion algebra, geodesic distance, **bare and background-compensated force kernels**, fundamental domain test, boundary wrapping, velocity Jacobian, image enumeration |
+| `src/global_variables.h` | `PDS_Q`, `PDS_R_CURV` under `#elif defined(POINCARE_DODECAHEDRAL)`; `pds_wrap_ic()` prototype |
+| `src/main.cc` | Global variable definitions; PDS forward declarations; **IC wrap + broadcast before the initial force calculation**; PDS-volume density check; topology warning |
+| `src/step.cc` | `pds_wrap_ic()` (IC wrapping); PDS boundary wrapping after drift with velocity transform; force dispatch to `forces_pds()`; MPI broadcast of `PDS_Q` |
+| `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1). `forces_pds_bh()`: O(N log N) Barnes-Hut tree force with per-image geodesic opening test (`-DUSE_BH`, experimental). Both **divide the stored force by the conformal Jacobian Ω = 1 + q₀** (v2.2.3.0) |
+| `PDS-Linux_BH-Makefile` | CPU build with the PDS Barnes-Hut force (`build/StePS_BH`); stepsic conda toolchain |
+| `examples/pds_tests/pds_bh_prototype.cc` | Standalone Barnes-Hut θ-vs-accuracy validator (+ `pds_bh_prototype_plot.py`, `pds_bh_prototype_README.md`) |
+| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory (uploaded per device inside the per-GPU OpenMP section — constant memory is not shared between GPUs), same two force modes. `ForceKernel_pds_bh` / `forces_pds_bh_cuda`: GPU Barnes-Hut tree force (host-built flattened octree with escape pointers, stackless per-image device traversal; `-DUSE_BH`). Both kernels apply the same **Ω = 1 + q₀ conformal division** (v2.2.3.0) |
+| `PDS-Linux_CUDA_BH-Makefile` | GPU build with the PDS Barnes-Hut force (`build/StePS_CUDA_BH`) |
+| `src/inputoutput.cc` | Reads `/PartType1/Quaternions` when present; PDS fields in HDF5 snapshot headers |
+| All Makefiles | `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default); `PDS-LinuxGCC-Makefile` (CPU) and `PDS-Linux_CUDA-Makefile` (GPU, stepsic conda-env toolchain, `CUDA_ARCH` knob) have it enabled |
+| `../tools/Visualization/millennium_render.py` | Millennium-style adaptive density renderer (module + CLI), works on PDS snapshots; companion notebook `PDS_Millennium_View.ipynb` |
+| `../stepsic/stepsic/pds.py` | NumPy port of the PDS primitives (reference implementation, IC generation, force cross-validation) |
+
+---
+
+## Background Reading
+
+- Luminet, J.-P. et al. (2003) "Dodecahedral space topology as an explanation for weak wide-angle temperature correlations in the cosmic microwave background", *Nature* 425, 593–595.
+- Weeks, J. R. (2001) "The Poincaré Dodecahedral Space and the Mystery of the Missing Fluctuations", *Notices of the AMS* 51, 610–619.
+- Gomero, G. I. et al. (2016) "Simulating Cosmic Microwave Background maps in multiconnected spaces", *Phys. Rev. D* 94, 043501.
+- Lehoucq, R. et al. (2002) "Eigenmodes of three-dimensional spherical spaces and their application to cosmology", *Class. Quantum Grav.* 19, 4683.
