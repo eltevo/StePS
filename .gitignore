@@ -5,10 +5,9 @@ StePS/build/
 StePS/Makefile
 
 # Ignore glio since it is a different repository
-StePS_IC/src/glio/
+tools/Utils/glio/
 
 # Ignore __pycache__ directories
-StePS_IC/src/__pycache__/
 tools/*/__pycache__/
 tools/*/*/__pycache__/
 

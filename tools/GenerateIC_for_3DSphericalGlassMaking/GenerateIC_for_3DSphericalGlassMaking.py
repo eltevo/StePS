@@ -22,8 +22,8 @@ import healpy as hp
 from pynverse import inversefunc
 import yaml
 import sys
-# adding ../../StePS_IC/src/ to the system path
-sys.path.insert(0, '../../StePS_IC/src/')
+# adding ../Utils/ to the system path
+sys.path.insert(0, '../Utils/')
 from inputoutput import *
 import time
 
@@ -219,7 +219,7 @@ def Generate_random_cylindrical_shell(Nshell,RtoZ, Shell=True):
 
 #Begininng of the script
 # Welcome message
-print("+-------------------------------------------------------------------------------------------------------+\n|%s %s\t\t\t\t\t\t\t|\n| (An initial condition generator for 3D spherical (R^3) and cylindrical (S^1xR^2) glass making.)\t|\n+-------------------------------------------------------------------------------------------------------+\n|\t\t\t\t\t\t\t\t\t\t\t\t\t|\n| %s, %s\t\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t\t|\n+-------------------------------------------------------------------------------------------------------+\n\n" % (_NAME,_VERSION,_AUTHORS,_YEAR))
+print("+-------------------------------------------------------------------------------------------------------+\n|%s %s\t\t\t\t\t\t\t\t|\n| (An initial condition generator for 3D spherical (R^3) and cylindrical (S^1xR^2) glass making.)\t|\n+-------------------------------------------------------------------------------------------------------+\n|\t\t\t\t\t\t\t\t\t\t\t\t\t|\n| %s, %s\t\t\t\t\t\t\t\t\t\t\t|\n|\tDepartment of Physics, University of Helsinki | Helsinki, Finland\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary\t\t|\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t\t|\n+-------------------------------------------------------------------------------------------------------+\n\n" % (_NAME,_VERSION,_AUTHORS,_YEAR))
 
 #read the input parameters (from the first argument)
 if len(sys.argv) != 2:
@@ -347,8 +347,9 @@ if Params['MAKEPLOTS'] == True:
     plt.ylabel(r'$M[\mathrm{M}_{\odot}]$')
     axes = plt.gca()
     axes.set_xlim([0.0,Params['RSIM']])
-    plt.grid()
-    plt.semilogy(r,Mass*1e11, c='b', label="StePS Resolution")
+    #plt.grid()
+    color = 'teal'
+    plt.semilogy(r,Mass*1e11, c=color, label="StePS Resolution")
     #if Params['BIN_MODE'] == 0:
     #    Mass_R5 = Mass_res_inside*(r/Params['RCRIT'])**5
     #    plt.semilogy(r[r>Params['RCRIT']],Mass_R5[r>Params['RCRIT']], '--', c='b', label=r'$M(R)=M_p(R_c)\cdot\left(\frac{R}{R_c}\right)^5$')
@@ -357,7 +358,7 @@ if Params['MAKEPLOTS'] == True:
     plt.title(r"Initial glass mass resolution")
     plt.tight_layout()
     if Params['SAVEPLOTS'] == True:
-        plt.savefig(Params['BASEOUT'][:-5]+"_MassResolution_vs_Radius.eps", format='eps')
+        plt.savefig(Params['BASEOUT'][:-5]+"_MassResolution_vs_Radius.pdf", format='pdf')
     plt.show()
 if Params['BOUNDARY'] == "SPHERICAL":
     if Params['BIN_MODE'] == 0:

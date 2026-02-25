@@ -17,7 +17,7 @@
 #*******************************************************************************#
 
 __author__ = "Gabor Racz"
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __year__ = "2019-2025"
 
 import matplotlib
@@ -78,6 +78,8 @@ else:
         quantity = 0
     elif Params["QUANTITY"] == "Velocities":
         quantity = 1
+    elif Params["QUANTITY"] == "Accelerations":
+        quantity = 2
     else:
         print("Warning: Unkown quantity. Setting quantity variable to \"Coordinates\".\n")
         quantity = 0
@@ -129,6 +131,9 @@ StePS_coordinates[:,3] = HDF5_snapshot['/PartType1/Masses'] #reading the masses
 if quantity == 1:
     StePS_velocities=np.zeros((N_StePS,3), dtype=np.float64)
     StePS_velocities[:,0:3] = HDF5_snapshot['/PartType1/Velocities'] #reading the coordinates
+elif quantity == 2:
+    StePS_accelerations=np.zeros((N_StePS,3), dtype=np.float64)
+    StePS_accelerations[:,0:3] = HDF5_snapshot['/PartType1/Accelerations'] #reading the coordinates
 
 end = time.time()
 print("..done in %fs. \n\n" % (end-start))
@@ -150,6 +155,8 @@ if plot_mode == 0:
     StePS_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
     if quantity == 1:
         StePS_vel_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
+    elif quantity == 2:
+        StePS_accel_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
 
     StePS_slice[:,0] = StePS_coordinates[mask,plot_indexes[0]]
     StePS_slice[:,1] = StePS_coordinates[mask,plot_indexes[1]]
@@ -158,11 +165,18 @@ if plot_mode == 0:
         StePS_vel_slice[:,0] = StePS_velocities[mask,plot_indexes[0]]
         StePS_vel_slice[:,1] = StePS_velocities[mask,plot_indexes[1]]
         StePS_vel_slice[:,2] = StePS_velocities[mask,plot_indexes[2]]
+    elif quantity == 2:
+        StePS_accel_slice[:,0] = StePS_accelerations[mask,plot_indexes[0]]
+        StePS_accel_slice[:,1] = StePS_accelerations[mask,plot_indexes[1]]
+        StePS_accel_slice[:,2] = StePS_accelerations[mask,plot_indexes[2]]
 
     end = time.time()
     print("..done in %fs. \n\n" % (end-start))
 
-    plt.figure(figsize=(figsize,figsize))
+    if quantity == 0:
+        plt.figure(figsize=(figsize,figsize))
+    else:
+        plt.figure(figsize=(figsize*1.2,figsize))
     axes = plt.gca()
     axes.set_xlim([-R_plot,R_plot])
     axes.set_ylim([-R_plot,R_plot])
@@ -177,9 +191,23 @@ if plot_mode == 0:
             length = np.sqrt(StePS_vel_slice[:,0]**2 + StePS_vel_slice[:,1]**2)
             if logvelcols:
                 plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_vel_slice[:,0]/length, StePS_vel_slice[:,1]/length, np.log10(np.sqrt(StePS_vel_slice[:,0]**2+StePS_vel_slice[:,1]**2 + StePS_vel_slice[:,2]**2)), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+                plt.colorbar(label='Log10(Velocity magnitude)')
             else:
                 plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_vel_slice[:,0]/length, StePS_vel_slice[:,1]/length, np.sqrt(StePS_vel_slice[:,0]**2+StePS_vel_slice[:,1]**2 + StePS_vel_slice[:,2]**2), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+                plt.colorbar(label='Velocity magnitude [km/s]')
 
+    elif quantity == 2:
+        if arrow_scale>0:
+            plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_accel_slice[:,0], StePS_accel_slice[:,1], np.sqrt(StePS_accel_slice[:,0]**2+StePS_accel_slice[:,1]**2 + StePS_accel_slice[:,2]**2), cmap=cmap, units='height', scale=arrow_scale, headwidth=0.5, headaxislength=1, headlength=1)
+        else:
+            #arrows are unit length and only show direction. Colors proportional to the magnitude
+            length = np.sqrt(StePS_accel_slice[:,0]**2 + StePS_accel_slice[:,1]**2)
+            if logvelcols:
+                plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_accel_slice[:,0]/length, StePS_accel_slice[:,1]/length, np.log10(np.sqrt(StePS_accel_slice[:,0]**2+StePS_accel_slice[:,1]**2 + StePS_accel_slice[:,2]**2)), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+                plt.colorbar(label='Log10(Acceleration magnitude)')
+            else:
+                plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_accel_slice[:,0]/length, StePS_accel_slice[:,1]/length, np.sqrt(StePS_accel_slice[:,0]**2+StePS_accel_slice[:,1]**2 + StePS_accel_slice[:,2]**2), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+                plt.colorbar(label='Acceleration magnitude [Internal units]')
     else:
         print("Error: Unkown quantity to plot. Exiting.\n")
         exit()
@@ -207,6 +235,8 @@ else:
     StePS_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
     if quantity == 1:
         StePS_vel_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
+    if quantity == 2:
+        StePS_accel_slice = np.zeros( (N_StePS_slice,3), dtype=np.float64)
     StePS_slice[:,0] = StePS_coordinates[mask,plot_indexes[0]]
     StePS_slice[:,1] = StePS_coordinates[mask,plot_indexes[1]]
     StePS_slice[:,2] = StePS_coordinates[mask,3]
@@ -214,11 +244,18 @@ else:
         StePS_vel_slice[:,0] = StePS_velocities[mask,plot_indexes[0]]
         StePS_vel_slice[:,1] = StePS_velocities[mask,plot_indexes[1]]
         StePS_vel_slice[:,2] = StePS_velocities[mask,plot_indexes[2]]
+    if quantity == 2:
+        StePS_accel_slice[:,0] = StePS_accelerations[mask,plot_indexes[0]]
+        StePS_accel_slice[:,1] = StePS_accelerations[mask,plot_indexes[1]]
+        StePS_accel_slice[:,2] = StePS_accelerations[mask,plot_indexes[2]]
 
     end = time.time()
     print("..done in %fs. \n\n" % (end-start))
 
-    plt.figure(figsize=(figsize,figsize))
+    if quantity == 0:
+        plt.figure(figsize=(figsize,figsize))
+    else:
+        plt.figure(figsize=(figsize*1.2,figsize))
     axes = plt.gca()
     axes.set_xlim([-R_plot,R_plot])
     axes.set_ylim([-R_plot,R_plot])
@@ -233,9 +270,21 @@ else:
             length = np.sqrt(StePS_vel_slice[:,0]**2 + StePS_vel_slice[:,1]**2)
             if logvelcols:
                 plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_vel_slice[:,0]/length, StePS_vel_slice[:,1]/length, np.log10(np.sqrt(StePS_vel_slice[:,0]**2+StePS_vel_slice[:,1]**2 + StePS_vel_slice[:,2]**2)), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+                plt.colorbar(label='Log10(Velocity magnitude)')
             else:
                 plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_vel_slice[:,0]/length, StePS_vel_slice[:,1]/length, np.sqrt(StePS_vel_slice[:,0]**2+StePS_vel_slice[:,1]**2 + StePS_vel_slice[:,2]**2), cmap=cmap, scale=-1.0*arrow_scale, units='height')
-
+                plt.colorbar(label='Velocity magnitude [km/s]')
+    elif quantity == 2:
+        if arrow_scale>0:
+            plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_accel_slice[:,0], StePS_accel_slice[:,1], np.sqrt(StePS_accel_slice[:,0]**2+StePS_accel_slice[:,1]**2 + StePS_accel_slice[:,2]**2), cmap=cmap, units='height', scale=arrow_scale, headwidth=0.5, headaxislength=1, headlength=1)
+        else:
+            #arrows are unit length and only show direction. Colors proportional to the magnitude
+            length = np.sqrt(StePS_accel_slice[:,0]**2 + StePS_accel_slice[:,1]**2)
+            if logvelcols:
+                plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_accel_slice[:,0]/length, StePS_accel_slice[:,1]/length, np.log10(np.sqrt(StePS_accel_slice[:,0]**2+StePS_accel_slice[:,1]**2 + StePS_accel_slice[:,2]**2)), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+            else:
+                plt.quiver(StePS_slice[:,0], StePS_slice[:,1], StePS_accel_slice[:,0]/length, StePS_accel_slice[:,1]/length, np.sqrt(StePS_accel_slice[:,0]**2+StePS_accel_slice[:,1]**2 + StePS_accel_slice[:,2]**2), cmap=cmap, scale=-1.0*arrow_scale, units='height')
+            plt.colorbar(label='Acceleration magnitude [Internal units]')
     else:
         print("Error: Unkown quantity to plot. Exiting.\n")
         exit()

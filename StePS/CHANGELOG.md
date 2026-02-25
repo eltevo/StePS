@@ -1,6 +1,24 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.0.1.0] - 2026-06-04
+
+### Added
+- Accelerations can be saved to HDF5 snapshots.
+- Added BH glass making warning message.
+- MPI particle workload is redistributed, if significant workload imbalance is detected.
+
+### Changed
+- Updated Ewald split parameters in $S^1 \times \mathbb{R}^2$ Ewald-summation.
+- MPI workload balance is printed out directly in MPI mode.
+- Actual state saved as a snapshot if the simulation wall-clock time limit reached.
+- Mass density is checked both $T^3$, $S^1 \times \mathbb{R}^2$, and $\mathbb{R}^3$ simulations, in the case of cosmological runs.
+- Increased accuracy for mass density check in cosmological simulations
+
+### Fixed
+- Fixed gadget2 binary loading
+- Fixed output list loading bug on newer libc libraries.
+
 ## [v2.0.0.0] - 2026-02-20
 
 ### Added

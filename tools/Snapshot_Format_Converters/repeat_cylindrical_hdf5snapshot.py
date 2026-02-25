@@ -22,8 +22,9 @@ import h5py
 import sys
 import time
 from subprocess import call
-# adding ../../StePS_IC/src/ to the system path
-sys.path.insert(0, '../../StePS_IC/src/')
+import os
+# adding ../Utils/ to the system path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import *
 
 _VERSION = "1.0.0"
@@ -31,7 +32,7 @@ _AUTHOR = "Gabor Racz"
 _DATE = "2025"
 _DESCRIPTION = "A script for repeating a cylindrical hdf5 StePS (STEreographically Projected cosmological Simulations) snapshot in the z direction."
 
-precision = 0 #default 32bit floating point precision in the output
+precision = 1 #default 64bit floating point precision in the output
 
 # Beginning of the script
 
