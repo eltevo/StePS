@@ -12,7 +12,7 @@ a_max		1.0
 Simulation parameters:
 -----------------------
 COSMOLOGY	1
-IS_PERIODIC	15
+IS_PERIODIC	3
 COMOVING_INTEGRATION	1
 L_BOX		500.0
 R_SIM		500.0
