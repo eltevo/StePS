@@ -4,7 +4,7 @@ StePS halo finder package.
 import numpy as np
 
 
-_VERSION="v0.5.0.0"
+_VERSION="v0.5.0.1"
 _YEAR="2024-2026"
 _AUTHOR="Gabor Racz"
 
