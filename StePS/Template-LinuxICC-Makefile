@@ -6,7 +6,7 @@
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
 # 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
 # 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
-VERSION='"v2.0.0.0"'
+VERSION='"v2.0.0.1-dev"'
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation; either version 2 of the License, or
@@ -26,6 +26,7 @@ OPT += -DUSE_SINGLE_PRECISION
 #------------------------------- Options for the force calculation method (if everthing is commented out, direct summation is used)
 #OPT += -DUSE_BH=0.25 # Use the Barnes-Hut (OctTree) method for force calculation with an opening angle of 0.25. (Recommended value is 0.25)
 #OPT += -DRANDOMIZE_BH=123456 # Randomize the BH tree to avoid artifacts. Only works with the BH method, and it is highly recommended to use it.
+#OPT += -DSAVE_ACCELLERATIONS # Save the accelerations to snapshots. This is useful for testing force calculation accuracy. Only works with HDF5 output.
 
 #------------------------------- Options for boundary conditions
 #OPT += -DPERIODIC # Periodic boundary conditions (T^3 topological manifold)

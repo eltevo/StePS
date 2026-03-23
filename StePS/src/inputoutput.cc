@@ -1345,7 +1345,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	return;
 }
 
-void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
+void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M, bool save_accelerations, REAL *F)
 {
 	int i, hdf5_rank;
 	char buf[500];
@@ -1514,6 +1514,41 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
   H5Dclose(dataset);
   H5Sclose(dataspace_in_file);
   H5Tclose(datatype);
+
+  //Writing out particle accelerations (if save_accelerations is true)
+  if(save_accelerations)
+  {
+		dims[0] = N;
+		dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+		hdf5_rank = 2;
+		#ifdef USE_SINGLE_PRECISION
+			datatype = H5Tcopy(H5T_NATIVE_FLOAT); //velocities saved as float
+		#else
+			datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //velocities saved as double
+		#endif
+		strcpy(buf, "Accelerations");
+		dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+		dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		start[0] = 0;
+		start[1] = 0;
+		count[0] = N;
+		count[1] = 3;
+		H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+		dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+		REAL *Acceleration_buf;
+		if(!(Acceleration_buf = (REAL *)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for Acceleration_buff.\n", rank);
+			exit(-2);
+		}
+		for(i=0;i<3*N;i++)
+				Acceleration_buf[i] = F[i]; //in internal code units, output in the same units
+		H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, Acceleration_buf);
+		H5Sclose(dataspace_memory);
+		H5Dclose(dataset);
+		H5Sclose(dataspace_in_file);
+		H5Tclose(datatype);
+  }
 
 	H5Gclose(hdf5_grp[1]);
 	H5Gclose(headergrp);

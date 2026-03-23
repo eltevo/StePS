@@ -83,6 +83,7 @@ double *out_list; //Output redshits
 double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
 unsigned int N_snapshot; //number of written out snapshots
+bool save_accelerations = false; //bool variable to decide whether to save accelerations, only true if SAVE_ACCELLERATIONS is defined
 
 double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param; //Cosmologycal parameters
 #if COSMOPARAM==1
@@ -195,7 +196,7 @@ void save_function_to_ascii_table(char *filename, REAL x_min, REAL x_max, REAL d
 #ifdef HAVE_HDF5
 int N_redshiftcone, HDF5_redshiftcone_firstshell;
 //Functions for HDF5 I/O
-void write_hdf5_snapshot(REAL *x, REAL *v, REAL *M);
+void write_hdf5_snapshot(REAL *x, REAL *v, REAL *M, bool save_accelerations, REAL *F);
 void write_header_attributes_in_hdf5(hid_t handle);
 #endif
 #if COSMOPARAM==-1
@@ -312,6 +313,19 @@ int main(int argc, char *argv[])
 	#else
 	if(rank == 0)
 		printf("\tForce calculation method: Direct summation.\n");
+	#endif
+	#ifdef SAVE_ACCELLERATIONS
+		#ifdef HAVE_HDF5
+		save_accelerations = true;
+		if(rank == 0)
+			printf("\tCalculated accelerations will be saved to the snapshots. Only works with HDF5 output.\n");
+		#else
+		save_accelerations = false;
+		if(rank == 0)
+			printf("\tWarning: Calculated accelerations will not be saved. This is only possible with HDF5 output.\n");
+		#endif
+	#else
+		save_accelerations = false;
 	#endif
 	#if COSMOPARAM==0 || !defined(COSMOPARAM)
 	if(rank == 0)
@@ -1724,7 +1738,7 @@ int main(int argc, char *argv[])
 							write_ascii_snapshot(x, v);
 						#ifdef HAVE_HDF5
 						if(OUTPUT_FORMAT == 2)
-							write_hdf5_snapshot(x, v, M);
+							write_hdf5_snapshot(x, v, M, save_accelerations, F);
 						#endif
 						t_next+=Delta_T_out;
 						printf("...done.\n");
@@ -1738,7 +1752,7 @@ int main(int argc, char *argv[])
 							write_ascii_snapshot(x, v);
 						#ifdef HAVE_HDF5
 						if(OUTPUT_FORMAT == 2)
-							write_hdf5_snapshot(x, v, M);
+							write_hdf5_snapshot(x, v, M, save_accelerations, F);
 						#endif
 						t_next-=Delta_T_out;
 						if(COSMOLOGY == 1)
@@ -1764,7 +1778,7 @@ int main(int argc, char *argv[])
 								write_ascii_snapshot(x, v);
 							#ifdef HAVE_HDF5
 							if(OUTPUT_FORMAT == 2)
-								write_hdf5_snapshot(x, v, M);
+								write_hdf5_snapshot(x, v, M, save_accelerations, F);
 							#endif
 							out_z_index += delta_z_index;
 							t_next = out_list[out_z_index];
@@ -1779,7 +1793,7 @@ int main(int argc, char *argv[])
 									write_ascii_snapshot(x, v);
 								#ifdef HAVE_HDF5
 								if(OUTPUT_FORMAT == 2)
-									write_hdf5_snapshot(x, v, M);
+									write_hdf5_snapshot(x, v, M, save_accelerations, F);
 								#endif
 							}
 							write_redshift_cone(x, v, r_bin_limits, out_z_index, delta_z_index, CONE_ALL);
@@ -1816,7 +1830,7 @@ int main(int argc, char *argv[])
 							write_ascii_snapshot(x, v);
 						#ifdef HAVE_HDF5
 						if(OUTPUT_FORMAT == 2)
-							write_hdf5_snapshot(x, v, M);
+							write_hdf5_snapshot(x, v, M, save_accelerations, F);
 						#endif
 						out_z_index += delta_z_index;
 						t_next = out_list[out_z_index];
@@ -1868,7 +1882,7 @@ int main(int argc, char *argv[])
 			write_ascii_snapshot(x, v); //writing output
 		#ifdef HAVE_HDF5
 		if(OUTPUT_FORMAT == 2)
-			write_hdf5_snapshot(x, v, M);
+			write_hdf5_snapshot(x, v, M, save_accelerations, F); //writing output
 		#endif
 	}
 	if(rank == 0)
