@@ -95,8 +95,8 @@ extern REAL M_tmp;
 extern int N; //Number of particles
 extern int t; //Number of the actual timestep
 extern REAL* x; //particle coordinates
-extern REAL* v; //and velocities
-extern REAL* F; //Forces
+extern REAL* v; //velocities
+extern REAL* F; //forces (accelerations)
 extern REAL w[3]; //Parameters for smoothing in force calculation
 extern REAL beta; //Particle radii
 extern REAL ParticleRadi; //Particle radii; readed from parameter file
@@ -108,6 +108,8 @@ extern REAL mass_in_unit_sphere; //Mass in unit sphere
 extern int HDF5_redshiftcone_firstshell;
 extern int N_redshiftcone; //number of particles written out to the redshiftcone file
 #endif
+extern bool save_accelerations; //bool variable to decide whether to save accelerations, only true if SAVE_ACCELERATIONS is defined
+extern int N_saved_ics; //number of saved ICs, only used for naming the output files when testing the force accuracy.
 //Cosmological parameters
 extern double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param; //needed for all cosmological models
 #if COSMOPARAM==1

@@ -1345,24 +1345,36 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	return;
 }
 
-void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M, bool save_accelerations, REAL *F)
+void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M, bool save_accelerations, REAL *F, bool IC_file)
 {
 	int i, hdf5_rank;
 	char buf[500];
 	//setting up the output filename
 	char filename[0x400];
-	if(snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot)<0)
+	if(IC_file)
 	{
-		fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
-		abort();
-	}
-	if(COSMOLOGY == 0)
-	{
-		printf("Saving the \"%s\" snapshot file...\nt=%.14f", filename, T);
+		if(snprintf(filename, sizeof(filename), "%sinitial_conditions_%04d.hdf5", OUT_DIR, N_saved_ics)<0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
+		printf("Saving the \"%s\" initial conditions file...\nt=%.14f", filename, T);
 	}
 	else
 	{
-		printf("Saving: the \"%s\" snapshot file...\nt = %.15fGy\na = %.15f\n", filename, T*UNIT_T, a);
+		if(snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot)<0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
+		if(COSMOLOGY == 0)
+		{
+			printf("Saving the \"%s\" snapshot file...\nt=%.14f", filename, T);
+		}
+		else
+		{
+			printf("Saving: the \"%s\" snapshot file...\nt = %.15fGy\na = %.15f\n", filename, T*UNIT_T, a);
+		}
 	}
 	//Output filename set. Creating the output file
 	hid_t snapshot = 0;
@@ -1553,7 +1565,14 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M, bool save_accelerations, REA
 	H5Gclose(hdf5_grp[1]);
 	H5Gclose(headergrp);
 	H5Fclose(snapshot);
-	N_snapshot++;
+	if(IC_file)
+	{
+		N_saved_ics++;
+	}
+	else
+	{
+		N_snapshot++;
+	}
 
 }
 
