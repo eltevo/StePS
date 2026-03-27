@@ -591,7 +591,7 @@ int main(int argc, char *argv[])
 						printf("S^1 x R^2 Ewald force calculation is on. (Ewald cut is 4*L in real and 10 in reciprocal space)\nCalculating Ewald lookup tables...\n\n");
 						rel_cut = 4;
 						rec_cut = 10;
-						EWALD_alpha = 0.787875/L; //Optimal alpha based on numerical tests, if rel_cut=4L and rec_cut=10
+						EWALD_alpha = 0.7866871128319298/L; //Optimal alpha based on numerical tests, if rel_cut=4L and rec_cut=10
 						Nz_EWALD_FORCE_GRID = 128; //size of the ewald force lookup table in the z direction
 						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the ewald force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
 					}
@@ -600,7 +600,7 @@ int main(int argc, char *argv[])
 						printf("Medium precision S^1 x R^2 Ewald force calculation is on. (Ewald cut is 5*L in real and 12 in reciprocal space)\nCalculating Ewald lookup tables...\n\n");
 						rel_cut = 5;
 						rec_cut = 12;
-						EWALD_alpha = 0.71805/L; //Optimal alpha based on numerical tests, if rel_cut=5L and rec_cut=12
+						EWALD_alpha = 0.71716533601505/L; //Optimal alpha based on numerical tests, if rel_cut=5L and rec_cut=12
 						Nz_EWALD_FORCE_GRID = 256; //size of the ewald force lookup table in the z direction
 						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the ewald force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
 						strcpy(EwaldTableFile, "S1R2_Ewald_table_medres.hdf5");
@@ -610,13 +610,13 @@ int main(int argc, char *argv[])
 						rel_cut = IS_PERIODIC+2;
 						rec_cut = IS_PERIODIC+9;
 						printf("High precision S^1 x R^2 Ewald force calculation is on. (Ewald cut is %i*L in real and %i in reciprocal space)\nCalculating Ewald lookup tables...\n\n", rel_cut, rec_cut);
-						EWALD_alpha = 0.6642/L; //Optimal alpha based on numerical tests, if rel_cut==6L and rec_cut==13
+						EWALD_alpha = 0.6205537827349956/L; //Optimal alpha based on numerical tests, if rel_cut==6L and rec_cut==13
 						Nz_EWALD_FORCE_GRID = 512; //size of the ewald force lookup table in the z direction
 						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the ewald force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
 						strcpy(EwaldTableFile, "S1R2_Ewald_table_higres.hdf5");
 					}
 					#else
-					//If TORNBERG2015 method is not defined, we use direct summation to build the Ewald table
+					//If TORNBERG2015 method is not defined, we use direct summation to build the periodic lookup table
 					int rel_cut;
 					if(IS_PERIODIC==2)
 					{
@@ -635,8 +635,8 @@ int main(int argc, char *argv[])
 					}
 					else
 					{
-						printf("Calculating high precision S^1 x R^2 periodic lookup table... (10^5*L in real space)\n\n");
-						rel_cut = 100000;
+						printf("Calculating high precision S^1 x R^2 periodic lookup table... (2*10^5*L in real space)\n\n");
+						rel_cut = 200000;
 						Nz_EWALD_FORCE_GRID = 512; //size of the periodic force lookup table in the z direction
 						Nrho_EWALD_FORCE_GRID = (int) floor( ( (REAL)Nz_EWALD_FORCE_GRID ) * EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR * Rsim / L ); //size of the periodic force lookup table in the radial direction (EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTORx Rsim);
 						strcpy(EwaldTableFile, "S1R2_Ewald_table_higres.hdf5");
