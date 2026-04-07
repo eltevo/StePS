@@ -347,8 +347,9 @@ if Params['MAKEPLOTS'] == True:
     plt.ylabel(r'$M[\mathrm{M}_{\odot}]$')
     axes = plt.gca()
     axes.set_xlim([0.0,Params['RSIM']])
-    plt.grid()
-    plt.semilogy(r,Mass*1e11, c='b', label="StePS Resolution")
+    #plt.grid()
+    color = 'teal'
+    plt.semilogy(r,Mass*1e11, c=color, label="StePS Resolution")
     #if Params['BIN_MODE'] == 0:
     #    Mass_R5 = Mass_res_inside*(r/Params['RCRIT'])**5
     #    plt.semilogy(r[r>Params['RCRIT']],Mass_R5[r>Params['RCRIT']], '--', c='b', label=r'$M(R)=M_p(R_c)\cdot\left(\frac{R}{R_c}\right)^5$')
@@ -357,7 +358,7 @@ if Params['MAKEPLOTS'] == True:
     plt.title(r"Initial glass mass resolution")
     plt.tight_layout()
     if Params['SAVEPLOTS'] == True:
-        plt.savefig(Params['BASEOUT'][:-5]+"_MassResolution_vs_Radius.eps", format='eps')
+        plt.savefig(Params['BASEOUT'][:-5]+"_MassResolution_vs_Radius.pdf", format='pdf')
     plt.show()
 if Params['BOUNDARY'] == "SPHERICAL":
     if Params['BIN_MODE'] == 0:
