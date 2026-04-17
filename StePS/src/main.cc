@@ -368,6 +368,9 @@ int main(int argc, char *argv[])
 		printf("Numer of OpenMP threads per MPI tasks set to %i.\n", atoi( argv[2] ));
 	}
 	#endif
+	#if defined(GLASS_MAKING) && defined(USE_BH) && !defined(PERIODIC)
+		printf("\nWarning: Using Barnes-Hut tree (Octree) algorithm during glass making in non-periodic\nsimulations can cause significant force calculation errors, especially in the radial\ndirection. Consider using direct summation for better glass quality.\n\n");
+	#endif
 	int i,j;
 	bool F_buffer_allocated = false; //F_buffer is not allocated yet
 	int CONE_ALL=0;
