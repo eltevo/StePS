@@ -53,7 +53,6 @@ extern int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 extern int HAVE_OUT_LIST;
-extern double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
 extern int H0_INDEPENDENT_UNITS; //0: i/o in Mpc, Msol, etc. 1: i/o in Mpc/h, Msol/h, etc.
 extern double *out_list; //Output redshits
 extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
@@ -62,11 +61,16 @@ extern unsigned int N_snapshot; //number of written out snapshots
 extern bool ForceError; //true, if any errors encountered over the force calculation
 extern bool* IN_CONE;
 
+//timing and work-load balance variables
+extern double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
+extern double *mpi_time_array; //array for storing the time spent in each MPI thread
+extern int **mpi_particle_range; //2-index array for storing the particle ID ranges of the MPI threads. first index: mpi_task_id, second index: 0-start_id, 1-end_id, 2-npart
+extern int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in the actual MPI thread
+extern int N_mpi_thread; //Number of calculated forces in the actual MPI thread
+
 extern int n_GPU; //number of cuda capable GPUs
 //variables for MPI
 extern int numtasks, rank;
-extern int N_mpi_thread; //Number of calculated forces in one MPI thread
-extern int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in one MPI thread
 extern MPI_Status Stat;
 extern REAL* F_buffer; //buffer for force copy
 extern int BUFFER_start_ID;
