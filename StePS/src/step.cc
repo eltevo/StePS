@@ -229,7 +229,7 @@ void step(REAL* x, REAL* v, REAL* F)
 				MPI_Recv(F_buffer, 3*(mpi_particle_range[i][2]), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 #endif
 				//Copying the received forces into F
-				for(j=0; j<(N/numtasks); j++)
+				for(j=0; j<mpi_particle_range[i][2]; j++)
 				{
 					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
 					F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];

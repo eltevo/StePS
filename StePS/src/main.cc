@@ -1042,6 +1042,16 @@ int main(int argc, char *argv[])
 			
 			//Bcasting the particle ranges
 			BCAST_MPI_particle_ranges();
+			if(rank!=0)
+			{
+				//Re-allocating the force array of all slave threads
+				free(F);
+				if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+					exit(-2);
+				}
+			}
 
 			double force_calc_start_time = omp_get_wtime(); //Timing the force calculation
 			//Threads calculate the forces on their own particles
@@ -1079,7 +1089,7 @@ int main(int argc, char *argv[])
 						#else
 							MPI_Recv(F_buffer, 3*mpi_particle_range[i][2], MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 						#endif
-						for(j=0; j<(N/numtasks); j++)
+						for(j=0; j<mpi_particle_range[i][2]; j++)
 						{
 							F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
 							F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];
