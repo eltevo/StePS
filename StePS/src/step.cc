@@ -283,16 +283,6 @@ void step(REAL* x, REAL* v, REAL* F)
 	}
 	//Bcasting the mpi particle ranges to all threads for the next iteration
 	BCAST_MPI_particle_ranges();
-	if(rank!=0)
-	{
-		//Re-allocating the force array for the next iteration
-		//free(F);
-		if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
-		{
-			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
-			exit(-2);
-		}
-	}
 	if(rank == 0)
 	{
 	//Stepping in scale factor and Hubble-parameter

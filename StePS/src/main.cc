@@ -1692,10 +1692,7 @@ int main(int argc, char *argv[])
 
 	//Initial force calculation
 	//Each MPI thread calculates the forces for its own particle range.
-	BCAST_MPI_particle_ranges(); //Bcasting the particle ranges
-
 	double force_calc_start_time = omp_get_wtime(); //Timing the force calculation
-
 	#if defined(PERIODIC)
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
 	#elif defined(PERIODIC_Z)
@@ -1704,6 +1701,7 @@ int main(int argc, char *argv[])
 		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif
 	double force_calc_end_time = omp_get_wtime(); //Timing the force calculation
+
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F array
 	if(rank !=0)
 	{
@@ -1871,6 +1869,16 @@ int main(int argc, char *argv[])
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
 		T = T+h;
+		if(rank!=0)
+		{
+			//Re-allocating the force array for the next iteration in all slave threads
+			free(F);
+			if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+				exit(-2);
+			}
+		}
 		step(x, v, F);
 		if(rank == 0)
 		{
