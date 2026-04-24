@@ -13,6 +13,7 @@
 /*    GNU General Public License for more details.                              */
 /********************************************************************************/
 
+//defining pi and internal units for time and velocity
 #define pi 3.14159265358979323846264338327950288419716939937510
 #define UNIT_T 47.14829951063323 //Unit time in Gy
 #define UNIT_V 20.738652969925447 //Unit velocity in km/s
@@ -35,9 +36,11 @@ typedef double REAL;
     extern REAL THETA;//value for the opening angle (used in BH forces)
 #endif
 
+//Other constants
 #if defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
     #define EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR 2.25 //The radial extent of the lookup table is this times Rsim. It should be >2.0 to resolve every possible radial distance within the simulation cylinder.
 #endif
+#define MPI_REDISTRIBUTION_TRESHOLD 1.025 //If the load imbalance between the MPI threads is higher than this value, the particles will be redistributed between the threads. 1.025 means that the redistribution is triggered when the imbalance exceeds 2.5%.
 
 extern int IS_PERIODIC; //periodic boundary conditions, 0=none, 1=nearest images, 2=ewald forces, 3>=ewald forces with increased cut-off radius
 extern int COSMOLOGY; //Cosmological Simulation, 0=no, 1=yes
