@@ -27,6 +27,8 @@
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL* x, REAL*F, int ID_min, int ID_max);
 void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max);
+void redistribute_workload(double *mpi_time_array, int numtasks, int N, int **mpi_particle_range);
+void BCAST_MPI_particle_ranges();
 
 #ifdef GLASS_MAKING
 void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean, REAL dmax, REAL V_mean, REAL V_max);
@@ -188,6 +190,7 @@ void step(REAL* x, REAL* v, REAL* F)
 	//Force calculation
 	if(rank == 0)
 		printf("Calculating Forces...\n");
+	double force_calc_start_time = omp_get_wtime();
 	#if defined(PERIODIC)
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
 	#elif defined(PERIODIC_Z)
@@ -195,9 +198,11 @@ void step(REAL* x, REAL* v, REAL* F)
 	#else
 		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif
+	double force_calc_end_time = omp_get_wtime();
 	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
 	if(rank !=0)
 	{
+		//Sending the calculated forces to the rank=0 thread
 #ifdef USE_SINGLE_PRECISION
 		MPI_Send(F, 3*N_mpi_thread, MPI_FLOAT, 0, rank, MPI_COMM_WORLD);
 #else
@@ -206,26 +211,78 @@ void step(REAL* x, REAL* v, REAL* F)
 	}
 	else
 	{
+		//Receiving the calculated forces from the slave threads and copying them into F
 		if(numtasks > 1)
 		{
 			for(i=1; i<numtasks;i++)
 			{
-				BUFFER_start_ID = i*(N/numtasks)+(N%numtasks);
+				//the F_buffer should be re-allocated based on the mpi_particle_range[i][2] value.
+				if(!(F_buffer = (REAL*)malloc(3*(mpi_particle_range[i][2])*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
+					exit(-2);
+				}
+				BUFFER_start_ID = mpi_particle_range[i][0];
 #ifdef USE_SINGLE_PRECISION
-				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
+				MPI_Recv(F_buffer, 3*(mpi_particle_range[i][2]), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
 #else
-				MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+				MPI_Recv(F_buffer, 3*(mpi_particle_range[i][2]), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 #endif
 				//Copying the received forces into F
-				for(j=0; j<(N/numtasks); j++)
+				for(j=0; j<mpi_particle_range[i][2]; j++)
 				{
 					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
 					F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];
 					F[3*(BUFFER_start_ID+j)+2] = F_buffer[3*j+2];
 				}
+				free(F_buffer);
 			}
 		}
 	}
+	if(rank!=0)
+	{
+		//sending the time spent in the force calculation to the rank=0 thread (always in double precison)
+		double force_calc_time = force_calc_end_time - force_calc_start_time;
+		MPI_Send(&force_calc_time, 1, MPI_DOUBLE, 0, rank, MPI_COMM_WORLD);
+	}
+	else
+	{
+		double force_calc_time = force_calc_end_time - force_calc_start_time;
+		mpi_time_array[0] = force_calc_time;
+		//receiving the time spent in the force calculation from the slave threads, and storing it in the mpi_time_array
+		if(numtasks > 1)
+		{
+			for(i=1; i<numtasks;i++)
+			{
+				MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+				mpi_time_array[i] = force_calc_time;
+				//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
+				if(i==1 || force_calc_time > force_calc_time)
+					force_calc_time = force_calc_time;
+			}
+			//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
+			force_calc_time = 0.0;
+			for(i=0; i<numtasks; i++)
+			{
+					force_calc_time += mpi_time_array[i];
+			}
+			//Printing the time spent in the force calculation and workload-balance for each MPI thread
+			fflush(stdout);
+			printf("\nForce calculation time for each MPI thread:\n");
+			for(i=0; i<numtasks; i++)
+			{
+				printf("MPI task %i: %fs, workload balance: %f %%\n", i, mpi_time_array[i], (mpi_time_array[i])/force_calc_time * numtasks * 100.0);
+			}
+			//Re-calculating the workload of each thread based on the time spent in the force calculation, and re-distributing the particles for the next iteration if the workload balance is too bad (e.g. if one thread takes more than 10% longer than the average time)
+			if(numtasks > 1)
+			{
+				redistribute_workload(mpi_time_array, numtasks, N, mpi_particle_range);
+			}
+			printf("\n");
+		}
+	}
+	//Bcasting the mpi particle ranges to all threads for the next iteration
+	BCAST_MPI_particle_ranges();
 	if(rank == 0)
 	{
 	//Stepping in scale factor and Hubble-parameter

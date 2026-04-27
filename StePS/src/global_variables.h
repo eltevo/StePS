@@ -13,6 +13,7 @@
 /*    GNU General Public License for more details.                              */
 /********************************************************************************/
 
+//defining pi and internal units for time and velocity
 #define pi 3.14159265358979323846264338327950288419716939937510
 #define UNIT_T 47.14829951063323 //Unit time in Gy
 #define UNIT_V 20.738652969925447 //Unit velocity in km/s
@@ -35,9 +36,11 @@ typedef double REAL;
     extern REAL THETA;//value for the opening angle (used in BH forces)
 #endif
 
+//Other constants
 #if defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
     #define EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR 2.25 //The radial extent of the lookup table is this times Rsim. It should be >2.0 to resolve every possible radial distance within the simulation cylinder.
 #endif
+#define MPI_REDISTRIBUTION_TRESHOLD 1.025 //If the load imbalance between the MPI threads is higher than this value, the particles will be redistributed between the threads. 1.025 means that the redistribution is triggered when the imbalance exceeds 2.5%.
 
 extern int IS_PERIODIC; //periodic boundary conditions, 0=none, 1=nearest images, 2=ewald forces, 3>=ewald forces with increased cut-off radius
 extern int COSMOLOGY; //Cosmological Simulation, 0=no, 1=yes
@@ -53,7 +56,6 @@ extern int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 extern double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 extern int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 extern int HAVE_OUT_LIST;
-extern double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
 extern int H0_INDEPENDENT_UNITS; //0: i/o in Mpc, Msol, etc. 1: i/o in Mpc/h, Msol/h, etc.
 extern double *out_list; //Output redshits
 extern double *r_bin_limits; //bin limints in Dc for redshift cone simulations
@@ -62,11 +64,16 @@ extern unsigned int N_snapshot; //number of written out snapshots
 extern bool ForceError; //true, if any errors encountered over the force calculation
 extern bool* IN_CONE;
 
+//timing and work-load balance variables
+extern double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
+extern double *mpi_time_array; //array for storing the time spent in each MPI thread
+extern int **mpi_particle_range; //2-index array for storing the particle ID ranges of the MPI threads. first index: mpi_task_id, second index: 0-start_id, 1-end_id, 2-npart
+extern int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in the actual MPI thread
+extern int N_mpi_thread; //Number of calculated forces in the actual MPI thread
+
 extern int n_GPU; //number of cuda capable GPUs
 //variables for MPI
 extern int numtasks, rank;
-extern int N_mpi_thread; //Number of calculated forces in one MPI thread
-extern int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in one MPI thread
 extern MPI_Status Stat;
 extern REAL* F_buffer; //buffer for force copy
 extern int BUFFER_start_ID;

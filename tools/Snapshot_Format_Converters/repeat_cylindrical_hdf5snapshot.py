@@ -31,7 +31,7 @@ _AUTHOR = "Gabor Racz"
 _DATE = "2025"
 _DESCRIPTION = "A script for repeating a cylindrical hdf5 StePS (STEreographically Projected cosmological Simulations) snapshot in the z direction."
 
-precision = 0 #default 32bit floating point precision in the output
+precision = 1 #default 64bit floating point precision in the output
 
 # Beginning of the script
 

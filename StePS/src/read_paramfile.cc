@@ -80,6 +80,31 @@ void BCAST_global_parameters()
 return;
 }
 
+void BCAST_MPI_particle_ranges()
+{
+	//Bcasting the particle ranges
+	int array_value_buffer[3];
+	if(rank == 0)
+	{
+		//sending the data
+		for(int i=1;i<numtasks;i++)
+		{
+			for(int array_index=0; array_index<3; array_index++)
+				array_value_buffer[array_index] = mpi_particle_range[i][array_index];
+			MPI_Send(array_value_buffer, 3, MPI_INT, i, i, MPI_COMM_WORLD);
+		}
+	}
+	else
+	{
+		//receiving the data
+		MPI_Recv(array_value_buffer, 3, MPI_INT, 0, rank, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		ID_MPI_min = array_value_buffer[0];
+		ID_MPI_max = array_value_buffer[1];
+		N_mpi_thread = array_value_buffer[2];
+	}
+	return;
+}
+
 void read_param(FILE *param_file)
 {
 int i;

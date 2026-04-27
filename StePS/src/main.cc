@@ -52,8 +52,7 @@ int N_saved_ics = 0; //number of saved ICs, only used for naming the output file
 
 int n_GPU; //number of cuda capable GPUs
 int numtasks, rank; //Variables for MPI
-int N_mpi_thread; //Number of calculated forces in one MPI thread
-int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in one MPI thread
+
 MPI_Status Stat;
 int BUFFER_start_ID;
 REAL* F_buffer;
@@ -78,13 +77,19 @@ int OUTPUT_TIME_VARIABLE; // 0: time, 1: redshift
 double MIN_REDSHIFT; //The minimal output redshift. Lower redshifts considered 0.
 int REDSHIFT_CONE; // 0: standard output files 1: one output redshift cone file
 int HAVE_OUT_LIST; // 0: output list not found. 1: output list found
-double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
 int H0_INDEPENDENT_UNITS; //0: i/o in Mpc, Msol, etc. 1: i/o in Mpc/h, Msol/h, etc.
 double *out_list; //Output redshits
 double *r_bin_limits; //bin limints in Dc for redshift cone simulations
 int out_list_size; //Number of output redshits
 unsigned int N_snapshot; //number of written out snapshots
 bool save_accelerations = false; //bool variable to decide whether to save accelerations, only true if SAVE_ACCELERATIONS is defined
+
+//timing and workload-balance variables
+double TIME_LIMIT_IN_MINS; //Simulation wall-clock time limit in minutes.
+double *mpi_time_array; //array for storing the time spent in each MPI thread
+int **mpi_particle_range; //2-index array for storing the particle ID ranges of the MPI threads. first index: mpi_task_id, second index: 0-start_id, 1-end_id, 2-npart
+int ID_MPI_min, ID_MPI_max; //max and min ID of of calculated forces in the actual MPI thread
+int N_mpi_thread; //Number of calculated forces in the actual MPI thread
 
 double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, Decel_param, delta_Hubble_param; //Cosmologycal parameters
 #if COSMOPARAM==1
@@ -155,12 +160,14 @@ void calculate_softening_length(REAL *SOFT_LENGTH, REAL *M, int N);
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max);
 void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max);
+void redistribute_workload(double *mpi_time_array, int numtasks, int N, int **mpi_particle_range);
 double friedmann_solver_start(double a0, double t0, double h, double a_start);
 double friedmann_solver_step(double a0, double h);
 double CALCULATE_Hubble_param(double a);
 double CALCULATE_decel_param(double a);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
+void BCAST_MPI_particle_ranges();
 #ifdef USE_BH
 void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADIAL_BH_N_TABLE, int TABLE_SIZE, REAL *F, REAL *x, int N);
 #endif
@@ -369,10 +376,10 @@ int main(int argc, char *argv[])
 	}
 	#endif
 	#if defined(GLASS_MAKING) && defined(USE_BH) && !defined(PERIODIC)
-		printf("\nWarning: Using Barnes-Hut tree (Octree) algorithm during glass making in non-periodic\nsimulations can cause significant force calculation errors, especially in the radial\ndirection. Consider using direct summation for better glass quality.\n\n");
+		if(rank == 0)
+			printf("Warning: Using Barnes-Hut tree (Octree) algorithm during glass making in non-periodic\nsimulations can cause significant force calculation errors, especially in the radial\ndirection. Consider using direct summation for better glass quality.\n\n");
 	#endif
 	int i,j;
-	bool F_buffer_allocated = false; //F_buffer is not allocated yet
 	int CONE_ALL=0;
 	Allocate_memory = true; //Before loading the first snapshot, memory will be allocated for the particle data arrays.
 	N_snapshot = 0; //The snapshot start number is 0 by default
@@ -419,6 +426,24 @@ int main(int argc, char *argv[])
 		}
 	}
 	BCAST_global_parameters();
+	if(rank == 0)
+	{
+		//allocating memory for the MPI timing array with malloc, and setting the values to 1.0
+		mpi_time_array = (double*) malloc(numtasks * sizeof(double));
+		for(i=0; i<numtasks; i++)
+		{
+			mpi_time_array[i] = 1.0;
+		}
+		//allocating memory for the MPI particle range array with malloc
+		mpi_particle_range = (int **) malloc(numtasks * sizeof(int *));
+		for(i=0; i<numtasks; i++)
+		{
+			mpi_particle_range[i] = (int *) malloc(3 * sizeof(int));
+			mpi_particle_range[i][0] = 0; //start ID
+			mpi_particle_range[i][1] = 0; //end ID
+			mpi_particle_range[i][2] = 0; //number of particles
+		}
+	}
 	#ifdef PERIODIC
 		if(IS_PERIODIC < 1 || IS_PERIODIC > 4)
 		{
@@ -832,6 +857,17 @@ int main(int argc, char *argv[])
 				return (-1);
 			}
 			N_mpi_thread = (N/numtasks) + (N%numtasks);
+			ID_MPI_min = 0;
+			ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
+			mpi_particle_range[0][0] = ID_MPI_min;
+			mpi_particle_range[0][1] = ID_MPI_max;
+			mpi_particle_range[0][2] = N_mpi_thread;
+			for(i=1; i<numtasks; i++)
+			{
+				mpi_particle_range[i][0] = (N%numtasks) + (i)*(N/numtasks);
+				mpi_particle_range[i][1] = (N%numtasks) + (i+1)*(N/numtasks)-1;
+				mpi_particle_range[i][2] = N/numtasks;
+			}
 			//Calculating softening lengths for the radial BH force correction
 			//Converting units, if needed
 			if(H0_INDEPENDENT_UNITS != 0 && COSMOLOGY == 1)
@@ -851,23 +887,14 @@ int main(int argc, char *argv[])
 				}
 			}
 			calculate_softening_length(SOFT_LENGTH, M, N); //Calculating the softening lengths for the particles
-			if(numtasks > 1 && F_buffer_allocated == false)
-			{
-				//Allocating memory for the F_buffer
-				if(!(F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL))))
-				{
-					fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
-					exit(-2);
-				}
-				F_buffer_allocated = true; //F_buffer is allocated
-			}
 		}
 		//Bcasting the number of particles
 		MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
+		//Bcasting the particle ranges
+		BCAST_MPI_particle_ranges();
 		if(rank != 0)
 		{
 			//Allocating memory for the slave processes
-			N_mpi_thread = N/numtasks;
 
 			//Allocating memory for the coordinates
 			if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
@@ -875,7 +902,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
 				exit(-2);
 			}
-			//Allocating memory for the forces. There is no need to allocate for N forces. N/numtasks should be enough
+			//Allocating memory for the forces. There is no need to allocate for N forces. N_mpi_thread should be enough. Note that the forces will be re-allocated later.
 			if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
 			{
 				fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
@@ -1012,29 +1039,29 @@ int main(int argc, char *argv[])
 				printf("BH radial force correction iteration %d/%d\n------------------------------------------\n", i_iter+1, RADIAL_BH_FORCE_TABLE_ITERATION);
 				fflush(stdout);
 			}
-			if(rank==0)
+			
+			//Bcasting the particle ranges
+			BCAST_MPI_particle_ranges();
+			if(rank!=0)
 			{
-				ID_MPI_min = 0;
-				ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-				#if defined(PERIODIC_Z)
-					//cylindrical periodic boundary conditions
-					forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
-				#else
-					//Spherical non-periodic [StePS] boundary conditions
-					forces(x, F, ID_MPI_min, ID_MPI_max);
-				#endif
+				//Re-allocating the force array of all slave threads
+				free(F);
+				if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+					exit(-2);
+				}
 			}
-			else
-			{
-				//Slave threads calculate the forces on their own particles
-				ID_MPI_min = (N%numtasks) + (rank)*(N/numtasks);
-				ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-				#if defined(PERIODIC_Z)
-					forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
-				#else
-					forces(x, F, ID_MPI_min, ID_MPI_max);
-				#endif
-			}
+
+			double force_calc_start_time = omp_get_wtime(); //Timing the force calculation
+			//Threads calculate the forces on their own particles
+			#if defined(PERIODIC_Z)
+				forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+			#else
+				forces(x, F, ID_MPI_min, ID_MPI_max);
+			#endif
+
+			double force_calc_end_time = omp_get_wtime();
 			//Collecting all the forces to the rank 0 thread
 			if(rank !=0)
 			{
@@ -1050,19 +1077,80 @@ int main(int argc, char *argv[])
 				{
 					for(i=1; i<numtasks;i++)
 					{
-						BUFFER_start_ID = i*(N/numtasks)+(N%numtasks);
+						//the F_buffer should be re-allocated based on the mpi_particle_range[i][2] value.
+						if(!(F_buffer = (REAL*)malloc(3*(mpi_particle_range[i][2])*sizeof(REAL))))
+						{
+							fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
+							exit(-2);
+						}
+						BUFFER_start_ID = mpi_particle_range[i][0];
 						#ifdef USE_SINGLE_PRECISION
-							MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
+							MPI_Recv(F_buffer, 3*mpi_particle_range[i][2], MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
 						#else
-							MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+							MPI_Recv(F_buffer, 3*mpi_particle_range[i][2], MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 						#endif
-						for(j=0; j<(N/numtasks); j++)
+						for(j=0; j<mpi_particle_range[i][2]; j++)
 						{
 							F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
 							F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];
 							F[3*(BUFFER_start_ID+j)+2] = F_buffer[3*j+2];
 						}
+						free(F_buffer);
 					}
+				}
+			}
+			if(rank!=0)
+			{
+				//sending the time spent in the force calculation to the rank=0 thread (always in double precison)
+				double force_calc_time = force_calc_end_time - force_calc_start_time;
+				MPI_Send(&force_calc_time, 1, MPI_DOUBLE, 0, rank, MPI_COMM_WORLD);
+			}
+			else
+			{
+				double force_calc_time = force_calc_end_time - force_calc_start_time;
+				mpi_time_array[0] = force_calc_time;
+				//receiving the time spent in the force calculation from the slave threads, and storing it in the mpi_time_array
+				if(numtasks > 1)
+				{
+					for(i=1; i<numtasks;i++)
+					{
+						MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+						mpi_time_array[i] = force_calc_time;
+						//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
+						if(i==1 || force_calc_time > force_calc_time)
+							force_calc_time = force_calc_time;
+					}
+					//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
+					force_calc_time = 0.0;
+					for(i=0; i<numtasks; i++)
+					{
+							force_calc_time += mpi_time_array[i];
+					}
+					//Printing the time spent in the force calculation and workload-balance for each MPI thread
+					fflush(stdout);
+					printf("\nForce calculation time for each MPI thread:\n");
+					for(i=0; i<numtasks; i++)
+					{
+						printf("MPI task %i: %fs, workload balance: %f %%\n", i, mpi_time_array[i], (mpi_time_array[i])/force_calc_time * numtasks * 100.0);
+					}
+					//Re-calculating the workload of each thread based on the time spent in the force calculation, and re-distributing the particles for the next iteration if the workload balance is too bad (e.g. if one thread takes more than 10% longer than the average time)
+					if(numtasks > 1)
+					{
+						redistribute_workload(mpi_time_array, numtasks, N, mpi_particle_range);
+					}
+					printf("\n");
+				}
+			}
+			//Bcasting the mpi particle ranges to all threads for the next iteration
+			BCAST_MPI_particle_ranges();
+			if(rank!=0)
+			{
+				//Re-allocating the force array for the next iteration
+				free(F);
+				if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+					exit(-2);
 				}
 			}
 			fflush(stdout);
@@ -1118,6 +1206,14 @@ int main(int argc, char *argv[])
 		}
 		N_radial_bh_force_correction = N; //Number of particles used in the radial BH force correction
 		USE_RADIAL_BH_CORRECTION = true; //The radial BH force table iteration is done
+		if(rank != 0)
+		{
+			//freeing the memory used for the BH force table iteration
+			//free(F);
+			free(x);
+			free(M);
+			free(SOFT_LENGTH);
+		}
 	}
 	#endif
 	if(rank == 0)
@@ -1195,14 +1291,19 @@ int main(int argc, char *argv[])
 				v[3*i+2] = v[3*i+2]/UNIT_V;
 			}
 		}
-		if(numtasks > 1 && F_buffer_allocated == false)
+		//Calculating the particle ranges for each MPI thread, and the number of particles in each thread 
+		//Initially, the particles are distributed evenly among the threads, but this will be re-distributed later based on the workload balance of the threads
+		N_mpi_thread = (N/numtasks) + (N%numtasks);
+		ID_MPI_min = 0;
+		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
+		mpi_particle_range[0][0] = ID_MPI_min;
+		mpi_particle_range[0][1] = ID_MPI_max;
+		mpi_particle_range[0][2] = N_mpi_thread;
+		for(i=1; i<numtasks; i++)
 		{
-			if(!(F_buffer = (REAL*)malloc(3*(N/numtasks)*sizeof(REAL))))
-			{
-				fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
-				exit(-2);
-		  	}
-			F_buffer_allocated = true; //F_buffer is allocated
+			mpi_particle_range[i][0] = (N%numtasks) + (i)*(N/numtasks);
+			mpi_particle_range[i][1] = (N%numtasks) + (i+1)*(N/numtasks)-1;
+			mpi_particle_range[i][2] = N/numtasks;
 		}
 	}
 	#ifdef USE_CUDA
@@ -1219,10 +1320,8 @@ int main(int argc, char *argv[])
 	#endif
 	//Bcasting the number of particles
 	MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
-	if(rank == 0)
-		N_mpi_thread = (N/numtasks) + (N%numtasks);
-	else
-		N_mpi_thread = N/numtasks;
+	//Bcasting the particle ranges
+	BCAST_MPI_particle_ranges();
 	if(rank != 0)
 	{
 		//Allocating memory for the particle datas on the rank != 0 MPI threads
@@ -1233,7 +1332,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
 			exit(-2);
 		}
-		//Allocating memory for the forces. There is no need to allocate for N forces. N/numtasks should be enough
+		//Allocating memory for the forces. There is no need to allocate for N forces. N_mpi_thread should be enough
 		if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
@@ -1602,34 +1701,18 @@ int main(int argc, char *argv[])
 		printf("Initial force calculation...\n");
 
 	//Initial force calculation
-	if(rank==0)
-	{
-		ID_MPI_min = 0;
-		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-		#if defined(PERIODIC)
-			//3-torus periodic boundary conditions
-			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
-		#elif defined(PERIODIC_Z)
-			//cylindrical periodic boundary conditions
-			forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
-		#else
-			//Spherical non-periodic [StePS] boundary conditions
-			forces(x, F, ID_MPI_min, ID_MPI_max);
-		#endif
-	}
-	else
-	{
-		ID_MPI_min = (N%numtasks) + (rank)*(N/numtasks);
-		ID_MPI_max = (N%numtasks) + (rank+1)*(N/numtasks)-1;
-		#if defined(PERIODIC)
-			forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
-		#elif defined(PERIODIC_Z)
-			forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
-		#else
-			forces(x, F, ID_MPI_min, ID_MPI_max);
-		#endif
-	}
-	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F matrix
+	//Each MPI thread calculates the forces for its own particle range.
+	double force_calc_start_time = omp_get_wtime(); //Timing the force calculation
+	#if defined(PERIODIC)
+		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
+	#elif defined(PERIODIC_Z)
+		forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+	#else
+		forces(x, F, ID_MPI_min, ID_MPI_max);
+	#endif
+	double force_calc_end_time = omp_get_wtime(); //Timing the force calculation
+
+	//if the force calculation is finished, the calculated forces should be collected into the rank=0 thread`s F array
 	if(rank !=0)
 	{
 	#ifdef USE_SINGLE_PRECISION
@@ -1644,21 +1727,72 @@ int main(int argc, char *argv[])
 		{
 			for(i=1; i<numtasks;i++)
 			{
-				BUFFER_start_ID = i*(N/numtasks)+(N%numtasks);
+				//the F_buffer should be re-allocated based on the mpi_particle_range[i][2] value.
+				if(!(F_buffer = (REAL*)malloc(3*(mpi_particle_range[i][2])*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for F_buffer.\n", rank);
+					exit(-2);
+				}
+				BUFFER_start_ID = mpi_particle_range[i][0];
 				#ifdef USE_SINGLE_PRECISION
-					MPI_Recv(F_buffer, 3*(N/numtasks), MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
+					MPI_Recv(F_buffer, 3*mpi_particle_range[i][2], MPI_FLOAT, i, i, MPI_COMM_WORLD, &Stat);
 				#else
-					MPI_Recv(F_buffer, 3*(N/numtasks), MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+					MPI_Recv(F_buffer, 3*mpi_particle_range[i][2], MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 				#endif
-				for(j=0; j<(N/numtasks); j++)
+				for(j=0; j<mpi_particle_range[i][2]; j++)
 				{
 					F[3*(BUFFER_start_ID+j)] = F_buffer[3*j];
 					F[3*(BUFFER_start_ID+j)+1] = F_buffer[3*j+1];
 					F[3*(BUFFER_start_ID+j)+2] = F_buffer[3*j+2];
 				}
+				free(F_buffer);
 			}
 		}
 	}
+	//redistributing the workload based on the time spent in the initial force calculation
+	if(rank!=0)
+	{
+		//sending the time spent in the force calculation to the rank=0 thread (always in double precison)
+		double force_calc_time = force_calc_end_time - force_calc_start_time;
+		MPI_Send(&force_calc_time, 1, MPI_DOUBLE, 0, rank, MPI_COMM_WORLD);
+	}
+	else
+	{
+		double force_calc_time = force_calc_end_time - force_calc_start_time;
+		mpi_time_array[0] = force_calc_time;
+		//receiving the time spent in the force calculation from the slave threads, and storing it in the mpi_time_array
+		if(numtasks > 1)
+		{
+			for(i=1; i<numtasks;i++)
+			{
+				MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+				mpi_time_array[i] = force_calc_time;
+				//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
+				if(i==1 || force_calc_time > force_calc_time)
+					force_calc_time = force_calc_time;
+			}
+			//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
+			force_calc_time = 0.0;
+			for(i=0; i<numtasks; i++)
+			{
+					force_calc_time += mpi_time_array[i];
+			}
+			//Printing the time spent in the force calculation and workload-balance for each MPI thread
+			fflush(stdout);
+			printf("\nForce calculation time for each MPI thread:\n");
+			for(i=0; i<numtasks; i++)
+			{
+				printf("MPI task %i: %fs, workload balance: %f %%\n", i, mpi_time_array[i], (mpi_time_array[i])/force_calc_time * numtasks * 100.0);
+			}
+			//Re-calculating the workload of each thread based on the time spent in the force calculation, and re-distributing the particles for the next iteration if the workload balance is too bad (e.g. if one thread takes more than 10% longer than the average time)
+			if(numtasks > 1)
+			{
+				redistribute_workload(mpi_time_array, numtasks, N, mpi_particle_range);
+			}
+			printf("\n");
+		}
+	}
+	BCAST_MPI_particle_ranges(); //Bcasting the particle ranges again after the workload re-distribution
 	//Force vectors are collected. If SAVE_ACCELERATIONS is defined, we save the the IC with the calculated forces as a HDF5 snapshot. This can be used to compare the forces with other codes.
 	#ifdef SAVE_ACCELERATIONS
 	#ifdef HAVE_HDF5
@@ -1745,6 +1879,16 @@ int main(int argc, char *argv[])
 		Hubble_param_prev = Hubble_param;
 		T_prev = T;
 		T = T+h;
+		if(rank!=0)
+		{
+			//Re-allocating the force array for the next iteration in all slave threads
+			free(F);
+			if(!(F = (REAL*)malloc((3*N_mpi_thread)*sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+				exit(-2);
+			}
+		}
 		step(x, v, F);
 		if(rank == 0)
 		{

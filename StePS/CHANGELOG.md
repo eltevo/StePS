@@ -1,6 +1,20 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.x.x.x] - TBA
+
+### Added
+- Accelerations can be saved to HDF5 snapshots.
+- Added BH glass making warning message.
+- MPI particle workload is redistributed, if significant workload imbalance is detected.
+
+### Changed
+- Updated Ewald split parameters.
+- MPI workload balance is printed out directly in MPI mode.
+
+### Fixed
+
+
 ## [v2.0.0.0] - 2026-02-20
 
 ### Added
