@@ -108,7 +108,7 @@ void redistribute_workload(double *mpi_time_array, int numtasks, int N, int **mp
 	{
 		if(mpi_time_array[i] > MPI_REDISTRIBUTION_TRESHOLD*average_time)
 		{
-			// If any thread takes more than 5% longer than the average time, we trigger the redistribution of particles for the next iteration
+			// If any thread takes more than MPI_REDISTRIBUTION_TRESHOLD*average_time (by default, more than 2.5% the average time), we trigger the redistribution of particles for the next iteration
 			redistribute = true;
 			break;
 		}
