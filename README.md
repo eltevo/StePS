@@ -15,7 +15,7 @@ If you plan to publish an academic paper using this software or data, please con
 
 ## Visualizations
 
-[!(StePS cylindrical simulation #1, center)](Images/CylindricalExampleCenter.mp4 "StePS simulation of structure formation in cylindrical topology with standard LCDM cosmology.")
+![StePS cylindrical simulation #1, center](Images/CylindricalExampleCenter.gif "StePS simulation of structure formation in cylindrical topology with standard LCDM cosmology.")
 
 ![StePS cylindrical simulation #1, slice](Images/Example_simulation1_R480Mpc_slice.png "A slice from the density field in the StePS example simulation #1")
 
