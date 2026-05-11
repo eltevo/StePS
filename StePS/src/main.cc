@@ -450,6 +450,7 @@ int main(int argc, char *argv[])
 		{
 			if(rank == 0)
 				fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to deal with periodic simulation only.\nExiting.\n");
+			fflush(stdout);
 			return (-2);
 		}
 
@@ -492,6 +493,7 @@ int main(int argc, char *argv[])
 				}
 				//Allocating memory for the ewald lookup table in the rank 0 MPI thread
 				printf("MPI task %i: Allocating memory for the Ewald lookup table with %i^3 grid points...\n", rank, N_EWALD_FORCE_GRID);
+				fflush(stdout);
 				if(!(T3_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3*sizeof(REAL))))
 				{
 					fprintf(stderr, "MPI task %i: failed to allocate memory for The Ewald lookup table.\n", rank);
@@ -544,6 +546,7 @@ int main(int argc, char *argv[])
 				#else
 					printf("Ewald lookup table interpolation order is always 4 on GPUs in T^3 topological manifolds.\n\n");
 				#endif
+				fflush(stdout);
 			}
 			//Bcasting the N_EWALD_FORCE_GRID variable to all MPI threads
 			MPI_Bcast(&N_EWALD_FORCE_GRID, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -558,6 +561,7 @@ int main(int argc, char *argv[])
 			#else
 				MPI_Bcast(T3_EWALD_FORCE_TABLE, N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*N_EWALD_FORCE_GRID*3, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 			#endif
+			fflush(stdout);
 		}
 		else
 		{
@@ -580,6 +584,7 @@ int main(int argc, char *argv[])
 		{
 			if(rank == 0)
 				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic and periodic simulations in z direction only.\nExiting.\n");
+			fflush(stdout);
 			return (-2);
 		}
 		#if defined(USE_BH) && defined(PERIODIC_Z_NOLOOKUP)
@@ -600,6 +605,7 @@ int main(int argc, char *argv[])
 				{
 					printf("Warning: Using too many periodic images in the \"z\" direction:\n\tNodeSize/THETA = %.2f Mpc < Ewald_cut = %.2f Mpc.\nPlease consider decreasing the Theta opening angle, or decreasing the number of periodic images.\n", MaxNodeSize/THETA, L*(((REAL) (IS_PERIODIC+1)) - 0.4));
 					printf("You can set the repeated periodic images in the z direction to %i (Boundary condition %i) to avoid not-resolved periodic images.\n", 2*((int) floor(MaxNodeSize/THETA/L + 0.4) - 1)+1, (int) floor(MaxNodeSize/THETA/L + 0.4) - 1);
+					fflush(stdout);
 				}
 			}
 		#endif
@@ -762,6 +768,7 @@ int main(int argc, char *argv[])
 					MPI_Bcast(S1R2_EWALD_FORCE_TABLE, Nz_EWALD_FORCE_GRID*Nrho_EWALD_FORCE_GRID*2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 				#endif
 			#endif
+			fflush(stdout);
 		}
 		else
 		{
@@ -788,6 +795,7 @@ int main(int argc, char *argv[])
 		{
 			if(rank == 0)
 				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run non-periodic (R^3 spherical) simulations only.\nExiting.\n");
+			fflush(stdout);
 			return (-2);
 		}
 	#endif
@@ -795,12 +803,14 @@ int main(int argc, char *argv[])
 	{
 		if(rank == 0)
 			fprintf(stderr, "Error: bad OUTPUT time variable %i!\nExiting.\n", OUTPUT_TIME_VARIABLE);
+		fflush(stdout);
 		return (-2);
 	}
 	if(OUTPUT_TIME_VARIABLE == 1 && COSMOLOGY != 1)
 	{
 		if(rank == 0)
 			fprintf(stderr, "Error: you can not use redshift output format in non-cosmological simulations. \nExiting.\n");
+		fflush(stdout);
 		return (-2);
 	}
 	if(H0 == 0.0 && COSMOLOGY == 1)
@@ -808,6 +818,7 @@ int main(int argc, char *argv[])
     #if !defined(COSMOPARAM) || COSMOPARAM>=0
 		if(rank == 0)
 			fprintf(stderr, "Error: Hubble constant is set to zero in a cosmological simulation. This must be a mistake.\nExiting.\n");
+		fflush(stdout);
 		return (-2);
 		#else
 		if(rank == 0)
