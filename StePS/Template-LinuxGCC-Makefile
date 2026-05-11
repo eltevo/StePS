@@ -48,14 +48,14 @@ OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
 			#-1: the expansion history will be read from an external file
 
 #------------------------------- Compiler
-CXX = g++-10
+CXX = g++
 
 #------------------------------- Location of the MPI libraries
 MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc
 MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr/local/cuda-12.8
+CUDA_PATH       ?= /usr/local/cuda-12.6
 
 #------------------------------- Location of the HDF5 libraries
 HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
@@ -68,7 +68,7 @@ BUILD_DIR = ./build
 
 MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
 
-CPPSTD = gnu++17
+CPPSTD = c++17
 
 SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc
 DEPS = $(SRC_DIR)/global_variables.h
@@ -118,8 +118,8 @@ OPT += -DUSE_CUDA
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread
-CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall --compiler-options -ansi -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
+CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall -O3 -lm -Xcompiler -pthread
+CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC += $(SRC_DIR)/forces_cuda.cu

@@ -83,14 +83,14 @@ double Time, Redshift;
 
 int gadget_format_conversion(bool allocate_memory)
 {
-	int k, i;
+	int k;
 	printf("Number of particles = %i\n", NumPart);
   	N = NumPart;
 	printf("Time = %f Redshift= %f\n", Time, (1/Time)-1);
 	printf("\nCosmological parameters:\n------------------------\n");
-	printf("Boxsize \t %f kpc/h\n", header1.BoxSize);
-        L = (REAL) header1.BoxSize/1000.0/header1.HubbleParam;
-	printf("Boxsize \t %f Mpc\n", L);
+	printf("Boxsize \t %f kpc/h (Based on the GADGET header)\n", header1.BoxSize);
+    //    L = (REAL) header1.BoxSize/1000.0/header1.HubbleParam; //It is not guaranteed that the input boxsize is in kpc/h. We use the boxize what was defined in the paramfile, and ignore the boxsize in the header. We only print the boxsize in the header for information.
+	printf("Boxsize \t %f Mpc (Based on the paramfile. This is going to be used by the code)\n", L);
 	printf("Omega0 \t\t %f \n", header1.Omega0);
 	printf("OmegaLambda \t %f \n", header1.OmegaLambda);
 	printf("HubbleParam \t %f \n\n", header1.HubbleParam);
@@ -135,38 +135,41 @@ int gadget_format_conversion(bool allocate_memory)
 			exit(-2);
 		}
 	}
-	i=0;
 	printf("Converting particle positions...\n");
-	for(k=1;k<NumPart+1;++k)
+	for(k=0;k<NumPart;++k)
 	{
 		if(P[k].Type == 1)
 		{
-			//We do not use the h=H0/100km/s/Mpc factors, and assume kpc/h input units
-			x[3*i] = (REAL)P[k].Pos[0]/1000.0/header1.HubbleParam;
-			x[3*i+1] = (REAL)P[k].Pos[1]/1000.0/header1.HubbleParam;
-			x[3*i+2] = (REAL)P[k].Pos[2]/1000.0/header1.HubbleParam;
-			i++;
+			if(H0_INDEPENDENT_UNITS == 0)
+			{
+				x[3*k] = (REAL)P[k].Pos[0]/header1.HubbleParam;
+				x[3*k+1] = (REAL)P[k].Pos[1]/header1.HubbleParam;
+				x[3*k+2] = (REAL)P[k].Pos[2]/header1.HubbleParam;
+			}
+			else
+			{
+				x[3*k] = (REAL)P[k].Pos[0];
+				x[3*k+1] = (REAL)P[k].Pos[1];
+				x[3*k+2] = (REAL)P[k].Pos[2];
+			}
 		}
 
 	}
 	printf("...done\n");
 
 	printf("Converting particle velocities...\n");
-	i=0;
-	for(k=1;k<NumPart+1;++k)
+	for(k=0;k<NumPart;++k)
 	{
 		if(P[k].Type == 1)
 		{
 			//Converting particle velocities (GADGET uses km/s)
-			v[3*i] = (REAL)P[k].Vel[0];
-			v[3*i+1] = (REAL)P[k].Vel[1];
-			v[3*i+2] = (REAL)P[k].Vel[2];
-			i++;
+			v[3*k] = (REAL)P[k].Vel[0];
+			v[3*k+1] = (REAL)P[k].Vel[1];
+			v[3*k+2] = (REAL)P[k].Vel[2];
 		}
 	}
 	printf("...done\n");
 	return 0;
-
 }
 
 
@@ -184,7 +187,7 @@ int load_snapshot(char *fname, int files)
 
 #define SKIP fread(&dummy, sizeof(dummy), 1, fd);
 
-  for(i = 0, pc = 1; i < files; i++, pc = pc_new)
+  for(i = 0, pc = 0; i < files; i++, pc = pc_new)
     {
       if(files > 1)
 	sprintf(buf, "%s.%d", fname, i);
@@ -341,7 +344,7 @@ int allocate_memory(void)
       exit(0);
     }
 
-  P--;				/* start with offset 1 */
+  //P--;				/* start with offset 1 */
 
 
   if(!(Id = (int *)malloc(NumPart * sizeof(int))))
@@ -350,7 +353,7 @@ int allocate_memory(void)
       exit(0);
     }
 
-  Id--;				/* start with offset 1 */
+  //Id--;				/* start with offset 1 */
 
   printf("allocating memory...done\n");
   return 0;
@@ -371,43 +374,31 @@ int reordering(void)
   int i;
   int idsource, idsave, dest;
   struct particle_data psave, psource;
-
-
   printf("reordering....\n");
-
-  for(i = 1; i <= NumPart; i++)
+  for(i = 0; i < NumPart; i++)
     {
-      if(Id[i] != i)
-	{
-	  psource = P[i];
-	  idsource = Id[i];
-	  dest = Id[i];
-
-	  do
+      if(Id[i] != (i+1))
+	  {
+		psource = P[i];
+		idsource = Id[i];
+		dest = idsource-1;
+		do
 	    {
-	      psave = P[dest];
-	      idsave = Id[dest];
-
-	      P[dest] = psource;
-	      Id[dest] = idsource;
-
-	      if(dest == i)
-		break;
-
-	      psource = psave;
-	      idsource = idsave;
-
-	      dest = idsource;
+	    	psave = P[dest];
+	    	idsave = Id[dest];
+			P[dest] = psource;
+	    	Id[dest] = idsource;
+	    	if(dest == i)
+				break;
+	    	psource = psave;
+	    	idsource = idsave;
+	    	dest = idsource-1;
 	    }
 	  while(1);
 	}
     }
-
   printf("done.\n");
-
-  Id++;
   free(Id);
-
   printf("space for particle ID freed\n");
   return 0;
 }
