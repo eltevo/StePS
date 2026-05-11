@@ -12,6 +12,9 @@ All notable changes to the StePS simulation code is documented in this file.
 - Updated Ewald split parameters in S^1xR^2 Ewald-summation.
 - MPI workload balance is printed out directly in MPI mode.
 
+### Fixed
+- Fixed gadget2 binary loading
+
 ## [v2.0.0.0] - 2026-02-20
 
 ### Added

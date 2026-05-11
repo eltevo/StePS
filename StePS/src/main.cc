@@ -425,6 +425,7 @@ int main(int argc, char *argv[])
 			return (-1);
 		}
 	}
+	fflush(stdout);
 	BCAST_global_parameters();
 	if(rank == 0)
 	{
@@ -845,6 +846,7 @@ int main(int argc, char *argv[])
 			return (-2);
 		}
 	}
+	fflush(stdout);
 	#if defined(USE_BH) && !defined(PERIODIC)
 	USE_RADIAL_BH_CORRECTION = false; //The radial BH force table iteration is not done yet
 	if(RADIAL_BH_FORCE_CORRECTION == 1)

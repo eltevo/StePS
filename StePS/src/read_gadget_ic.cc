@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*  StePS - STEreographically Projected cosmological Simulations                */
-/*    Copyright (C) 2017-2022 Gabor Racz                                        */
+/*    Copyright (C) 2017-2026 Gabor Racz                                        */
 /*                                                                              */
 /*    This program is free software; you can redistribute it and/or modify      */
 /*    it under the terms of the GNU General Public License as published by      */
@@ -14,6 +14,7 @@
 /********************************************************************************/
 
 //This file is based on the example GADGET2 file reader code in http://wwwmpa.mpa-garching.mpg.de/gadget/gadget-2.0.7.tar.gz
+//Licensed under the GNU General Public License v2 or later. See the LICENSE file for details.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,8 +89,7 @@ int gadget_format_conversion(bool allocate_memory)
   	N = NumPart;
 	printf("Time = %f Redshift= %f\n", Time, (1/Time)-1);
 	printf("\nCosmological parameters:\n------------------------\n");
-	printf("Boxsize \t %f kpc/h (Based on the GADGET header)\n", header1.BoxSize);
-    //    L = (REAL) header1.BoxSize/1000.0/header1.HubbleParam; //It is not guaranteed that the input boxsize is in kpc/h. We use the boxize what was defined in the paramfile, and ignore the boxsize in the header. We only print the boxsize in the header for information.
+	printf("Boxsize \t %f Mpc/h (Based on the GADGET header)\n", header1.BoxSize);
 	printf("Boxsize \t %f Mpc (Based on the paramfile. This is going to be used by the code)\n", L);
 	printf("Omega0 \t\t %f \n", header1.Omega0);
 	printf("OmegaLambda \t %f \n", header1.OmegaLambda);
