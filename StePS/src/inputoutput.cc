@@ -1076,6 +1076,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	hid_t IC = 0;
 	int Nbuf[6];
 	printf("Reading the %s IC file...\n", ic_file);
+	fflush(stdout);
 	IC = H5Fopen(ic_file, H5F_ACC_RDONLY, H5P_DEFAULT);
 	//reading the total number of particles from the header
 	group = H5Gopen2(IC,"Header", H5P_DEFAULT);
@@ -1083,6 +1084,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	H5Aread(attr_id,  H5T_NATIVE_INT, Nbuf);
 	N = Nbuf[1];
 	printf("\tThe number of particles:\t%i\n", N);
+	fflush(stdout);
 	H5Aclose(attr_id);
 	H5Gclose(group);
 	if(allocate_memory)
@@ -1093,37 +1095,43 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the velocities
 		if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the forces
 		if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the masses
 		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the softening lengths
 		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 	}
 	//reading the particle coordinates
 	printf("\tReading /PartType1/Coordinates\n");
+	fflush(stdout);
 	dataset = H5Dopen2(IC, "/PartType1/Coordinates", H5P_DEFAULT);
-        dataspace_in_file = H5Dget_space(dataset);
+    dataspace_in_file = H5Dget_space(dataset);
 	datatype =  H5Dget_type(dataset);
 #ifdef USE_SINGLE_PRECISION
 	if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
@@ -1173,6 +1181,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	H5Dclose(dataset);
 	//reading the particle velocities
 	printf("\tReading /PartType1/Velocities\n");
+	fflush(stdout);
 	dataset = H5Dopen2(IC, "/PartType1/Velocities", H5P_DEFAULT);
 	dataspace_in_file = H5Dget_space(dataset);
 	datatype =  H5Dget_type(dataset);
@@ -1286,6 +1295,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 		}
 		H5Fclose(IC);
 		printf("...done\n\n");
+		fflush(stdout);
 		return;
 	}
 
@@ -1342,6 +1352,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 
 	H5Fclose(IC);
 	printf("...done\n\n");
+	fflush(stdout);
 	return;
 }
 
@@ -2513,6 +2524,7 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 	if(IC_FORMAT == 0)
 	{
 		printf("\nThe IC file is in ASCII format.\n");
+		fflush(stdout);
 		if(file_exist(IC_FILE) == 0)
 		{
 			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
@@ -2526,7 +2538,8 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 	if(IC_FORMAT == 1)
 	{
 		int files;
-		printf("\nThe IC file is in Gadget format.\nThe IC determines the box size.\n");
+		printf("\nThe IC file is in Gadget format.\n");
+		fflush(stdout);
 		files = 1;      /* number of files per snapshot */
 		if(file_exist(IC_FILE) == 0)
 		{
@@ -2542,6 +2555,7 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 	if(IC_FORMAT == 2)
 	{
 		printf("\nThe IC is in HDF5 format\n");
+		fflush(stdout);
 		if(file_exist(IC_FILE) == 0)
 		{
 			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
