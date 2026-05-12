@@ -827,6 +827,8 @@ int main(int argc, char *argv[])
 	}
 	if(rank == 0)
 	{
+		printf("Determining the output times...\n");
+		fflush(stdout);
 		if(file_exist(OUT_LST) == 0)
 		{
 			HAVE_OUT_LIST = 0;
