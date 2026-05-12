@@ -120,6 +120,8 @@ Once you compiled the code, you can simply run it by typing:
   or
   $ mpirun -np <number of MPI tasks> ./build/StePS <parameterfile> <Number of shared memory OMP threads per MPI tasks>
 where the parameterfile specifies the parameters of the simulation.
+On newer systems, the MPI core binding can cause significant slowdown. To run with MPI, but with disabled core binding type:
+mpirun -np <number of MPI tasks> --bind-to none ./build/StePS <parameterfile>
 
 If you compiled the code with CUDA, you can simply run it by typing:
 	$ export OMP_NUM_THREADS=<Number of GPUs per tasks>
@@ -178,13 +180,16 @@ redshift_cone.dat:
 	x[Mpc]  y[Mpc]  z[Mpc]  v_x[km/s] v_y[km/s] v_z[km/s] M[1e11M_sol]	R[Mpc]	z(=Redshift)
 
 
-Output format for the logfile:
+Output format for the logfile (Logfile.dat):
+    #1. Time[Gy]      2. Max_Error[internal units]   3. Step_Size[Gy]   4. Scale factor    5. Redshift        6. Hubble_Parameter[km/s/Mpc]     7. Deceleration_Parameter    8. Omega_m
+    #************************************************************************************************************************************************************
 
-Logfile.dat:
-	t[Gy]	error	h[Gy](=length of timestep)	a(=scalefactor)	z(=Redshift)	H[km/s/Mpc](=Hubble parameter)	q(=deceleration parameter)	Omega_m
-*********************************************************************************************
+Output format for the glass logfile (Glass_logfile.dat):
+    # 1. Cosmic time[Gy]    2. Scale factor (a/a_start)     3. Redshift     4. Hubble_Parameter[km/s/Mpc]   5. Deceleration_Parameter  6. Mean(F)[internal units] 7. Max(F)[internal units]       8. Mean(A)[internal units]      9. Max(A)[internal units]       10. Mean(disp)[Mpc]  11. Max(disp)[Mpc]   12. Mean(velocity)[km/s]   13. Max(velocity)[km/s]
+    #*********************************************************************************************************************************************************************************************************************************************************************************************************************************************************
 
-The example parameterfile (comoving LCDM):
+
+The example parameterfile (comoving cosmological simulation in trivial Euclidean R^3 space):
 Cosmological parameters:
 ------------------------
 Omega_b         0.0			%Barionic matter density parameter

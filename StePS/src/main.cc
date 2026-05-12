@@ -238,8 +238,8 @@ int main(int argc, char *argv[])
 		printf("|\n| Git branch: %s", GIT_BRANCH);
 		for(I = 0; I<10-((sizeof(GIT_BRANCH)-1)/8); I++)
 			printf("\t");
-		printf("|\n| Git commit ID: %s", GIT_COMMIT_ID);
-		for(I = 0; I<10-((sizeof(GIT_COMMIT_ID)-1)/8); I++)
+		printf("|\n| Git commit: %s", GIT_COMMIT_ID);
+		for(I = 0; I<11-((sizeof(GIT_COMMIT_ID)-1)/8); I++)
 			printf("\t");
 		printf("|\n+-----------------------------------------------------------------------------------------------+\n\n");
 		printf("+---------------------------------------------------------------+\n| StePS comes with ABSOLUTELY NO WARRANTY.\t\t\t|\n| This is free software, and you are welcome to redistribute it\t|\n| under certain conditions. See the LICENSE file for details.\t|\n+---------------------------------------------------------------+\n\n");
