@@ -224,6 +224,8 @@ shape (N, 4) and StePS will use it verbatim.
 
 ### 4 · Run
 
+Note: Currently on our V100 server the output folder is set to /v/scratch/astro/dodeca/ change it to examples/PDS_test_output
+
 ```bash
 mkdir -p examples/PDS_test_output
 mpirun -np 4 ./build/StePS examples/PDS_test.param
