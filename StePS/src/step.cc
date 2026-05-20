@@ -76,15 +76,30 @@ double calculate_init_h()
 		}
 	}
 	#elif defined(POINCARE_DODECAHEDRAL)
-	// Map each particle's quaternion position back into the fundamental domain.
-	// PDS_Q holds the 4D unit-quaternion positions (4 REALs per particle).
-	for(i=0;i<N;i++)
+	// Recompute PDS_Q from x[] via inverse stereographic projection, wrap into
+	// the fundamental domain, then back-project x[] from the wrapped quaternion.
 	{
-		double q_in[4]  = { (double)PDS_Q[4*i],   (double)PDS_Q[4*i+1],
-		                    (double)PDS_Q[4*i+2],  (double)PDS_Q[4*i+3] };
-		double q_out[4];
-		pds_wrap(q_in, q_out);
-		for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+		double R  = (double)PDS_R_CURV;
+		double R2 = R * R;
+		for(i=0;i<N;i++)
+		{
+			double cx = (double)x[3*i];
+			double cy = (double)x[3*i+1];
+			double cz = (double)x[3*i+2];
+			double r2    = cx*cx + cy*cy + cz*cz;
+			double denom = R2 + r2;
+			double q_in[4] = { (R2 - r2)/denom,
+			                   2.0*R*cx/denom,
+			                   2.0*R*cy/denom,
+			                   2.0*R*cz/denom };
+			double q_out[4];
+			pds_wrap(q_in, q_out);
+			for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+			double inv_1pq0 = 1.0 / (1.0 + q_out[0]);
+			x[3*i]   = (REAL)(R * q_out[1] * inv_1pq0);
+			x[3*i+1] = (REAL)(R * q_out[2] * inv_1pq0);
+			x[3*i+2] = (REAL)(R * q_out[3] * inv_1pq0);
+		}
 	}
 	#endif
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
@@ -197,14 +212,30 @@ void step(REAL* x, REAL* v, REAL* F)
 			}
 		}
 		#elif defined(POINCARE_DODECAHEDRAL)
-		// Map each particle's unit-quaternion position back into the PDS fundamental domain.
-		for(i=0; i<N; i++)
+		// Recompute PDS_Q from drift-updated x[] via inverse stereographic projection,
+		// wrap into the fundamental domain, then back-project x[] from wrapped quaternion.
 		{
-			double q_in[4]  = { (double)PDS_Q[4*i],   (double)PDS_Q[4*i+1],
-			                    (double)PDS_Q[4*i+2],  (double)PDS_Q[4*i+3] };
-			double q_out[4];
-			pds_wrap(q_in, q_out);
-			for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+			double R  = (double)PDS_R_CURV;
+			double R2 = R * R;
+			for(i=0; i<N; i++)
+			{
+				double cx = (double)x[3*i];
+				double cy = (double)x[3*i+1];
+				double cz = (double)x[3*i+2];
+				double r2    = cx*cx + cy*cy + cz*cz;
+				double denom = R2 + r2;
+				double q_in[4] = { (R2 - r2)/denom,
+				                   2.0*R*cx/denom,
+				                   2.0*R*cy/denom,
+				                   2.0*R*cz/denom };
+				double q_out[4];
+				pds_wrap(q_in, q_out);
+				for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+				double inv_1pq0 = 1.0 / (1.0 + q_out[0]);
+				x[3*i]   = (REAL)(R * q_out[1] * inv_1pq0);
+				x[3*i+1] = (REAL)(R * q_out[2] * inv_1pq0);
+				x[3*i+2] = (REAL)(R * q_out[3] * inv_1pq0);
+			}
 		}
 		#endif
 	}

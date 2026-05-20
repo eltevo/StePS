@@ -24,6 +24,9 @@
 #include <cstring>
 #include "mpi.h"
 #include "global_variables.h"
+#ifdef POINCARE_DODECAHEDRAL
+#include "pds_group.h"
+#endif
 #ifdef HAVE_HDF5
 #include <hdf5.h>
 #endif
@@ -828,6 +831,9 @@ int main(int argc, char *argv[])
 			#endif
 		}
 	#elif defined(POINCARE_DODECAHEDRAL)
+		// Initialise the binary icosahedral group I* (120 unit quaternions).
+		// pds_init() is idempotent; must be called before any pds_wrap / pds_in_domain.
+		pds_init();
 		if(IS_PERIODIC < 1)
 		{
 			if(rank == 0)
@@ -1523,14 +1529,28 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
 			exit(-2);
 		}
+		#ifdef POINCARE_DODECAHEDRAL
+		//Allocating memory for the 4D quaternion positions
+		if(!(PDS_Q = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_Q.\n", rank);
+			exit(-2);
+		}
+		#endif
 	}
 	//Bcasting the ICs to the rank!=0 threads
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
   	MPI_Bcast(M,N,MPI_FLOAT,0,MPI_COMM_WORLD);
+	#ifdef POINCARE_DODECAHEDRAL
+	MPI_Bcast(PDS_Q,4*N,MPI_FLOAT,0,MPI_COMM_WORLD);
+	#endif
 #else
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	#ifdef POINCARE_DODECAHEDRAL
+	MPI_Bcast(PDS_Q,4*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	#endif
 #endif
 #ifdef GLASS_MAKING
 	//setting all velocities to zero
@@ -1900,6 +1920,8 @@ int main(int argc, char *argv[])
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
 	#elif defined(PERIODIC_Z)
 		forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+	#elif defined(POINCARE_DODECAHEDRAL)
+		forces_pds(PDS_Q, F, ID_MPI_min, ID_MPI_max);
 	#else
 		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif

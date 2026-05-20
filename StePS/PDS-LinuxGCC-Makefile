@@ -52,7 +52,7 @@ OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
 CXX = g++
 
 #------------------------------- Location of the MPI libraries
-MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc
+MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi -lhwloc
 MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
@@ -80,10 +80,10 @@ GITCOMMIT_ID=$(shell git rev-parse HEAD)
 GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
 BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"'
-CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp
+CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp -DOMPI_SKIP_MPICXX
 
-MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
-MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
+MPI_COMPILE_FLAGS = $(shell mpicxx --showme:compile)
+MPI_LINK_FLAGS = $(shell mpicxx --showme:link)
 
 #------------------------------- Printing out some info
 $(info This is the StePS $(VERSION) Makefile.)
