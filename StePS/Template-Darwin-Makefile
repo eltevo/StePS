@@ -32,6 +32,7 @@ VERSION='"v2.0.1.0"'
 #OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only (S^1 x R^2 topological manifold)
 #OPT += -DPERIODIC_Z_RSPACELOOKUP # Using direct real-space summation with large cutoff (N>10^3) to generate the periodic lookup table. Otherwise, Tornberg (2015) Ewald summation method will be used for lookup table calculation (only for cylindrical periodic BCs).
 #OPT += -DPERIODIC_Z_NOLOOKUP # Enable direct periodic real-space summation without using a lookup table (only for cylindrical periodic BCs), otherwise lookup table method is used.
+#OPT += -DPOINCARE_DODECAHEDRAL # Poincare Dodecahedral Space topology (S^3/I* where I* is the binary icosahedral group). Particles are stored as unit quaternions. Requires pds_group.h. EXPERIMENTAL.
 EWALD_INTERPOLATION_ORDER=2# Interpolation order for the Ewald force correction table (0: NGP, 2: CIC, 4: TSC). Higher order = more accurate but slower. Recommended: 4 (TSC)
 
 #------------------------------- Option for enabling HDF5 I/O

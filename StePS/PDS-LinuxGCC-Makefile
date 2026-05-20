@@ -20,8 +20,8 @@ VERSION='"v2.0.1.0"'
 
 
 #------------------------------- GPU and precision options for the force calculation
-USING_CUDA = YES
-OPT += -DUSE_SINGLE_PRECISION
+USING_CUDA = NO
+#OPT += -DUSE_SINGLE_PRECISION
 
 #------------------------------- Options for the force calculation method (if everthing is commented out, direct summation is used)
 #OPT += -DUSE_BH=0.25 # Use the Barnes-Hut (OctTree) method for force calculation with an opening angle of 0.25. (Recommended value is 0.25)
@@ -33,7 +33,7 @@ OPT += -DUSE_SINGLE_PRECISION
 #OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only (S^1 x R^2 topological manifold)
 #OPT += -DPERIODIC_Z_RSPACELOOKUP # Using direct real-space summation with large cutoff (N>10^3) to generate the periodic lookup table. Otherwise, Tornberg (2015) Ewald summation method will be used for lookup table calculation (only for cylindrical periodic BCs).
 #OPT += -DPERIODIC_Z_NOLOOKUP # Enable direct periodic real-space summation without using a lookup table (only for cylindrical periodic BCs), otherwise lookup table method is used.
-#OPT += -DPOINCARE_DODECAHEDRAL # Poincare Dodecahedral Space topology (S^3/I* where I* is the binary icosahedral group). Particles are stored as unit quaternions. Requires pds_group.h. EXPERIMENTAL.
+OPT += -DPOINCARE_DODECAHEDRAL # Poincare Dodecahedral Space topology (S^3/I* where I* is the binary icosahedral group). Particles are stored as unit quaternions. Requires pds_group.h. EXPERIMENTAL.
 EWALD_INTERPOLATION_ORDER=2# Interpolation order for the Ewald force correction table (0: NGP, 2: CIC, 4: TSC). Higher order = more accurate but slower. Recommended: 4 (TSC)
 
 #------------------------------- Option for enabling HDF5 I/O
@@ -49,18 +49,18 @@ OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
 			#-1: the expansion history will be read from an external file
 
 #------------------------------- Compiler
-CXX = icpc
+CXX = g++
 
 #------------------------------- Location of the MPI libraries
-MPI_LIBS = -L/opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/lib -Xlinker --enable-new-dtags -Xlinker -rpath -Xlinker /opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/lib/release_mt -Xlinker -rpath -Xlinker /opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/lib -Xlinker -rpath -Xlinker /opt/intel/mpi-rt/2017.0.0/intel64/lib/release_mt -Xlinker -rpath -Xlinker /opt/intel/mpi-rt/2017.0.0/intel64/lib -lmpicxx -lmpifort -lmpi -lmpigi -ldl -lrt -lpthread
-MPI_INC = -I/opt/intel/compilers_and_libraries_2018.2.199/linux/mpi/intel64/include
+MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc
+MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /opt/apps/cuda/11.0
+CUDA_PATH       ?= /usr/local/cuda-12.6
 
 #------------------------------- Location of the HDF5 libraries
-HDF5_LIBS = -L/opt/apps/intel18/hdf5/1.10.4/x86_64/lib -lhdf5
-HDF5_INC = -I/opt/apps/intel18/hdf5/1.10.4/x86_64/include
+HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
+HDF5_INC = -I/usr/include/hdf5/serial
 
 #---------------- Do not edit beyond this line! ----------------
 
@@ -68,6 +68,8 @@ SRC_DIR = ./src
 BUILD_DIR = ./build
 
 MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
+
+CPPSTD = c++17
 
 SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc
 DEPS = $(SRC_DIR)/global_variables.h
@@ -78,12 +80,10 @@ GITCOMMIT_ID=$(shell git rev-parse HEAD)
 GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
 BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"'
-CFLAGS = -Wno-long-long -Wall -ansi -pedantic -O3 -std=gnu++98 -fopenmp -lgomp -qopenmp
+CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp
 
-IMPI_COMPILE_FLAGS = $(shell mpiicpc -compile-info)
-MPI_COMPILE_FLAGS = $(subst icpc, ,$(IMPI_COMPILE_FLAGS))
-IMPI_LINK_FLAGS = $(shell mpiicpc -link-info)
-MPI_LINK_FLAGS = $(subst icpc, ,$(IMPI_LINK_FLAGS))
+MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
+MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
 
 #------------------------------- Printing out some info
 $(info This is the StePS $(VERSION) Makefile.)
@@ -119,8 +119,8 @@ OPT += -DUSE_CUDA
 BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
 
 NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options -std=gnu++98 --compiler-options -Wall -O3 -lm -Xcompiler -pthread
-CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options -std=gnu++98 --compiler-options -Wall -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
+CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall -O3 -lm -Xcompiler -pthread
+CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC += $(SRC_DIR)/forces_cuda.cu

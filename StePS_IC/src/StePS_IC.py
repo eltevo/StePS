@@ -17,6 +17,11 @@
 #*******************************************************************************#
 
 import sys
+import warnings
+warnings.warn(
+    "\n\nDEPRECATED: StePS_IC.py is no longer maintained.\n"
+    "Please use stepsic2 instead: https://github.com/eltevo/stepsic\n",
+    DeprecationWarning, stacklevel=1)
 from os.path import exists
 import time
 import yaml
