@@ -1,0 +1,33 @@
+Cosmological parameters:
+------------------------
+Omega_b         0.0
+Omega_lambda    0.6889
+Omega_m         0.3111
+Omega_r         0.0
+HubbleConstant  67.66
+a_start         0.03125
+a_max           1.0
+
+
+Simulation parameters:
+-----------------------
+COSMOLOGY               1
+IS_PERIODIC             2
+COMOVING_INTEGRATION    1
+PDS_R_CURV              3100.0
+L_BOX                   6200.0
+R_SIM                   960.0
+IC_FILE                 ./examples/ic/pds_test_n1000_cubical_Lx1919_Ly1919_Lz1919_Ng10_Nm64_z31_LPT1_cic/ic.hdf5
+IC_FORMAT               2
+OUT_DIR                 /v/scratch/astro/dodeca/
+OUT_LST                 ./examples/outredshifts.txt
+OUTPUT_TIME_VARIABLE    1
+OUTPUT_FORMAT           2
+REDSHIFT_CONE           0
+MIN_REDSHIFT            0.0003012504
+ACC_PARAM               0.005
+STEP_MIN                0.00002
+STEP_MAX                0.03125
+PARTICLE_RADII          10.0
+FIRST_T_OUT             1.0
+H_OUT                   1.0

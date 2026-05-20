@@ -68,6 +68,13 @@ void BCAST_global_parameters()
 	MPI_Bcast(&ACC_PARAM,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
+#if defined(POINCARE_DODECAHEDRAL)
+#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(&PDS_R_CURV, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+#else
+	MPI_Bcast(&PDS_R_CURV, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+#endif
+#endif
 #if defined(PERIODIC_Z) && defined(DIRECT_PERIODIC_REALSPACE)
 	MPI_Bcast(&RADIAL_FORCE_ACCURACY,1,MPI_INT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&RADIAL_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
@@ -147,6 +154,10 @@ char str34[] = "EXPANSION_FILE";
 char str35[] = "INTERPOLATION_ORDER";
 #endif
 char str36[] = "R_SIM";
+#if defined(POINCARE_DODECAHEDRAL)
+char str_pds_r_curv[] = "PDS_R_CURV";
+PDS_R_CURV = 0.0;
+#endif
 #if defined(PERIODIC_Z)
 char str37[] = "RADIAL_FORCE_ACCURACY";
 char str38[] = "RADIAL_FORCE_TABLE_SIZE";
@@ -350,6 +361,12 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%f", &Rsim);
 	}
+	#if defined(POINCARE_DODECAHEDRAL)
+	if(strstr(c, str_pds_r_curv) != NULL)
+	{
+		sscanf(c, "%*s\t%f", &PDS_R_CURV);
+	}
+	#endif
 	#if defined(PERIODIC_Z)
 	if(strstr(c, str37) != NULL)
 	{
@@ -580,6 +597,12 @@ while(!feof(param_file))
 	{
 		sscanf(c, "%*s\t%lf", &Rsim);
 	}
+	#if defined(POINCARE_DODECAHEDRAL)
+	if(strstr(c, str_pds_r_curv) != NULL)
+	{
+		sscanf(c, "%*s\t%lf", &PDS_R_CURV);
+	}
+	#endif
 	#if defined(PERIODIC_Z)
 	if(strstr(c, str37) != NULL)
 	{
@@ -683,6 +706,8 @@ if(COSMOLOGY == 1)
 			printf("Linear box size\t\t\t%f %s\n",L,dist_unit);
 			#elif defined(PERIODIC_Z)
 			printf("Simulation radius\t\t%f %s\nLinear box size\t\t\t%f %s\n",Rsim,dist_unit,L,dist_unit);
+			#elif defined(POINCARE_DODECAHEDRAL)
+			printf("PDS curvature radius\t\t%f %s\nSimulation radius\t\t%f %s\n",(double)PDS_R_CURV,dist_unit,Rsim,dist_unit);
 			#endif
 		}
 		printf("Maximal scale factor\t\t%f\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
@@ -699,6 +724,8 @@ if(COSMOLOGY == 1)
 			printf("Linear box size\t\t\t%f %s\n",L,dist_unit);
 			#elif defined(PERIODIC_Z)
 			printf("Simulation radius\t\t%f %s\nLinear box size\t\t\t%f %s\n",Rsim,dist_unit,L,dist_unit);
+			#elif defined(POINCARE_DODECAHEDRAL)
+			printf("PDS curvature radius\t\t%f %s\nSimulation radius\t\t%f %s\n",(double)PDS_R_CURV,dist_unit,Rsim,dist_unit);
 			#endif
 		}
 		printf("Maximal simulation time\t\t%f Gy\nAccuracy parameter\t\t%.10f\nMinimal timestep length\t\t%.10f Gy\nMaximal timestep length\t\t%.10f Gy\nInitial conditions\t\t%s\nOutput directory\t\t%s\nComoving integration\t\t%i\n",a_max,ACC_PARAM,h_min*UNIT_T,h_max*UNIT_T,IC_FILE,OUT_DIR,COMOVING_INTEGRATION);
@@ -724,6 +751,14 @@ else
 	printf("Radial force table size\t\t%i\n",RADIAL_FORCE_TABLE_SIZE);
 	printf("Warning: Quasi-periodic boundary conditions only in the z direction.\n         Using only one periodic image in this geometry can easily cause inaccurate forces.\n");
 }
+#endif
+#if defined(POINCARE_DODECAHEDRAL)
+if(PDS_R_CURV <= 0.0)
+{
+	fprintf(stderr, "Error: PDS_R_CURV must be set to a positive value in the parameter file when using POINCARE_DODECAHEDRAL topology.\nExiting.\n");
+	exit(-1);
+}
+printf("PDS curvature radius\t\t%.6g Mpc\n", (double)PDS_R_CURV);
 #endif
 #if defined(USE_BH) && !defined(PERIODIC)
 	printf("Radial BH force correction\t%i\n",RADIAL_BH_FORCE_CORRECTION);

@@ -49,41 +49,43 @@ void recalculate_softening()
 	}
 }
 
+// Cached softening polynomial coefficients, recomputed only when beta changes.
+// thread_local so the cache is safe inside OpenMP parallel regions.
+// Region A (outer): r in (beta/2, beta)  — 4 coefficients + constant -1/15
+// Region B (inner): r in [0, beta/2]     — 3 coefficients
+static thread_local REAL _soft_beta_cached = -1.0;
+static thread_local REAL _soft_A[4]; // c0*r^3 + c1*r^2 + c2*r + c3 - 1/(15*r^3)
+static thread_local REAL _soft_B[3]; // c0*r^3 + c1*r^2 + c2
+
+static void _soft_rebuild_cache(REAL beta)
+{
+	if(beta == _soft_beta_cached) return;
+	_soft_beta_cached = beta;
+	_soft_A[0] = -32.0/(3.0*pow(beta, 6));
+	_soft_A[1] =  38.4/pow(beta, 5);
+	_soft_A[2] = -48.0/pow(beta, 4);
+	_soft_A[3] =  64.0/(3.0*pow(beta, 3));
+	_soft_B[0] =  32.0/pow(beta, 6);
+	_soft_B[1] = -38.4/pow(beta, 5);
+	_soft_B[2] =  32.0/(3.0*pow(beta, 3));
+}
+
 REAL force_softening(REAL r, REAL beta)
 {
-	//This function calculates the softened force coefficient between two particles
-	//Only cubic spline softening is implemented here. New softening types can be added later.
-	//Input:
-	//    * r - distance between the two particles
-	//    * beta - softening length
-	//Output:
-	//    * wij - softened force coefficient (1/r^3 for non-softened force)
-	REAL SOFT_CONST[5];
-	REAL betap2 = beta*0.5;
-	REAL wij;
-	wij = 0;
+	// Cubic spline softening kernel. Polynomial coefficients cached per beta.
+	_soft_rebuild_cache(beta);
 	if(r >= beta)
 	{
-		wij = pow(r, -3);
+		return pow(r, -3);
 	}
-	else if(r > betap2 && r < beta)
+	else if(r > beta*0.5)
 	{
-		SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-		SOFT_CONST[1] = 38.4/pow(beta, 5);
-		SOFT_CONST[2] = -48.0/pow(beta, 4);
-		SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-		SOFT_CONST[4] = -1.0/15.0;
-		wij = SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3);
+		return _soft_A[0]*pow(r,3) + _soft_A[1]*pow(r,2) + _soft_A[2]*r + _soft_A[3] - (REAL)(1.0/15.0)*pow(r,-3);
 	}
 	else
 	{
-		SOFT_CONST[0] = 32.0/pow(beta, 6);
-		SOFT_CONST[1] = -38.4/pow(beta, 5);
-		SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
-
-		wij = SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2];
+		return _soft_B[0]*pow(r,3) + _soft_B[1]*pow(r,2) + _soft_B[2];
 	}
-	return wij;
 }
 
 #if defined(PERIODIC_Z) || defined(USE_BH)
@@ -1403,4 +1405,90 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     return;
 }
 #endif
+#endif
+
+#ifdef POINCARE_DODECAHEDRAL
+#include "pds_group.h"
+
+REAL pds_ewald_interpolate(const REAL *table, int Ngrid, double R_curv, double chi_nearest);
+
+/*  Force calculation for S³/I* (Poincaré Dodecahedral Space).
+ *
+ *  Particle positions are read from PDS_Q[4*N] (unit quaternions).
+ *  For each pair (i, j) the 120 I* images of source j are enumerated; the
+ *  nearest image contributes the direct force, and when IS_PERIODIC >= 2 the
+ *  Ewald correction table adds the contribution from the remaining 119 images.
+ *
+ *  Force convention: F[3*(i-ID_min)+k] accumulates the k-th Cartesian component
+ *  of the force on particle i.  The force is stored as the last three components
+ *  of the 4D geodesic tangent vector (the e0=(1,0,0,0) component is zero to first
+ *  order for particles near the fundamental domain centre). */
+void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
+{
+    pds_init();
+    double omp_start_time = omp_get_wtime();
+    int i, j, k;
+    for(i = 0; i < N_mpi_thread; i++)
+        for(k = 0; k < 3; k++)
+            F[3*i+k] = 0.0;
+
+    int chunk = (ID_max - ID_min + 1) / omp_get_max_threads();
+    if(chunk < 1) chunk = 1;
+
+    double R_curv = (double)PDS_R_CURV;
+
+    #pragma omp parallel for schedule(dynamic, chunk) \
+        default(shared) private(j, k)
+    for(i = ID_min; i <= ID_max; i++)
+    {
+        double qi[4];
+        for(k = 0; k < 4; k++) qi[k] = (double)pds_q[4*i+k];
+
+        for(j = 0; j < N; j++)
+        {
+            if(j == i) continue;
+
+            double qj[4];
+            for(k = 0; k < 4; k++) qj[k] = (double)pds_q[4*j+k];
+
+            /* Find the nearest I* image of particle j as seen from particle i */
+            double chi_nearest = 1e30;
+            double q_nearest[4] = {1.0, 0.0, 0.0, 0.0};
+            for(int g = 0; g < PDS_N_ISTAR; g++) {
+                double q_img[4];
+                pds_apply_group_element(g, qj, q_img);
+                double chi_g = pds_chi(qi, q_img);
+                if(chi_g < chi_nearest) {
+                    chi_nearest = chi_g;
+                    for(k = 0; k < 4; k++) q_nearest[k] = q_img[k];
+                }
+            }
+            if(chi_nearest >= M_PI - 1e-10) continue; /* antipodal — force is zero */
+
+            /* Unit tangent at qi toward nearest image of qj */
+            double t_4d[4];
+            pds_force_direction(qi, q_nearest, t_4d);
+
+            /* Force magnitude with softening: cap chi at chi_soft = soft/R_curv */
+            double soft = (double)(SOFT_LENGTH[i] + SOFT_LENGTH[j]);
+            double chi_soft = soft / R_curv;
+            double chi_eff  = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
+            double f_mag    = (double)M[j] * pds_green(chi_eff, R_curv);
+
+            /* Ewald correction: add contribution from all 119 non-nearest images */
+            if(IS_PERIODIC >= 2) {
+                double D = (double)pds_ewald_interpolate(PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID, R_curv, chi_nearest);
+                f_mag += (double)M[j] * D;
+            }
+
+            /* Accumulate: use last 3 components of the 4D tangent as 3D force */
+            for(k = 0; k < 3; k++) {
+                #pragma omp atomic
+                F[3*(i - ID_min) + k] += (REAL)(f_mag * t_4d[k+1]);
+            }
+        }
+    }
+    double omp_end_time = omp_get_wtime();
+    printf("PDS force calculation finished on MPI task %i. Wall-clock time = %fs.\n", rank, omp_end_time - omp_start_time);
+}
 #endif

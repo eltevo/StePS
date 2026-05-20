@@ -110,6 +110,14 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 	char ewaldfilepath[0x100];
 	int N_EWALD_FORCE_GRID; //size of the ewald force lookup table
 #endif
+#if defined(POINCARE_DODECAHEDRAL)
+	//Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
+	REAL *PDS_Q;                 //4D quaternion positions (4*N REAL values)
+	REAL *PDS_EWALD_FORCE_TABLE; //1D Ewald correction table indexed by geodesic distance chi in [0,pi]
+	int   N_PDS_EWALD_GRID;      //number of grid points in the PDS Ewald table
+	REAL  PDS_R_CURV;            //curvature radius of S^3 in internal length units (Mpc)
+	char  pds_ewaldfilepath[0x100];
+#endif
 #if defined(PERIODIC_Z)
 	//Variables only used in S^1 x R^2 simulations
 	int RADIAL_FORCE_TABLE_SIZE; //size of the lookup table for the radial force calculation
@@ -183,6 +191,15 @@ void calculate_S1R2ewald_correction_table(int Nrho, int Nz, REAL rho_max, REAL L
 #ifdef HAVE_HDF5
 int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_grid, REAL **table_out);
 int save_s1r2_ewald_lookup_table(const char *filename, int Nrho_grid, int Nz_grid, const REAL *S1R2_EWALD_FORCE_TABLE);
+#endif
+#elif defined(POINCARE_DODECAHEDRAL)
+//Functions for S^3/I* (Poincare Dodecahedral Space) simulations
+void calculate_pds_ewald_lookup_table(int Ngrid, double R_curv, REAL *table);
+double pds_ewald_interpolate(const REAL *table, int Ngrid, double R_curv, double chi);
+void forces_pds(REAL *q, REAL *F, int ID_min, int ID_max);
+#ifdef HAVE_HDF5
+int save_pds_ewald_lookup_table(const char *filename, int Ngrid, double R_curv, const REAL *PDS_EWALD_FORCE_TABLE);
+int load_pds_ewald_lookup_table(const char *filename, int *Ngrid, double *R_curv, REAL **table_out);
 #endif
 #endif
 #if defined(PERIODIC_Z)
@@ -309,6 +326,25 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions. (R^3 topological manifold)\n");
 	#endif
+	// Warn if IS_PERIODIC in the parameter file is inconsistent with the compiled topology.
+	// IS_PERIODIC > 0 in a non-periodic binary, or IS_PERIODIC == 0 in a periodic binary,
+	// will silently use the wrong force kernel.
+	if(rank == 0)
+	{
+		#if defined(PERIODIC)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for T^3 (PERIODIC). The T^3 force kernel will be used.\n\n");
+		#elif defined(PERIODIC_Z)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^1 x R^2 (PERIODIC_Z). The cylindrical force kernel will be used.\n\n");
+		#elif defined(POINCARE_DODECAHEDRAL)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^3/I* (POINCARE_DODECAHEDRAL). The PDS force kernel will be used.\n\n");
+		#else
+		if(IS_PERIODIC > 0)
+			printf("\nWARNING: IS_PERIODIC=%d in the parameter file, but this binary was compiled for open boundaries (R^3). Periodic forces will NOT be applied.\n\n", IS_PERIODIC);
+		#endif
+	}
 	#if defined(USE_BH)
 	THETA = (REAL) USE_BH; //Opening angle for the octree
 	#if !defined(RANDOMIZE_BH)
@@ -790,6 +826,112 @@ int main(int argc, char *argv[])
 				S1R2_EWALD_FORCE_TABLE[0]=0.0;
 				S1R2_EWALD_FORCE_TABLE[1]=0.0;
 			#endif
+		}
+	#elif defined(POINCARE_DODECAHEDRAL)
+		if(IS_PERIODIC < 1)
+		{
+			if(rank == 0)
+				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable runs Poincare Dodecahedral Space (S^3/I*) simulations only.\nExiting.\n");
+			fflush(stdout);
+			return (-2);
+		}
+		if(IS_PERIODIC >= 2)
+		{
+			//Ewald correction table setup
+			if(rank == 0)
+			{
+				if(IS_PERIODIC == 2)
+				{
+					printf("PDS (S^3/I*) Ewald force calculation is on.\n");
+					N_PDS_EWALD_GRID = 1024;
+				}
+				else if(IS_PERIODIC == 3)
+				{
+					printf("Medium precision PDS (S^3/I*) Ewald force calculation is on.\n");
+					N_PDS_EWALD_GRID = 4096;
+				}
+				else
+				{
+					printf("High precision PDS (S^3/I*) Ewald force calculation is on.\n");
+					N_PDS_EWALD_GRID = 16384;
+				}
+				//Allocating memory for the Ewald lookup table
+				printf("MPI task %i: Allocating memory for the PDS Ewald lookup table with %i grid points...\n", rank, N_PDS_EWALD_GRID);
+				if(!(PDS_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_PDS_EWALD_GRID*sizeof(REAL))))
+				{
+					fprintf(stderr, "MPI task %i: failed to allocate memory for the PDS Ewald lookup table.\n", rank);
+					exit(-2);
+				}
+				#ifdef HAVE_HDF5
+					char PDS_EwaldTableFile[] = "PDS_Ewald_table.hdf5";
+					if(snprintf(pds_ewaldfilepath, sizeof(pds_ewaldfilepath), "%s%s", OUT_DIR, PDS_EwaldTableFile) < 0)
+					{
+						fprintf(stderr, "Error: The name of the PDS Ewald table got truncated.\nAborting.\n");
+						abort();
+					}
+					if(file_exist(pds_ewaldfilepath) == 0)
+					{
+						printf("PDS Ewald lookup table file (%s) not found.\nCalculating new lookup table...\n", pds_ewaldfilepath);
+						double EWALD_omp_start_time = omp_get_wtime();
+						calculate_pds_ewald_lookup_table(N_PDS_EWALD_GRID, (double)PDS_R_CURV, PDS_EWALD_FORCE_TABLE);
+						double EWALD_omp_end_time = omp_get_wtime();
+						printf("PDS Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+						printf("Saving PDS Ewald lookup table into %s\n", pds_ewaldfilepath);
+						save_pds_ewald_lookup_table(pds_ewaldfilepath, N_PDS_EWALD_GRID, (double)PDS_R_CURV, PDS_EWALD_FORCE_TABLE);
+					}
+					else
+					{
+						printf("PDS Ewald lookup table file (%s) found.\nLoading lookup table from file...\n", pds_ewaldfilepath);
+						double EWALD_omp_start_time = omp_get_wtime();
+						double R_curv_from_file;
+						if(load_pds_ewald_lookup_table(pds_ewaldfilepath, &N_PDS_EWALD_GRID, &R_curv_from_file, &PDS_EWALD_FORCE_TABLE) != 0)
+						{
+							fprintf(stderr, "Error: Failed to load the PDS Ewald lookup table from file %s\nAborting.\n", pds_ewaldfilepath);
+							return(-2);
+						}
+						if(fabs(R_curv_from_file - (double)PDS_R_CURV) > 1e-6 * (double)PDS_R_CURV)
+						{
+							fprintf(stderr, "Error: PDS curvature radius mismatch: file has R_curv=%.6g Mpc, parameter file has R_curv=%.6g Mpc.\nPlease delete the old lookup table and run again.\nAborting.\n", R_curv_from_file, (double)PDS_R_CURV);
+							return(-2);
+						}
+						double EWALD_omp_end_time = omp_get_wtime();
+						printf("PDS Ewald lookup table loaded from file %s with %i grid points (R_curv=%.4g Mpc).\n", pds_ewaldfilepath, N_PDS_EWALD_GRID, R_curv_from_file);
+						printf("PDS Ewald lookup table loading finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+					}
+				#else
+					printf("HDF5 support not compiled in.\nCalculating new PDS Ewald lookup table...\n");
+					double EWALD_omp_start_time = omp_get_wtime();
+					calculate_pds_ewald_lookup_table(N_PDS_EWALD_GRID, (double)PDS_R_CURV, PDS_EWALD_FORCE_TABLE);
+					double EWALD_omp_end_time = omp_get_wtime();
+					printf("PDS Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
+				#endif
+				fflush(stdout);
+			}
+			//Bcast the grid size and R_curv to all MPI threads
+			MPI_Bcast(&N_PDS_EWALD_GRID, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Bcast(&PDS_R_CURV, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+			if(rank != 0)
+			{
+				PDS_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_PDS_EWALD_GRID*sizeof(REAL));
+			}
+			#ifdef USE_SINGLE_PRECISION
+				MPI_Bcast(PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID, MPI_FLOAT, 0, MPI_COMM_WORLD);
+			#else
+				MPI_Bcast(PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			#endif
+			fflush(stdout);
+		}
+		else
+		{
+			if(rank == 0)
+				printf("PDS (S^3/I*) nearest-image-only mode (no Ewald correction).\n");
+			N_PDS_EWALD_GRID = 1;
+			if(!(PDS_EWALD_FORCE_TABLE = (REAL*)malloc(sizeof(REAL))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate memory for dummy PDS Ewald table.\n", rank);
+				exit(-2);
+			}
+			PDS_EWALD_FORCE_TABLE[0] = 0.0;
 		}
 	#else
 		if(IS_PERIODIC  != 0)

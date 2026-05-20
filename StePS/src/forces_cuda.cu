@@ -30,6 +30,13 @@ extern int e[2202][4];
 extern REAL w[3];
 extern int N, el;
 
+#ifdef POINCARE_DODECAHEDRAL
+/* pds_group.h provides the static PDS_I_STAR[120][4] array and pds_init().
+ * Each translation unit that includes this header gets its own copy; call
+ * pds_init() before use to fill it via BFS. */
+#include "pds_group.h"
+#endif
+
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
 #elif defined(PERIODIC)
@@ -864,6 +871,209 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
 }
 #endif
 #endif
+
+#ifdef POINCARE_DODECAHEDRAL
+
+/* 120 I* unit quaternions in GPU constant memory (copied from host PDS_I_STAR after pds_init()) */
+__constant__ double PDS_I_STAR_DEV[120][4];
+
+/* ── Device helpers ─────────────────────────────────────────────────────────── */
+__device__ static inline double pds_dot4_dev(const double a[4], const double b[4])
+{ return a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]; }
+
+__device__ static inline void pds_quat_mult_dev(const double p[4], const double q[4], double out[4])
+{
+    out[0] = p[0]*q[0] - p[1]*q[1] - p[2]*q[2] - p[3]*q[3];
+    out[1] = p[0]*q[1] + p[1]*q[0] + p[2]*q[3] - p[3]*q[2];
+    out[2] = p[0]*q[2] - p[1]*q[3] + p[2]*q[0] + p[3]*q[1];
+    out[3] = p[0]*q[3] + p[1]*q[2] - p[2]*q[1] + p[3]*q[0];
+}
+
+__device__ static inline double pds_chi_dev(const double p[4], const double q[4])
+{
+    double d = pds_dot4_dev(p, q);
+    if(d >  1.0) d =  1.0;
+    if(d < -1.0) d = -1.0;
+    return acos(d);
+}
+
+__device__ static inline void pds_force_dir_dev(const double p[4], const double q[4], double t[4])
+{
+    double d = pds_dot4_dev(p, q);
+    double len2 = 0.0;
+    for(int k = 0; k < 4; k++) { t[k] = q[k] - d*p[k]; len2 += t[k]*t[k]; }
+    if(len2 < 1.0e-24) { for(int k=0;k<4;k++) t[k]=0.0; return; }
+    double inv = rsqrt(len2);
+    for(int k = 0; k < 4; k++) t[k] *= inv;
+}
+
+__device__ static inline double pds_green_dev(double chi, double R)
+{
+    if(chi < 1.0e-12 || chi > 3.14159265358979 - 1.0e-12) return 0.0;
+    double s = sin(chi);
+    return 1.0 / (R * R * s * s);
+}
+
+/*  PDS force kernel.
+ *
+ *  Each thread handles one field particle i.  For every source j the 120 I*
+ *  images are enumerated; the nearest contributes the direct force (with
+ *  softening); when IS_PERIODIC >= 2 the 1D Ewald table adds the remaining
+ *  119 images' contribution.
+ *
+ *  Force is stored as the last 3 components of the 4D tangent vector.        */
+__global__ void ForceKernel_pds(
+    int n, const int N,
+    const REAL* pds_q,          /* 4*N quaternion positions */
+    REAL* F,                    /* 3*N force output (zeroed by caller)          */
+    const int IS_PERIODIC,
+    const REAL* Mdev,
+    const REAL* soft_dev,
+    const double R_curv,
+    const REAL* ewald_table,    /* 1D Ewald correction table (may be NULL)     */
+    const int ewald_ngrid,
+    const double ewald_dchi,    /* pi/(ewald_ngrid+1)                          */
+    int ID_min, int ID_max)
+{
+    const int tid    = blockIdx.x * blockDim.x + threadIdx.x;
+    const int stride = blockDim.x * gridDim.x;
+
+    for(int ii = tid; ii < n; ii += stride)
+    {
+        int i = ID_min + ii;
+        if(i > ID_max) return;
+
+        double qi[4];
+        for(int k=0;k<4;k++) qi[k] = (double)pds_q[4*i+k];
+
+        double Fx = 0.0, Fy = 0.0, Fz = 0.0;
+
+        for(int j = 0; j < N; j++)
+        {
+            if(j == i) continue;
+            double qj[4];
+            for(int k=0;k<4;k++) qj[k] = (double)pds_q[4*j+k];
+
+            /* Find nearest I* image of particle j */
+            double chi_nearest = 1.0e30;
+            double qn[4] = {1.0, 0.0, 0.0, 0.0};
+            for(int g = 0; g < 120; g++) {
+                double gq[4];
+                double g_elem[4] = { PDS_I_STAR_DEV[g][0], PDS_I_STAR_DEV[g][1],
+                                     PDS_I_STAR_DEV[g][2], PDS_I_STAR_DEV[g][3] };
+                pds_quat_mult_dev(g_elem, qj, gq);
+                double chi_g = pds_chi_dev(qi, gq);
+                if(chi_g < chi_nearest) { chi_nearest = chi_g; for(int k=0;k<4;k++) qn[k]=gq[k]; }
+            }
+            if(chi_nearest >= 3.14159265358979 - 1.0e-10) continue;
+
+            double t4[4];
+            pds_force_dir_dev(qi, qn, t4);
+
+            double soft = (double)(soft_dev[i] + soft_dev[j]);
+            double chi_soft = soft / R_curv;
+            double chi_eff = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
+            double fmag = (double)Mdev[j] * pds_green_dev(chi_eff, R_curv);
+
+            if(IS_PERIODIC >= 2 && ewald_table != NULL) {
+                double idx_d = chi_nearest / ewald_dchi - 1.0;
+                int i0 = (int)idx_d;
+                if(i0 < 0) i0 = 0;
+                if(i0 >= ewald_ngrid - 1) i0 = ewald_ngrid - 2;
+                double frac = idx_d - (double)i0;
+                double D = (1.0 - frac)*(double)ewald_table[i0] + frac*(double)ewald_table[i0+1];
+                fmag += (double)Mdev[j] * D;
+            }
+
+            Fx += fmag * t4[1];
+            Fy += fmag * t4[2];
+            Fz += fmag * t4[3];
+        }
+
+        atomicAdd(&F[3*ii],   (REAL)Fx);
+        atomicAdd(&F[3*ii+1], (REAL)Fy);
+        atomicAdd(&F[3*ii+2], (REAL)Fz);
+    }
+}
+
+cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_max)
+{
+    int i, mprocessors, GPU_ID, nthreads;
+    int N_GPU, GPU_index_min;
+    cudaError_t cudaStatus;
+
+    int N_total = ID_max - ID_min + 1;
+    double omp_start_time = omp_get_wtime();
+
+    /* Copy I* group elements to device constant memory (idempotent) */
+    cudaStatus = cudaMemcpyToSymbol(PDS_I_STAR_DEV, PDS_I_STAR, 120*4*sizeof(double));
+    if(cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpyToSymbol PDS_I_STAR_DEV failed: %s\n", cudaGetErrorString(cudaStatus));
+        return cudaStatus;
+    }
+
+    /* Ensure the I* group table is filled in this TU before copying to GPU */
+    pds_init();
+
+    double ewald_dchi = M_PI / (double)(N_PDS_EWALD_GRID + 1);
+
+    #pragma omp parallel num_threads(n_GPU) private(GPU_ID, mprocessors, nthreads, N_GPU, GPU_index_min)
+    {
+        GPU_ID = omp_get_thread_num();
+        cudaSetDevice(GPU_ID);
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, GPU_ID);
+        mprocessors = deviceProp.multiProcessorCount;
+
+        N_GPU = N_total / n_GPU;
+        GPU_index_min = ID_min + GPU_ID * N_GPU;
+        if(GPU_ID == n_GPU - 1) N_GPU = ID_max - GPU_index_min + 1;
+        nthreads = 32 * mprocessors * BLOCKSIZE;
+
+        /* Allocate and copy particle positions */
+        REAL *dev_q = NULL, *dev_F = NULL, *dev_M = NULL, *dev_soft = NULL, *dev_ewald = NULL;
+
+        cudaMalloc((void**)&dev_q,    4*N*(size_t)sizeof(REAL));
+        cudaMalloc((void**)&dev_F,    3*N_GPU*(size_t)sizeof(REAL));
+        cudaMalloc((void**)&dev_M,    N*(size_t)sizeof(REAL));
+        cudaMalloc((void**)&dev_soft, N*(size_t)sizeof(REAL));
+
+        cudaMemcpy(dev_q,    pds_q,        4*N*sizeof(REAL),   cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_M,    M,            N*sizeof(REAL),     cudaMemcpyHostToDevice);
+        cudaMemcpy(dev_soft, SOFT_LENGTH,  N*sizeof(REAL),     cudaMemcpyHostToDevice);
+        cudaMemset(dev_F, 0, 3*N_GPU*sizeof(REAL));
+
+        if(IS_PERIODIC >= 2 && PDS_EWALD_FORCE_TABLE != NULL) {
+            cudaMalloc((void**)&dev_ewald, N_PDS_EWALD_GRID*(size_t)sizeof(REAL));
+            cudaMemcpy(dev_ewald, PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID*sizeof(REAL), cudaMemcpyHostToDevice);
+        }
+
+        ForceKernel_pds<<<32*mprocessors, BLOCKSIZE>>>(
+            nthreads, N, dev_q, dev_F, IS_PERIODIC,
+            dev_M, dev_soft, (double)PDS_R_CURV,
+            dev_ewald, N_PDS_EWALD_GRID, ewald_dchi,
+            GPU_index_min, GPU_index_min + N_GPU - 1);
+
+        cudaDeviceSynchronize();
+
+        cudaMemcpy(&F[3*(GPU_index_min - ID_min)], dev_F, 3*N_GPU*sizeof(REAL), cudaMemcpyDeviceToHost);
+
+        if(dev_ewald)   cudaFree(dev_ewald);
+        cudaFree(dev_soft); cudaFree(dev_M);
+        cudaFree(dev_F);    cudaFree(dev_q);
+    }
+
+    double omp_end_time = omp_get_wtime();
+    printf("PDS force calculation finished on MPI task %i. Wall-clock time = %fs.\n", rank, omp_end_time - omp_start_time);
+    return cudaSuccess;
+}
+
+void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
+{
+    forces_pds_cuda(pds_q, F, n_GPU, ID_min, ID_max);
+}
+
+#endif /* POINCARE_DODECAHEDRAL */
 
 void recalculate_softening()
 {

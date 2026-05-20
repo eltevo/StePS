@@ -1,7 +1,29 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
-## [v2.0.1.0] - 2026-06-04
+## [v2.1.0.0] - TBA 2026-05-18 
+
+### Added
+- **EXPERIMENTAL: Poincaré Dodecahedral Space (S³/I*) topology.** Enable with `-DPOINCARE_DODECAHEDRAL`. Includes:
+  - Runtime generation of the 120-element binary icosahedral group I* via BFS closure (`src/pds_group.h`)
+  - Correct curved-space gravitational force law on S³: F = GM/(R²sin²χ) (Gauss's law on S³)
+  - Boundary wrapping via Voronoi cell of the fundamental domain
+  - 1D Ewald-style correction table D(χ) for contributions from all 119 non-nearest images (IS_PERIODIC ≥ 2)
+  - Ewald table I/O in HDF5 format with automatic reuse when curvature radius matches
+  - Multi-GPU CUDA kernel `ForceKernel_pds` with I* elements in `__constant__` memory
+  - PDS metadata in HDF5 snapshot headers: `TopologicalManifold = "S^3/I*"`, `R_curvature_Mpc`, `Omega_k`, `PDS_I_star_order`
+  - Four Ewald precision levels via IS_PERIODIC = 1/2/3/4 (nearest-image / 1024 / 4096 / 16384 grid points)
+  - Documentation and quick-start guide in `docs/PDS_guide.md`
+
+### Changed
+- `pds_green()` force formula corrected to 1/(R²sin²χ) (Gauss's law on S³, giving correct 1/r² flat-space limit)
+- Topology consistency warning at startup: mismatches between parameter file IS_PERIODIC and compiled topology are reported
+- Gravitational softening coefficients in `force_softening()` are now cached per thread to avoid recomputation in the O(N²) inner loop
+
+### Fixed
+- MPI max-time tracking bug in `step.cc`: was comparing `force_calc_time` to itself (a no-op); now correctly tracks maximum over all MPI threads
+
+## [v2.0.1.0] - TBA
 
 ### Added
 - Accelerations can be saved to HDF5 snapshots.

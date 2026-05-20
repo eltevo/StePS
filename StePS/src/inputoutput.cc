@@ -1293,6 +1293,89 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	H5Sclose(dataspace_in_file);
 	H5Dclose(dataset);
 
+#ifdef POINCARE_DODECAHEDRAL
+	// Allocate 4D quaternion position array
+	if(allocate_memory)
+	{
+		if(!(PDS_Q = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_Q.\n", rank);
+			exit(-2);
+		}
+	}
+	// Load precomputed quaternions if present, otherwise convert from Cartesian
+	if(H5Lexists(IC, "/PartType1/Quaternions", H5P_DEFAULT) > 0)
+	{
+		printf("\tReading /PartType1/Quaternions\n");
+		fflush(stdout);
+		dataset = H5Dopen2(IC, "/PartType1/Quaternions", H5P_DEFAULT);
+		dataspace_in_file = H5Dget_space(dataset);
+		datatype = H5Dget_type(dataset);
+#ifdef USE_SINGLE_PRECISION
+		if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
+		{
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, PDS_Q);
+		}
+		else
+		{
+			printf("\t\tData stored in doubles.\n");
+			double *qbuffer;
+			if(!(qbuffer = (double*)malloc(4*N*sizeof(double))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate PDS_Q buffer.\n", rank);
+				exit(-2);
+			}
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, qbuffer);
+			for(int i = 0; i < 4*N; i++) PDS_Q[i] = (REAL)qbuffer[i];
+			free(qbuffer);
+		}
+#else
+		if(H5Tequal(datatype, H5T_NATIVE_DOUBLE))
+		{
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, PDS_Q);
+		}
+		else
+		{
+			printf("\t\tData stored in floats.\n");
+			float *qbuffer;
+			if(!(qbuffer = (float*)malloc(4*N*sizeof(float))))
+			{
+				fprintf(stderr, "MPI task %i: failed to allocate PDS_Q buffer.\n", rank);
+				exit(-2);
+			}
+			H5Dread(dataset, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, qbuffer);
+			for(int i = 0; i < 4*N; i++) PDS_Q[i] = (REAL)qbuffer[i];
+			free(qbuffer);
+		}
+#endif
+		H5Tclose(datatype);
+		H5Sclose(dataspace_in_file);
+		H5Dclose(dataset);
+	}
+	else
+	{
+		// Inverse stereographic projection: q = (R²-r², 2Rx, 2Ry, 2Rz) / (R²+r²)
+		printf("\tConverting Cartesian IC to S^3 unit quaternions (inverse stereographic projection)...\n");
+		fflush(stdout);
+		double R = (double)PDS_R_CURV;
+		double R2 = R * R;
+		for(int i = 0; i < N; i++)
+		{
+			double cx = (double)x[3*i];
+			double cy = (double)x[3*i+1];
+			double cz = (double)x[3*i+2];
+			double r2 = cx*cx + cy*cy + cz*cz;
+			double denom = R2 + r2;
+			PDS_Q[4*i]   = (REAL)((R2 - r2) / denom);
+			PDS_Q[4*i+1] = (REAL)(2.0 * R * cx / denom);
+			PDS_Q[4*i+2] = (REAL)(2.0 * R * cy / denom);
+			PDS_Q[4*i+3] = (REAL)(2.0 * R * cz / denom);
+		}
+		printf("\t\t...done.\n");
+		fflush(stdout);
+	}
+#endif
+
 	H5Fclose(IC);
 	printf("...done\n\n");
 	fflush(stdout);
@@ -1741,6 +1824,32 @@ void write_header_attributes_in_hdf5(hid_t handle)
 	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
 	H5Awrite(hdf5_attribute, str_type, (const void*)"S^1xR^2");
 	H5Aclose(hdf5_attribute);
+	#elif defined(POINCARE_DODECAHEDRAL)
+	//Poincare Dodecahedral Space S^3/I* topology
+	H5Tset_size(str_type, strlen("S^3/I*") + 1);
+	hdf5_attribute = H5Acreate(handle, "TopologicalManifold", str_type, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, str_type, (const void*)"S^3/I*");
+	H5Aclose(hdf5_attribute);
+	{
+		//R_curvature_Mpc: curvature radius of S^3 in Mpc
+		hid_t ds_scalar = H5Screate(H5S_SCALAR);
+		double r_curv_mpc = (double)PDS_R_CURV;
+		if(H0_INDEPENDENT_UNITS != 0)
+			r_curv_mpc *= H0*UNIT_V/100.0; //convert to Mpc/h
+		hid_t attr_rcurv = H5Acreate(handle, "R_curvature_Mpc", H5T_NATIVE_DOUBLE, ds_scalar, H5P_DEFAULT, H5P_DEFAULT);
+		H5Awrite(attr_rcurv, H5T_NATIVE_DOUBLE, &r_curv_mpc);
+		H5Aclose(attr_rcurv);
+		//Omega_k: curvature density parameter
+		hid_t attr_ok = H5Acreate(handle, "Omega_k", H5T_NATIVE_DOUBLE, ds_scalar, H5P_DEFAULT, H5P_DEFAULT);
+		H5Awrite(attr_ok, H5T_NATIVE_DOUBLE, &Omega_k);
+		H5Aclose(attr_ok);
+		//PDS_I_star_order: order of the binary icosahedral group I*
+		int pds_order = 120;
+		hid_t attr_order = H5Acreate(handle, "PDS_I_star_order", H5T_NATIVE_INT, ds_scalar, H5P_DEFAULT, H5P_DEFAULT);
+		H5Awrite(attr_order, H5T_NATIVE_INT, &pds_order);
+		H5Aclose(attr_order);
+		H5Sclose(ds_scalar);
+	}
 	#else
 	//Free boundary conditions (R^3 topological manifold)
 	H5Tset_size(str_type, strlen("R^3") + 1);
@@ -2438,6 +2547,172 @@ int load_s1r2_ewald_lookup_table(const char *filename, int *Nrho_grid, int *Nz_g
     H5Fclose(f);
     return 0;
 }
+#elif defined(POINCARE_DODECAHEDRAL)
+//Save the PDS (S^3/I*) Ewald force-correction lookup table to HDF5 format
+int save_pds_ewald_lookup_table(const char *filename, int Ngrid, double R_curv, const REAL *PDS_EWALD_FORCE_TABLE)
+{
+	hid_t datatype = 0;
+	hid_t headergrp = 0;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT);
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE);
+	#endif
+    herr_t status;
+    hid_t ewald_file = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (ewald_file < 0) { fprintf(stderr, "HDF5: cannot create PDS Ewald lookup file %s\n", filename); return -1; }
+
+	headergrp = H5Gcreate(ewald_file, "/Header", 0, H5P_DEFAULT, H5P_DEFAULT);
+    hid_t g = H5Gcreate2(ewald_file, "/pds_ewald", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (g < 0) { H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create pds_ewald group\n"); return -2; }
+
+    hsize_t dims[1] = { (hsize_t)Ngrid };
+    hid_t dspace = H5Screate_simple(1, dims, NULL);
+    hid_t dset = H5Dcreate2(g, "PDS_EWALD_FORCE_TABLE", datatype, dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (dset < 0) { H5Sclose(dspace); H5Gclose(g); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create PDS Ewald dataset\n"); return -3; }
+
+    hid_t mspace = H5Screate_simple(1, dims, NULL);
+    status = H5Dwrite(dset, datatype, mspace, dspace, H5P_DEFAULT, PDS_EWALD_FORCE_TABLE);
+    if (status < 0) { fprintf(stderr, "HDF5: PDS Ewald dataset write failed\n"); }
+
+	write_header_attributes_in_hdf5(headergrp);
+	hid_t hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hid_t hdf5_attribute = H5Acreate(headergrp, "PDS_EWALD_GRID_SIZE", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Ngrid);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "PDS_R_CURV", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &R_curv);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_PRECISION", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	#ifdef USE_SINGLE_PRECISION
+		int precision = 0;
+	#else
+		int precision = 1;
+	#endif
+	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+
+    H5Dclose(dset);
+    H5Sclose(mspace);
+    H5Sclose(dspace);
+	H5Gclose(headergrp);
+    H5Gclose(g);
+    H5Fclose(ewald_file);
+    return (status < 0) ? -4 : 0;
+}
+
+int load_pds_ewald_lookup_table(const char *filename, int *Ngrid, double *R_curv, REAL **table_out)
+{
+	hid_t datatype = 0;
+	herr_t status = 0;
+	int precision = 0;
+	int format_mismatch = 0;
+	#ifdef USE_SINGLE_PRECISION
+		datatype = H5Tcopy(H5T_NATIVE_FLOAT);
+		double *mismatchbuf;
+	#else
+		datatype = H5Tcopy(H5T_NATIVE_DOUBLE);
+		float *mismatchbuf;
+	#endif
+
+    hid_t f = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (f < 0) { fprintf(stderr, "HDF5: cannot open file %s\n", filename); return -1; }
+
+	hid_t headergrp = H5Gopen2(f, "/Header", H5P_DEFAULT);
+	if (headergrp < 0) { H5Fclose(f); fprintf(stderr, "HDF5: cannot open header group\n"); return -3; }
+
+	hid_t hdf5_attribute = H5Aopen(headergrp, "PDS_EWALD_GRID_SIZE", H5P_DEFAULT);
+	if (hdf5_attribute < 0) { H5Gclose(headergrp); H5Fclose(f); fprintf(stderr, "HDF5: cannot open PDS_EWALD_GRID_SIZE attribute\n"); return -4; }
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Ngrid);
+	H5Aclose(hdf5_attribute);
+	if (status < 0) { H5Gclose(headergrp); H5Fclose(f); fprintf(stderr, "HDF5: cannot read PDS_EWALD_GRID_SIZE attribute\n"); return -5; }
+
+	hdf5_attribute = H5Aopen(headergrp, "PDS_R_CURV", H5P_DEFAULT);
+	if (hdf5_attribute < 0) { H5Gclose(headergrp); H5Fclose(f); fprintf(stderr, "HDF5: cannot open PDS_R_CURV attribute\n"); return -6; }
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_DOUBLE, R_curv);
+	H5Aclose(hdf5_attribute);
+	if (status < 0) { H5Gclose(headergrp); H5Fclose(f); fprintf(stderr, "HDF5: cannot read PDS_R_CURV attribute\n"); return -7; }
+
+	hdf5_attribute = H5Aopen(headergrp, "EWALD_PRECISION", H5P_DEFAULT);
+	if (hdf5_attribute < 0) { H5Gclose(headergrp); H5Fclose(f); fprintf(stderr, "HDF5: cannot open EWALD_PRECISION attribute\n"); return -8; }
+	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, &precision);
+	H5Aclose(hdf5_attribute);
+	H5Gclose(headergrp);
+	if (status < 0) { H5Fclose(f); fprintf(stderr, "HDF5: cannot read EWALD_PRECISION attribute\n"); return -9; }
+
+	#ifdef USE_SINGLE_PRECISION
+		if (precision == 1) { printf("HDF5 warning: PDS Ewald table precision mismatch (file: double, program: float)\n"); format_mismatch = 2; }
+	#else
+		if (precision == 0) { printf("HDF5 warning: PDS Ewald table precision mismatch (file: float, program: double)\n"); format_mismatch = 1; }
+	#endif
+
+    hid_t g = H5Gopen2(f, "/pds_ewald", H5P_DEFAULT);
+    if (g < 0) { H5Fclose(f); fprintf(stderr, "HDF5: cannot open group /pds_ewald\n"); return -2; }
+
+    hid_t dset = H5Dopen2(g, "PDS_EWALD_FORCE_TABLE", H5P_DEFAULT);
+    if (dset < 0) { H5Gclose(g); H5Fclose(f); fprintf(stderr, "HDF5: cannot open PDS Ewald dataset\n"); return -4; }
+
+    hid_t dspace = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_ndims(dspace);
+    if (ndims != 1) { H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f); fprintf(stderr, "HDF5: PDS Ewald dataset rank != 1\n"); return -5; }
+    hsize_t dims[1];
+    H5Sget_simple_extent_dims(dspace, dims, NULL);
+    if ((int)dims[0] != *Ngrid) { H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f); fprintf(stderr, "HDF5: PDS Ewald dimension mismatch (%llu)\n", (unsigned long long)dims[0]); return -6; }
+
+    hid_t mspace = H5Screate_simple(1, dims, NULL);
+    size_t n = (size_t)(*Ngrid);
+    REAL *buf = (REAL*)malloc(n * sizeof(REAL));
+    if (!buf) { H5Sclose(mspace); H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f); fprintf(stderr, "PDS Ewald table malloc failed\n"); return -7; }
+
+	if (format_mismatch == 0)
+	{
+		status = H5Dread(dset, datatype, mspace, dspace, H5P_DEFAULT, buf);
+		if (status < 0) { free(buf); H5Sclose(mspace); H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f); fprintf(stderr, "HDF5: PDS Ewald dataset read failed\n"); return -8; }
+	}
+	else if (format_mismatch == 1)
+	{
+		#ifndef USE_SINGLE_PRECISION
+		mismatchbuf = (float*)malloc(n * sizeof(float));
+		if (!mismatchbuf) { free(buf); H5Fclose(f); fprintf(stderr, "PDS Ewald table malloc failed\n"); return -7; }
+		status = H5Dread(dset, H5T_NATIVE_FLOAT, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) { free(buf); free(mismatchbuf); H5Sclose(mspace); H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f); fprintf(stderr, "HDF5: PDS Ewald dataset read failed\n"); return -8; }
+		for (size_t ii = 0; ii < n; ii++) buf[ii] = (REAL)mismatchbuf[ii];
+		free(mismatchbuf);
+		printf("Loaded PDS Ewald lookup table (%i) with float->double conversion.\n", *Ngrid);
+		#endif
+	}
+	else if (format_mismatch == 2)
+	{
+		#ifdef USE_SINGLE_PRECISION
+		mismatchbuf = (double*)malloc(n * sizeof(double));
+		if (!mismatchbuf) { free(buf); H5Fclose(f); fprintf(stderr, "PDS Ewald table malloc failed\n"); return -7; }
+		status = H5Dread(dset, H5T_NATIVE_DOUBLE, mspace, dspace, H5P_DEFAULT, mismatchbuf);
+		if (status < 0) { free(buf); free(mismatchbuf); H5Sclose(mspace); H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f); fprintf(stderr, "HDF5: PDS Ewald dataset read failed\n"); return -8; }
+		for (size_t ii = 0; ii < n; ii++) buf[ii] = (REAL)mismatchbuf[ii];
+		free(mismatchbuf);
+		printf("Loaded PDS Ewald lookup table (%i) with double->float conversion.\n", *Ngrid);
+		#endif
+	}
+	else
+	{
+		free(buf); H5Sclose(mspace); H5Sclose(dspace); H5Dclose(dset); H5Gclose(g); H5Fclose(f);
+		fprintf(stderr, "PDS Ewald table format mismatch error\n");
+		return -9;
+	}
+
+    *table_out = buf;
+    H5Sclose(mspace);
+    H5Sclose(dspace);
+    H5Dclose(dset);
+    H5Gclose(g);
+    H5Fclose(f);
+    return 0;
+}
 #endif
 
 
@@ -2508,5 +2783,35 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 		Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
 	}
 	#endif
+#ifdef POINCARE_DODECAHEDRAL
+	// For non-HDF5 IC formats, PDS_Q is not yet allocated or filled.
+	// read_hdf5_ic() handles HDF5; here we handle ASCII and Gadget formats.
+	if(IC_FORMAT != 2)
+	{
+		if(!(PDS_Q = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "Failed to allocate memory for PDS_Q.\nExiting.\n");
+			return (-1);
+		}
+		printf("Converting Cartesian IC to S^3 unit quaternions (inverse stereographic projection)...\n");
+		fflush(stdout);
+		double R = (double)PDS_R_CURV;
+		double R2 = R * R;
+		for(int i = 0; i < N; i++)
+		{
+			double cx = (double)x[3*i];
+			double cy = (double)x[3*i+1];
+			double cz = (double)x[3*i+2];
+			double r2 = cx*cx + cy*cy + cz*cz;
+			double denom = R2 + r2;
+			PDS_Q[4*i]   = (REAL)((R2 - r2) / denom);
+			PDS_Q[4*i+1] = (REAL)(2.0 * R * cx / denom);
+			PDS_Q[4*i+2] = (REAL)(2.0 * R * cy / denom);
+			PDS_Q[4*i+3] = (REAL)(2.0 * R * cz / denom);
+		}
+		printf("...done.\n");
+		fflush(stdout);
+	}
+#endif
 	return 0;//Return 0 if the IC file was loaded successfully
 }

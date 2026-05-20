@@ -20,6 +20,9 @@
 #include <time.h>
 #include "mpi.h"
 #include "global_variables.h"
+#ifdef POINCARE_DODECAHEDRAL
+#include "pds_group.h"
+#endif
 
 //This file describe one simulation timestep
 //We use KDK integrator for the N-body simulation
@@ -27,6 +30,9 @@
 void forces(REAL* x, REAL* F, int ID_min, int ID_max);
 void forces_periodic(REAL* x, REAL*F, int ID_min, int ID_max);
 void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max);
+#ifdef POINCARE_DODECAHEDRAL
+void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max);
+#endif
 void redistribute_workload(double *mpi_time_array, int numtasks, int N, int **mpi_particle_range);
 void BCAST_MPI_particle_ranges();
 
@@ -68,6 +74,17 @@ double calculate_init_h()
 		{
 			x[3*i+2] = x[3*i+2] - L;
 		}
+	}
+	#elif defined(POINCARE_DODECAHEDRAL)
+	// Map each particle's quaternion position back into the fundamental domain.
+	// PDS_Q holds the 4D unit-quaternion positions (4 REALs per particle).
+	for(i=0;i<N;i++)
+	{
+		double q_in[4]  = { (double)PDS_Q[4*i],   (double)PDS_Q[4*i+1],
+		                    (double)PDS_Q[4*i+2],  (double)PDS_Q[4*i+3] };
+		double q_out[4];
+		pds_wrap(q_in, q_out);
+		for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
 	}
 	#endif
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
@@ -179,13 +196,29 @@ void step(REAL* x, REAL* v, REAL* F)
 				x[3*i+2] = x[3*i+2] - L;
 			}
 		}
+		#elif defined(POINCARE_DODECAHEDRAL)
+		// Map each particle's unit-quaternion position back into the PDS fundamental domain.
+		for(i=0; i<N; i++)
+		{
+			double q_in[4]  = { (double)PDS_Q[4*i],   (double)PDS_Q[4*i+1],
+			                    (double)PDS_Q[4*i+2],  (double)PDS_Q[4*i+3] };
+			double q_out[4];
+			pds_wrap(q_in, q_out);
+			for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+		}
 		#endif
 	}
 	//Bcasting the particle coordinates
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
+	#ifdef POINCARE_DODECAHEDRAL
+	MPI_Bcast(PDS_Q,4*N,MPI_FLOAT,0,MPI_COMM_WORLD);
+	#endif
 #else
 	MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	#ifdef POINCARE_DODECAHEDRAL
+	MPI_Bcast(PDS_Q,4*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	#endif
 #endif
 	//Force calculation
 	if(rank == 0)
@@ -195,6 +228,8 @@ void step(REAL* x, REAL* v, REAL* F)
 		forces_periodic(x, F, ID_MPI_min, ID_MPI_max);
 	#elif defined(PERIODIC_Z)
 		forces_periodic_z(x, F, ID_MPI_min, ID_MPI_max);
+	#elif defined(POINCARE_DODECAHEDRAL)
+		forces_pds(PDS_Q, F, ID_MPI_min, ID_MPI_max);
 	#else
 		forces(x, F, ID_MPI_min, ID_MPI_max);
 	#endif
@@ -256,9 +291,6 @@ void step(REAL* x, REAL* v, REAL* F)
 			{
 				MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 				mpi_time_array[i] = force_calc_time;
-				//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
-				if(i==1 || force_calc_time > force_calc_time)
-					force_calc_time = force_calc_time;
 			}
 			//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
 			force_calc_time = 0.0;

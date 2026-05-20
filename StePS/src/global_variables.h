@@ -86,6 +86,13 @@ extern int BUFFER_start_ID;
     extern REAL *S1R2_EWALD_FORCE_TABLE; //lookup table for the ewald force calculation in S^1 x R^2 topology (Nz_EWALD_FORCE_GRID * Nrho_EWALD_FORCE_GRID * 2 size)
     extern int Nz_EWALD_FORCE_GRID; //size of the ewald force lookup table in the z direction
     extern int Nrho_EWALD_FORCE_GRID; //size of the ewald force lookup table in the radial direction
+#elif defined(POINCARE_DODECAHEDRAL)
+    // Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
+    // Particle positions are stored as 4D unit quaternions in the separate q[] array.
+    extern REAL *PDS_Q;                 // 4D quaternion positions for PDS mode (4*N REAL values)
+    extern REAL *PDS_EWALD_FORCE_TABLE; // 1D lookup table indexed by geodesic distance chi in [0,pi] (N_PDS_EWALD_GRID values)
+    extern int   N_PDS_EWALD_GRID;     // number of grid points in the PDS Ewald table
+    extern REAL  PDS_R_CURV;           // curvature radius of S^3 in internal length units (Mpc)
 #endif
 
 extern REAL x4, err, errmax, ACC_PARAM; //variables used for error calculations

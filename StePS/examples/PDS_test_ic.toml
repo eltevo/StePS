@@ -1,0 +1,103 @@
+#*****************************************************************************#
+#  stepsic configuration for the PDS test initial conditions                  #
+#                                                                             #
+#  This generates a flat-approximation IC for a Poincare Dodecahedral Space  #
+#  (S^3/I*) StePS simulation. The particles are placed on a regular grid     #
+#  in a non-periodic box matching the StePS simulation sphere, then          #
+#  converted to S^3 unit quaternions by StePS at load time via the inverse   #
+#  stereographic projection q = (R^2-r^2, 2Rx, 2Ry, 2Rz) / (R^2+r^2).      #
+#                                                                             #
+#  Usage (from the stepsic repository root):                                  #
+#    python stepsic.py /path/to/PDS_test_ic.toml                             #
+#                                                                             #
+#  The output ic.hdf5 will be written to:                                    #
+#    {IC_DIR}/PDS_test_N1000_cubical_Lx1920_Ly1920_Lz1920_Ng10_z31_LPT1_cic/
+#*****************************************************************************#
+
+
+# -- 1. Geometry -----------------------------------------------------------
+#
+#  Flat approximation: treat the PDS fundamental domain as a flat non-periodic
+#  box of side 2 * R_SIM = 2 * 960 = 1920 Mpc. StePS converts the Cartesian
+#  coordinates to S^3 quaternions at IC load time.
+
+GEOMETRY = "cubical"
+LBOX = [ 1920.0, 1920.0, 1920.0 ]   # 2 * R_SIM [Mpc]
+PERIODIC = [ 0, 0, 0 ]               # non-periodic: StePS handles PDS periodicity
+
+# Stereographic parameters (required by the template but unused for cubical)
+R_3D = 960.0
+D_4D = 75.0
+BIN_MODE = "omega"
+NRBINS = 1
+
+COI = [ 0, 0, 0 ]
+
+
+# -- 2. Particle generation ------------------------------------------------
+#
+#  Regular 10^3 = 1000 particle grid.
+#  For a glass-based production IC, change TYPE to "glass" and set INPUT_GLASS.
+
+TYPE = "grid"
+NGRID = 10             # 10^3 = 1000 particles total
+
+NPART = 1000           # (unused for grid, but required by template validation)
+NSHELL = 12288         # (unused for cubical geometry)
+INPUT_GLASS = ""       # (unused for grid type)
+
+SEED = 137
+COMOVING = true
+HINDEPENDENT = false   # StePS uses Mpc (not Mpc/h); distances above are in Mpc
+ROTATE = 0.0
+
+
+# -- 3. Perturbation theory ------------------------------------------------
+#
+#  Zel'dovich (1LPT) is sufficient for a test run.
+#  Use LPTORDER = 2 for production runs.
+
+NMESH = 64             # FFT mesh for displacement field; >= NGRID is fine
+LPTORDER = 1           # 1 = Zel'dovich; 2 = 2LPT for production
+REDSHIFT = 31.0        # a_start = 0.03125 = 1/32 → z_start = 31
+INTERPOLATION = "cic"  # Cloud-in-Cell; COMPENSATE=false for grid ICs
+COMPENSATE = false      # Grid particles sit on mesh points; no compensation needed
+SPHEREMODE = false
+PAIRED = false
+PHASE_SHIFT = 0.0
+NMESHSAMPLES = 7       # (unused; only for adaptive multiscale with NMESH=0)
+
+
+# -- 4. Output -------------------------------------------------------------
+#
+#  The generated file will be at:
+#    <IC_DIR>/PDS_test_N1000_cubical_Lx1920_Ly1920_Lz1920_Ng10_z31_LPT1_cic/ic.hdf5
+#
+#  Set IC_FILE in PDS_test.param to that path, or symlink ic.hdf5 to
+#  examples/ic/PDS_test_N1000.hdf5 for convenience:
+#    ln -s PDS_test_N1000_cubical_.../ic.hdf5 examples/ic/PDS_test_N1000.hdf5
+
+IC_DIR = "examples/ic"
+IC_PREFIX = "PDS_test_N1000"
+IC_FORMAT = "hdf5"
+USE_DOUBLE = false     # Single precision is fine for a test run
+
+
+# -- 5. Cosmology ----------------------------------------------------------
+#
+#  Planck 2018 EE+BAO best-fit parameters (table 2.18), matching the values
+#  in PDS_test.param: H0=67.66, Omega_m=0.3111, Omega_lambda=0.6889.
+
+COSMOLOGY = "Planck2018EE+BAO"
+SPECTRUM = "camb"
+NONLINEAR = false
+HALOFIT = "mead2020"
+INPUT_SPECTRUM = ""
+INPUT_SPECTRUM_UNIT_L_IN_CM = 3.085678e24
+
+
+# -- 6. Internal units (StePS defaults) -----------------------------------
+
+UNIT_L_IN_CM = 3.085678e24           # 1 Mpc
+UNIT_M_IN_G = 1.989e44               # 10^11 M_sun
+UNIT_V_IN_KMPS = 20.738652969844207  # Mpc / (Mpc/km/s)
