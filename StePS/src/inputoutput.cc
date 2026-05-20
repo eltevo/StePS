@@ -894,6 +894,12 @@ void Log_write() //Writing logfile
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
 			else
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#elif defined(POINCARE_DODECAHEDRAL)
+			fprintf(LOGFILE, "# Topological manifold: S^3/I* (Poincare Dodecahedral Space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc\tSimulation radius: %.3f Mpc\n", (double)PDS_R_CURV, Rsim);
+			else
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc/h\tSimulation radius: %.3f Mpc/h\n", (double)PDS_R_CURV*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
 		#else
 			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
 			if (H0_INDEPENDENT_UNITS == 0)
@@ -957,6 +963,12 @@ void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc\tCylinder radius: %.3f Mpc\n", L, Rsim);
 			else
 				fprintf(LOGFILE, "# Cylinder height: %.3f Mpc/h\tCylinder radius: %.3f Mpc/h\n", L*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
+		#elif defined(POINCARE_DODECAHEDRAL)
+			fprintf(LOGFILE, "# Topological manifold: S^3/I* (Poincare Dodecahedral Space)\n");
+			if (H0_INDEPENDENT_UNITS == 0)
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc\tSimulation radius: %.3f Mpc\n", (double)PDS_R_CURV, Rsim);
+			else
+				fprintf(LOGFILE, "# Curvature radius: %.3f Mpc/h\tSimulation radius: %.3f Mpc/h\n", (double)PDS_R_CURV*H0*UNIT_V/100.0, Rsim*H0*UNIT_V/100.0);
 		#else
 			fprintf(LOGFILE, "# Topological manifold: R^3 (Euclidean 3-space)\n");
 			if (H0_INDEPENDENT_UNITS == 0)

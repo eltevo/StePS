@@ -76,9 +76,14 @@
 /* ─── Group storage ─────────────────────────────────────────────────────────── */
 
 /* The 120 unit quaternions of I*, filled by pds_init().
- * Each row is (q0, q1, q2, q3).  Do NOT modify after init. */
-static double PDS_I_STAR[PDS_N_ISTAR][4];
-static int    PDS_ISTAR_READY = 0;
+ * Each row is (q0, q1, q2, q3).  Do NOT modify after init.
+ *
+ * 'inline' (C++17) gives a single shared definition across all translation
+ * units.  Do NOT use 'static' here — that would give each .cc file its own
+ * private zero-filled copy, causing pds_wrap() to see uninitialized data
+ * when called from a different TU than the one that ran pds_init(). */
+inline double PDS_I_STAR[PDS_N_ISTAR][4] = {};
+inline int    PDS_ISTAR_READY = 0;
 
 /* ─── Quaternion arithmetic ────────────────────────────────────────────────── */
 
@@ -134,7 +139,7 @@ static const double PDS_GEN[4][4] = {
 
 /*  Generate all 120 I* elements by BFS closure under multiplication.
  *  Uses a fixed-size work queue (1200 slots — well above the worst-case). */
-static void pds_generate_group(void)
+static inline void pds_generate_group(void)
 {
     /* Work queue: holds elements pending expansion.  Any element may appear
      * multiple times; duplicates are filtered when popped. */
@@ -200,7 +205,7 @@ static void pds_generate_group(void)
 
 /*  pds_init() — must be called once before any other PDS function.
  *  Safe to call multiple times (no-op after first call). */
-static void pds_init(void)
+static inline void pds_init(void)
 {
     if(PDS_ISTAR_READY) return;
     pds_generate_group();
@@ -284,6 +289,7 @@ static inline int pds_in_domain(const double q[4])
  *  Writes result to q_out[4]; q and q_out may alias. */
 static inline void pds_wrap(const double q[4], double q_out[4])
 {
+    if(!PDS_ISTAR_READY) pds_init();
     int    best   = 0;
     double best_d = pds_dot4(q, PDS_I_STAR[0]);
     for(int g = 1; g < PDS_N_ISTAR; g++) {
