@@ -59,8 +59,10 @@ MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 CUDA_PATH       ?= /usr/local/cuda-12.6
 
 #------------------------------- Location of the HDF5 libraries
-HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
-HDF5_INC = -I/usr/include/hdf5/serial
+# When building inside the stepsic conda environment the env ships HDF5 2.x;
+# use its headers and library to avoid the HDF5 version-mismatch abort.
+HDF5_LIBS = -L$(shell python3 -c "import os; print(os.environ.get('CONDA_PREFIX','/usr'))")/lib -lhdf5
+HDF5_INC  = -I$(shell python3 -c "import os; print(os.environ.get('CONDA_PREFIX','/usr/include/hdf5/serial'))")/include
 
 #---------------- Do not edit beyond this line! ----------------
 

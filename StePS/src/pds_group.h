@@ -304,6 +304,60 @@ static inline void pds_wrap(const double q[4], double q_out[4])
     for(int k = 0; k < 4; k++) q_out[k] = tmp[k];
 }
 
+/* ─── Stereographic velocity transformation under face identification ───────── */
+
+/*  Transform the stereographic velocity when pds_wrap maps q_in → q_out.
+ *
+ *  The stereographic velocity v = dx/dt lives in the tangent space of the
+ *  stereographic projection.  When pds_wrap applies the isometry
+ *      q_out = ḡ · q_in   (ḡ = conj(g*), the wrapping group element)
+ *  the velocity must be parallel-transported through that isometry:
+ *
+ *    u      = [∂q/∂x]|_{x_in} · v_in    (lift v to S³ tangent at q_in via
+ *                                         Jacobian of the inverse stereo map)
+ *    w      = ḡ · u                       (transport by the quaternion isometry;
+ *                                         ḡ is recovered as q_out · conj(q_in))
+ *    v_out  = [∂x/∂q]|_{q_out} · w       (project w back to R³ via Jacobian of
+ *                                         the forward stereo map at q_out)
+ *
+ *  The composition [∂x/∂q] ∘ L_ḡ ∘ [∂q/∂x] is the correct 3×3 Jacobian of the
+ *  map x_out = f(ḡ · f⁻¹(x_in)).  For in-domain particles (g* = identity) it
+ *  reduces to the identity.
+ *
+ *  v[] is modified in place.  R = PDS_R_CURV.
+ *
+ *  Only call this when pds_wrap actually changed the quaternion
+ *  (!pds_quat_same(q_in, q_out)); it is mathematically the identity otherwise,
+ *  but calling it unconditionally wastes time and may accumulate float errors.
+ */
+static inline void pds_stereo_vel_transform(
+        const double q_in[4],  const double q_out[4],
+        const double x_in[3],  const double x_out[3],
+        double v[3], double R)
+{
+    /* Step 1 — u = (∂q/∂x)|_{x_in} · v  (inverse-stereo Jacobian) */
+    double r2 = x_in[0]*x_in[0] + x_in[1]*x_in[1] + x_in[2]*x_in[2];
+    double D  = R*R + r2;
+    double D2 = D*D;
+    double xv = x_in[0]*v[0] + x_in[1]*v[1] + x_in[2]*v[2];
+    double u[4];
+    u[0] = -4.0*R*R*xv / D2;
+    u[1] =  2.0*R*(D*v[0] - 2.0*x_in[0]*xv) / D2;
+    u[2] =  2.0*R*(D*v[1] - 2.0*x_in[1]*xv) / D2;
+    u[3] =  2.0*R*(D*v[2] - 2.0*x_in[2]*xv) / D2;
+
+    /* Step 2 — w = ḡ · u,   ḡ = q_out · conj(q_in) */
+    double qic[4];  pds_quat_conj(q_in, qic);
+    double gb[4];   pds_quat_mult(q_out, qic, gb);   /* gb = ḡ */
+    double w[4];    pds_quat_mult(gb, u, w);
+
+    /* Step 3 — v_out = (∂x/∂q)|_{q_out} · w  (forward-stereo Jacobian) */
+    double s = 1.0 / (1.0 + q_out[0]);
+    v[0] = s*(R*w[1] - x_out[0]*w[0]);
+    v[1] = s*(R*w[2] - x_out[1]*w[0]);
+    v[2] = s*(R*w[3] - x_out[2]*w[0]);
+}
+
 /* ─── Force direction on S³ ────────────────────────────────────────────────── */
 
 /*  Unit tangent vector at p pointing toward q along the geodesic (force direction).
