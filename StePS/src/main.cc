@@ -2030,6 +2030,18 @@ int main(int argc, char *argv[])
 		}
 	}
 	MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	// After calculate_init_h() the PDS wrapping may have moved particles into
+	// the fundamental domain.  Broadcast the updated positions so all MPI ranks
+	// use the correct wrapped coordinates for the first timestep.
+	#ifdef POINCARE_DODECAHEDRAL
+	#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(x,    3*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
+	MPI_Bcast(PDS_Q,4*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
+	#else
+	MPI_Bcast(x,    3*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(PDS_Q,4*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	#endif
+	#endif
 	if(rank == 0)
 		printf("The simulation is starting...\n");
 	REAL T_prev,Hubble_param_prev;

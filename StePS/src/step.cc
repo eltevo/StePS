@@ -76,8 +76,8 @@ double calculate_init_h()
 		}
 	}
 	#elif defined(POINCARE_DODECAHEDRAL)
-	// Recompute PDS_Q from x[] via inverse stereographic projection, wrap into
-	// the fundamental domain, then back-project x[] from the wrapped quaternion.
+	// Wrap into fundamental domain and back-project.
+	// Transform stereographic velocity whenever the wrapping group element is non-trivial.
 	{
 		double R  = (double)PDS_R_CURV;
 		double R2 = R * R;
@@ -96,9 +96,24 @@ double calculate_init_h()
 			pds_wrap(q_in, q_out);
 			for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
 			double inv_1pq0 = 1.0 / (1.0 + q_out[0]);
-			x[3*i]   = (REAL)(R * q_out[1] * inv_1pq0);
-			x[3*i+1] = (REAL)(R * q_out[2] * inv_1pq0);
-			x[3*i+2] = (REAL)(R * q_out[3] * inv_1pq0);
+			double xo0 = R * q_out[1] * inv_1pq0;
+			double xo1 = R * q_out[2] * inv_1pq0;
+			double xo2 = R * q_out[3] * inv_1pq0;
+			if(!pds_quat_same(q_in, q_out))
+			{
+				// Particle was outside the fundamental domain: rotate velocity
+				// to match the new stereographic frame.
+				double x_in[3]  = {cx,  cy,  cz};
+				double x_out[3] = {xo0, xo1, xo2};
+				double vel[3]   = {(double)v[3*i], (double)v[3*i+1], (double)v[3*i+2]};
+				pds_stereo_vel_transform(q_in, q_out, x_in, x_out, vel, R);
+				v[3*i]   = (REAL)vel[0];
+				v[3*i+1] = (REAL)vel[1];
+				v[3*i+2] = (REAL)vel[2];
+			}
+			x[3*i]   = (REAL)xo0;
+			x[3*i+1] = (REAL)xo1;
+			x[3*i+2] = (REAL)xo2;
 		}
 	}
 	#endif
@@ -212,8 +227,10 @@ void step(REAL* x, REAL* v, REAL* F)
 			}
 		}
 		#elif defined(POINCARE_DODECAHEDRAL)
-		// Recompute PDS_Q from drift-updated x[] via inverse stereographic projection,
-		// wrap into the fundamental domain, then back-project x[] from wrapped quaternion.
+		// After the drift, wrap any particle that crossed a dodecahedral face back
+		// into the fundamental domain.  Also transform the stereographic velocity
+		// through the face-identification isometry so it stays coherent with the
+		// new position.
 		{
 			double R  = (double)PDS_R_CURV;
 			double R2 = R * R;
@@ -232,9 +249,23 @@ void step(REAL* x, REAL* v, REAL* F)
 				pds_wrap(q_in, q_out);
 				for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
 				double inv_1pq0 = 1.0 / (1.0 + q_out[0]);
-				x[3*i]   = (REAL)(R * q_out[1] * inv_1pq0);
-				x[3*i+1] = (REAL)(R * q_out[2] * inv_1pq0);
-				x[3*i+2] = (REAL)(R * q_out[3] * inv_1pq0);
+				double xo0 = R * q_out[1] * inv_1pq0;
+				double xo1 = R * q_out[2] * inv_1pq0;
+				double xo2 = R * q_out[3] * inv_1pq0;
+				if(!pds_quat_same(q_in, q_out))
+				{
+					// Face crossing detected: transform velocity to new frame
+					double x_in[3]  = {cx,  cy,  cz};
+					double x_out[3] = {xo0, xo1, xo2};
+					double vel[3]   = {(double)v[3*i], (double)v[3*i+1], (double)v[3*i+2]};
+					pds_stereo_vel_transform(q_in, q_out, x_in, x_out, vel, R);
+					v[3*i]   = (REAL)vel[0];
+					v[3*i+1] = (REAL)vel[1];
+					v[3*i+2] = (REAL)vel[2];
+				}
+				x[3*i]   = (REAL)xo0;
+				x[3*i+1] = (REAL)xo1;
+				x[3*i+2] = (REAL)xo2;
 			}
 		}
 		#endif
