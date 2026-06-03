@@ -1,6 +1,38 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.1.1.0] - TBA 2026-06-03
+
+### Added
+- **PDS physics validation test suite** (`examples/pds_tests/run_tests.py`). Three quick-running tests (1–2 particles, total wall time ≈ 7 s) that exercise the fundamental PDS physics paths:
+  - Test 1 — Single particle free flight: verifies Hubble drag (`v_snap ∝ a⁻³/²`, < 2% residual), no NaN/Inf, quaternion unit-norm preserved to machine precision.
+  - Test 2 — Fast particle boundary wrapping: particle starts just inside a dodecahedral face and immediately crosses it; checks all positions remain within the fundamental domain (max χ ≤ outradius ≈ 21°) and at least one crossing is detected.
+  - Test 3 — Two-particle S³ gravitational convergence: verifies that the mutual S³ force produces measurable y-axis convergence consistent with the Newtonian limit (ratio meas/pred = 0.23, within the [0.1–10] sanity band; the gap from 1 is expected given Hubble damping and the first-snapshot offset).
+  - Tests run with `concurrent.futures.ThreadPoolExecutor` for 3× wall-time speedup vs sequential.
+  - Each test cleans its output directory before running, preventing stale-snapshot contamination.
+  - Companion analysis notebook `examples/pds_tests/pds_test_report.ipynb` with embedded plots and HTML summary table.
+
+- **`PDS_explorer.ipynb`** — interactive multi-snapshot explorer notebook for PDS simulation output (`examples/PDS_explorer.ipynb`): 3-D scatter with chi-coloured points, 2-D projections, S³ angular distribution, and multi-panel redshift evolution view.
+
+### Fixed
+- **`step.cc` — PDS velocity transformation at face crossings (critical correctness fix).**  
+  When `pds_wrap` applies a non-trivial group element ḡ ∈ I* (i.e. whenever a particle crosses a dodecahedral face), the stereographic velocity `v = dx/dt` must also be transformed through the corresponding isometry. Without this, the velocity remains in the frame of the *old* position and becomes physically inconsistent with the *new* position in a different face of the domain.  
+  The fix adds `pds_stereo_vel_transform()` to `src/pds_group.h` and calls it in both wrapping sites in `step.cc` (`calculate_init_h` and the drift-step block). The transformation is the exact Jacobian of `x_out = f(ḡ · f⁻¹(x_in))`:
+  1. **Lift** `v_in` to S³ tangent via `u = [∂q/∂x]|_{x_in} · v_in`
+  2. **Transport** `w = ḡ · u`  where  `ḡ = q_out · conj(q_in)`
+  3. **Project** back to R³ via `v_out = [∂x/∂q]|_{q_out} · w`  
+  Verified analytically: reduces to the identity when ḡ = 1 (no face crossing).
+
+- **`main.cc` — broadcast wrapped positions after `calculate_init_h()`.**  
+  `calculate_init_h()` wraps IC positions and transforms velocities on rank 0 but did not broadcast the result. Other MPI ranks therefore carried stale un-wrapped positions through the first timestep. A `MPI_Bcast` of `x[]` and `PDS_Q[]` is now issued immediately after the call, guarded by `#ifdef POINCARE_DODECAHEDRAL`.
+
+- **`run_tests.py` — corrected PDS fundamental-domain inradius.**  
+  The constant `CHI_IN` was set to `arccos(1/√5) ≈ 63.4°`, which is unrelated to the actual I* inradius. The nearest group element in I* is at χ = 36°, so the face midpoints (inradius) are at **χ_in = 18°** and the vertices (outradius) at **χ ≈ 20–21°**. The physical inradius = R_curv × 18° × π/180 ≈ 974 Mpc for R_curv = 3100 Mpc. Test 2 now uses the correct value with a +3° tolerance to accommodate vertices.
+
+### Notes (PDS diagnostic findings)
+- **Apparent "half-filled sphere" in snapshot explorers** is expected, not a bug. `R_SIM = 960 Mpc` in the parameter file is the *physical geodesic arc-length* radius (≈ the inradius). In *stereographic Cartesian* coordinates the fundamental domain extends only to ≈ 491 Mpc (face midpoints) and ≈ 575 Mpc (vertices). A reference circle drawn at the geodesic `SimulationRadius` value in stereo coords will therefore be ≈ 1.7× larger than the actual domain boundary.
+- **No visible LSS in `PDS_test.param` run** — the cubical IC (`Lx = Ly = Lz = 1919 Mpc`) extends well beyond the dodecahedral fundamental domain (outradius ≈ 575 Mpc stereo). After `pds_wrap`, 912/1000 particles are remapped from 120 different copies of the space. Even with the corrected velocity transformation, the resulting density–velocity correlation is scrambled (particles from 120 statistically uncorrelated copies fill the domain uniformly). Additionally, 6 particle pairs land within the softening length (< 10 Mpc) after wrapping, producing initial accelerations with `errmax ≈ 1.28×10⁸` and particle velocities reaching ≈ 10⁵ km/s. A proper PDS IC is required; see plan.md for the roadmap.
+
 ## [v2.1.0.0] - TBA 2026-05-18 
 
 ### Added
