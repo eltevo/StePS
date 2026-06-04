@@ -91,6 +91,107 @@ void set_REAL_array_to_zero(REAL *array, int N)
     }
 }
 
+//Kahan summation for REAL arrays
+REAL kahan_sum(const REAL *array, size_t N)
+{
+    size_t i;
+    double Kahan_sum = 0.0;
+    double Kahan_compensation = 0.0;
+    volatile double Kahan_t, Kahan_y;
+    for(i=0;i<N;i++)
+    {
+        Kahan_y = (double) array[i] - Kahan_compensation;
+        Kahan_t = Kahan_sum + Kahan_y;
+        Kahan_compensation = (Kahan_t - Kahan_sum) - Kahan_y;
+        Kahan_sum = Kahan_t;
+    }
+    return (REAL) Kahan_sum;
+}
+
+//workload balancing function for the force calculation
+void redistribute_workload(double *mpi_time_array, int numtasks, int N, int **mpi_particle_range)
+{
+	// This function redistributes the particle ranges of the MPI threads for the next iteration, based on the time spent in the force calculation in the actual iteration. The goal is to improve the workload balance between the threads and reduce the overall time spent in force calculation.
+	// I am sure that this can be done more elegantly. It can be optimized later if needed.
+	double force_calc_time = 0.0;
+	int i;
+	for(i=0; i<numtasks; i++)
+	{
+		force_calc_time += mpi_time_array[i];
+	}
+	double average_time = force_calc_time / (double) numtasks;
+	bool redistribute = false;
+	for(i=0; i<numtasks; i++)
+	{
+		if(mpi_time_array[i] > MPI_REDISTRIBUTION_TRESHOLD*average_time)
+		{
+			// If any thread takes more than MPI_REDISTRIBUTION_TRESHOLD*average_time (by default, more than 2.5% the average time), we trigger the redistribution of particles for the next iteration
+			redistribute = true;
+			break;
+		}
+	}
+	if(redistribute)
+	{
+		printf("\nRedistributing particles for the next iteration to improve workload balance...\n");
+		double *particle_weight = (double*)malloc(numtasks * sizeof(double));
+		double *fractional_part = (double*)malloc(numtasks * sizeof(double));
+		if(particle_weight == NULL || fractional_part == NULL)
+		{
+			fprintf(stderr, "Error: failed to allocate temporary memory for particle redistribution.\n");
+			exit(-2);
+		}
+		double weight_sum = 0.0;
+		for(i=0; i<numtasks; i++)
+		{
+			//Re-calculating the relative load weight for each thread based on the time spent in force calculation
+			if(mpi_time_array[i] > 0.0)
+				particle_weight[i] = average_time / mpi_time_array[i];
+			else
+				particle_weight[i] = 1.0; //fallback guard, should not happen
+			weight_sum += particle_weight[i];
+		}
+		//Assign integer particle counts with flooring
+		int assigned_particles = 0;
+		for(i=0; i<numtasks; i++)
+		{
+			double exact_particles = ((double)N) * particle_weight[i] / weight_sum;
+			mpi_particle_range[i][2] = (int)floor(exact_particles);
+			fractional_part[i] = exact_particles - (double)mpi_particle_range[i][2];
+			assigned_particles += mpi_particle_range[i][2];
+		}
+		//Distribute remaining particles by largest fractional parts to keep total exactly N
+		int remaining_particles = N - assigned_particles;
+		while(remaining_particles > 0)
+		{
+			int best_i = 0;
+			for(i=1; i<numtasks; i++)
+			{
+				if(fractional_part[i] > fractional_part[best_i])
+					best_i = i;
+			}
+			mpi_particle_range[best_i][2]++;
+			fractional_part[best_i] = -1.0; //mark as used
+			remaining_particles--;
+		}
+		free(particle_weight);
+		free(fractional_part);
+		//Adjusting the particle ranges to make sure that they are continuous and cover all particles
+		int cumulative_particle_count = 0;
+		printf("New particle distribution for the next iteration:\n");
+		for(i=0; i<numtasks; i++)
+		{
+			mpi_particle_range[i][0] = cumulative_particle_count;
+			cumulative_particle_count += mpi_particle_range[i][2];
+			mpi_particle_range[i][1] = cumulative_particle_count - 1;
+			printf("MPI task %i: particles %i to %i (total %i)\n", i, mpi_particle_range[i][0], mpi_particle_range[i][1], mpi_particle_range[i][2]);
+		}
+		//updating the ID_MPI_min, ID_MPI_max, and N_mpi_thread variables for this thread
+		ID_MPI_min = mpi_particle_range[rank][0];
+		ID_MPI_max = mpi_particle_range[rank][1];
+		N_mpi_thread = mpi_particle_range[rank][2];
+	}
+}
+
 #if defined(USE_BH) && !defined(PERIODIC)
 // Function to calculate the radial force correction for BH force calculation
 void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADIAL_BH_N_TABLE, int TABLE_SIZE, REAL *F, REAL *x, int N)

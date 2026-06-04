@@ -19,6 +19,10 @@
 #include <cstring>
 #include <math.h>
 #include <algorithm>
+#include <vector>
+#include <fstream>
+#include <string>
+#include <iterator>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "mpi.h"
@@ -185,130 +189,69 @@ int read_OUT_LST()
 		fprintf(stderr, "Error: The %s output list does not exist!\n", OUT_LST);
 		return (-1);
 	}
-	FILE *infile = fopen(OUT_LST, "r");
-	FILE *in_bin_file;
-	char BIN_LIST[1038];
-	snprintf(BIN_LIST, sizeof(BIN_LIST), "%s_rlimits", OUT_LST);
-	char *buffer, *buffer1;
-	char ch;
-	int data[2]; //[0]: previous char; [1]: actual char
-	int i, j, size;
-	fseek(infile,0,SEEK_END);
-	size = ftell(infile);
-	fseek(infile,0,SEEK_SET);
-	buffer = (char*)malloc((size+1)*sizeof(char));
-	i=0;
-	while((ch=fgetc(infile)) != EOF)
-	{
-		buffer[i] = ch;
-		i++;
-	}
-	fclose(infile);
-	data[0] = 0;
-	data[1] = 0;
-	size = 0;
-	for(j=0; j<i+1; j++)
-	{
-		if(i!=0)
-		{
-			data[0] = data[1];
-		}
-		if(buffer[j] == '\t' || buffer[j] == ' ' || buffer[j] == '\n' || buffer[j] == '\0')
-		{
-			data[1] = 0;
-		}
-		else
-		{
-			data[1] = 1;
-		}
+	std::ifstream infile(OUT_LST);
+    std::vector<double> temp_list;
+    double val;
 
-		if(data[1] == 0 && data[0] == 1)
-		{
-			size++;
-		}
-	}
-	if(OUTPUT_TIME_VARIABLE == 1)
-		out_list = (double*)malloc((size+1)*sizeof(double));
-	else
-		out_list = (double*)malloc((size)*sizeof(double));
-	int offset;
-	for(i=0; i<size; i++)
-	{
-		sscanf(buffer, "%lf%n", &out_list[i], &offset);
-		buffer += offset;
-	}
-	if(OUTPUT_TIME_VARIABLE == 1)
-	{
-		out_list[size] = 1.0/a_max-1.0;
-		std::sort(out_list, out_list+size, std::greater<double>());
-		out_list_size = size;
-	}
-	else
-	{
-		std::sort(out_list, out_list+size-1, std::less<double>());
-		out_list_size = size-1;
-		for(i=0; i<out_list_size; i++)
-			out_list[i] /= UNIT_T; //converting input Gy to internal units
-	}
-	size = 0;
-	if(REDSHIFT_CONE == 1)
-	{
-		//reading the limist of the comoving distance bins
+    while (infile >> val) {
+        temp_list.push_back(val);
+    }
+    infile.close();
+
+    size_t size = temp_list.size();
+
+    if (OUTPUT_TIME_VARIABLE == 1) {
+        // Allocate space for N + 1 elements
+        out_list = (double*)malloc((size + 1) * sizeof(double));
+        std::copy(temp_list.begin(), temp_list.end(), out_list);
+        
+        out_list[size] = 1.0 / a_max - 1.0;
+        // Sort the entire range [0, size]
+        std::sort(out_list, out_list + size + 1, std::greater<double>());
+        out_list_size = (int)size; 
+    } 
+    else {
+        out_list = (double*)malloc(size * sizeof(double));
+        std::copy(temp_list.begin(), temp_list.end(), out_list);
+        
+        std::sort(out_list, out_list + size, std::less<double>());
+        out_list_size = (int)size;
+        
+        for (int i = 0; i < out_list_size; i++) {
+            out_list[i] /= UNIT_T;
+        }
+    }
+
+    if (REDSHIFT_CONE == 1) {
+        char BIN_LIST[1038];
+        snprintf(BIN_LIST, sizeof(BIN_LIST), "%s_rlimits", OUT_LST);
+
 		if(file_exist(BIN_LIST) == 0)
 		{
-			fprintf(stderr, "Error: The %s file does not exist!\nThis is used in redshift cone simulations, and the IC generator should have generated it.\n", BIN_LIST);
+			fprintf(stderr, "Error: The %s file does not exist!\n", BIN_LIST);
 			return (-1);
 		}
-		in_bin_file = fopen(BIN_LIST, "r");
-		fseek(in_bin_file,0,SEEK_END);
-		size = ftell(in_bin_file);
-		fseek(in_bin_file,0,SEEK_SET);
-		buffer1 = (char*)malloc((size+1)*sizeof(char));
-		i=0;
-		while((ch=fgetc(in_bin_file)) != EOF)
-		{
-			buffer1[i] = ch;
-			i++;
-		}
-		fclose(in_bin_file);
-		data[0] = 0;
-		data[1] = 0;
-		size = 0;
-		for(j=0; j<i+1; j++)
-		{
-			if(i!=0)
-			{
-				data[0] = data[1];
-			}
-			if(buffer1[j] == '\t' || buffer1[j] == ' ' || buffer1[j] == '\n' || buffer1[j] == '\0')
-			{
-				data[1] = 0;
-			}
-			else
-			{
-				data[1] = 1;
-			}
 
-			if(data[1] == 0 && data[0] == 1)
-			{
-				size++;
-			}
-		}
-		r_bin_limits = (double*)malloc(size*sizeof(double));
-		for(i=0; i<size; i++)
-		{
-			sscanf(buffer1, "%lf%n", &r_bin_limits[i], &offset);
-			buffer1 += offset;
-		}
-		std::sort(r_bin_limits, r_bin_limits+size, std::greater<double>());
-		if(size - 1 != out_list_size)
-		{
-			fprintf(stderr, "Error: The number of redshift bins (=%i) and radial bins (=%i) are not equal!\n", size - 1, out_list_size);
-			return (-1);
-		}
-	}
-	return 0;
+        std::ifstream in_bin_file(BIN_LIST);
+        std::vector<double> temp_bins;
+        while (in_bin_file >> val) {
+            temp_bins.push_back(val);
+        }
+        in_bin_file.close();
 
+        size_t bin_size = temp_bins.size();
+        r_bin_limits = (double*)malloc(bin_size * sizeof(double));
+        std::copy(temp_bins.begin(), temp_bins.end(), r_bin_limits);
+
+        std::sort(r_bin_limits, r_bin_limits + bin_size, std::greater<double>());
+
+        if ((int)bin_size - 1 != out_list_size) {
+            fprintf(stderr, "Error: The number of redshift bins (=%i) and radial bins (=%i) are not equal!\n", 
+                    (int)bin_size - 1, out_list_size);
+            return -1;
+        }
+    }
+    return 0;
 }
 
 void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL)
@@ -1076,6 +1019,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	hid_t IC = 0;
 	int Nbuf[6];
 	printf("Reading the %s IC file...\n", ic_file);
+	fflush(stdout);
 	IC = H5Fopen(ic_file, H5F_ACC_RDONLY, H5P_DEFAULT);
 	//reading the total number of particles from the header
 	group = H5Gopen2(IC,"Header", H5P_DEFAULT);
@@ -1083,6 +1027,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	H5Aread(attr_id,  H5T_NATIVE_INT, Nbuf);
 	N = Nbuf[1];
 	printf("\tThe number of particles:\t%i\n", N);
+	fflush(stdout);
 	H5Aclose(attr_id);
 	H5Gclose(group);
 	if(allocate_memory)
@@ -1093,37 +1038,43 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 		if(!(x = (REAL*)malloc(3*N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for x.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the velocities
 		if(!(v = (REAL*)malloc(3*N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for v.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the forces
 		if(!(F = (REAL*)malloc(3*N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for F.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the masses
 		if(!(M = (REAL*)malloc(N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for M.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 		//Allocating memory for the softening lengths
 		if(!(SOFT_LENGTH = (REAL*)malloc(N*sizeof(REAL))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for SOFT_LENGTH.\n", rank);
+			fflush(stderr);
 			exit(-2);
 		}
 	}
 	//reading the particle coordinates
 	printf("\tReading /PartType1/Coordinates\n");
+	fflush(stdout);
 	dataset = H5Dopen2(IC, "/PartType1/Coordinates", H5P_DEFAULT);
-        dataspace_in_file = H5Dget_space(dataset);
+    dataspace_in_file = H5Dget_space(dataset);
 	datatype =  H5Dget_type(dataset);
 #ifdef USE_SINGLE_PRECISION
 	if(H5Tequal(datatype, H5T_NATIVE_FLOAT))
@@ -1173,6 +1124,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 	H5Dclose(dataset);
 	//reading the particle velocities
 	printf("\tReading /PartType1/Velocities\n");
+	fflush(stdout);
 	dataset = H5Dopen2(IC, "/PartType1/Velocities", H5P_DEFAULT);
 	dataspace_in_file = H5Dget_space(dataset);
 	datatype =  H5Dget_type(dataset);
@@ -1286,6 +1238,7 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 		}
 		H5Fclose(IC);
 		printf("...done\n\n");
+		fflush(stdout);
 		return;
 	}
 
@@ -1342,27 +1295,40 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 
 	H5Fclose(IC);
 	printf("...done\n\n");
+	fflush(stdout);
 	return;
 }
 
-void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
+void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M, bool save_accelerations, REAL *F, bool IC_file)
 {
 	int i, hdf5_rank;
 	char buf[500];
 	//setting up the output filename
 	char filename[0x400];
-	if(snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot)<0)
+	if(IC_file)
 	{
-		fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
-		abort();
-	}
-	if(COSMOLOGY == 0)
-	{
-		printf("Saving the \"%s\" snapshot file...\nt=%.14f", filename, T);
+		if(snprintf(filename, sizeof(filename), "%sinitial_conditions_%04d.hdf5", OUT_DIR, N_saved_ics)<0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
+		printf("Saving the \"%s\" initial conditions file...\nt=%.14f", filename, T);
 	}
 	else
 	{
-		printf("Saving: the \"%s\" snapshot file...\nt = %.15fGy\na = %.15f\n", filename, T*UNIT_T, a);
+		if(snprintf(filename, sizeof(filename), "%ssnapshot_%04d.hdf5", OUT_DIR, N_snapshot)<0)
+		{
+			fprintf(stderr, "Error: The output file name truncated.\nAborting.\n");
+			abort();
+		}
+		if(COSMOLOGY == 0)
+		{
+			printf("Saving the \"%s\" snapshot file...\nt=%.14f", filename, T);
+		}
+		else
+		{
+			printf("Saving: the \"%s\" snapshot file...\nt = %.15fGy\na = %.15f\n", filename, T*UNIT_T, a);
+		}
 	}
 	//Output filename set. Creating the output file
 	hid_t snapshot = 0;
@@ -1515,10 +1481,52 @@ void write_hdf5_snapshot(REAL* x, REAL *v, REAL *M)
   H5Sclose(dataspace_in_file);
   H5Tclose(datatype);
 
+  //Writing out particle accelerations (if save_accelerations is true)
+  if(save_accelerations)
+  {
+		dims[0] = N;
+		dims[1] = 3; //hdf5_rank = 2 [if dims[1] = 1: 1; else: 2]
+		hdf5_rank = 2;
+		#ifdef USE_SINGLE_PRECISION
+			datatype = H5Tcopy(H5T_NATIVE_FLOAT); //velocities saved as float
+		#else
+			datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //velocities saved as double
+		#endif
+		strcpy(buf, "Accelerations");
+		dataspace_in_file = H5Screate_simple(hdf5_rank, dims, NULL);
+		dataset = H5Dcreate(hdf5_grp[type], buf, datatype, dataspace_in_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+		start[0] = 0;
+		start[1] = 0;
+		count[0] = N;
+		count[1] = 3;
+		H5Sselect_hyperslab(dataspace_in_file, H5S_SELECT_SET, start, NULL, count, NULL);
+		dataspace_memory = H5Screate_simple(hdf5_rank, dims, NULL);
+		REAL *Acceleration_buf;
+		if(!(Acceleration_buf = (REAL *)malloc(3*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for Acceleration_buff.\n", rank);
+			exit(-2);
+		}
+		for(i=0;i<3*N;i++)
+				Acceleration_buf[i] = F[i]; //in internal code units, output in the same units
+		H5Dwrite(dataset, datatype, dataspace_memory, dataspace_in_file, H5P_DEFAULT, Acceleration_buf);
+		H5Sclose(dataspace_memory);
+		H5Dclose(dataset);
+		H5Sclose(dataspace_in_file);
+		H5Tclose(datatype);
+  }
+
 	H5Gclose(hdf5_grp[1]);
 	H5Gclose(headergrp);
 	H5Fclose(snapshot);
-	N_snapshot++;
+	if(IC_file)
+	{
+		N_saved_ics++;
+	}
+	else
+	{
+		N_snapshot++;
+	}
 
 }
 
@@ -2459,6 +2467,7 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 	if(IC_FORMAT == 0)
 	{
 		printf("\nThe IC file is in ASCII format.\n");
+		fflush(stdout);
 		if(file_exist(IC_FILE) == 0)
 		{
 			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);
@@ -2472,7 +2481,8 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 	if(IC_FORMAT == 1)
 	{
 		int files;
-		printf("\nThe IC file is in Gadget format.\nThe IC determines the box size.\n");
+		printf("\nThe IC file is in Gadget format.\n");
+		fflush(stdout);
 		files = 1;      /* number of files per snapshot */
 		if(file_exist(IC_FILE) == 0)
 		{
@@ -2488,6 +2498,7 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 	if(IC_FORMAT == 2)
 	{
 		printf("\nThe IC is in HDF5 format\n");
+		fflush(stdout);
 		if(file_exist(IC_FILE) == 0)
 		{
 			fprintf(stderr, "Error: The %s IC file does not exist!\nExiting.\n", IC_FILE);

@@ -21,9 +21,9 @@ from os.path import exists
 import numpy as np
 import h5py
 import sys
-
-# adding ../../StePS_IC/src/ to the system path
-sys.path.insert(0, '../../StePS_IC/src/')
+import os
+# adding ../Utils/ to the system path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import *
 
 _VERSION="v0.0.1.0"

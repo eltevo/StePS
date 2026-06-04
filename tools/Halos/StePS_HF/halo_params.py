@@ -166,7 +166,7 @@ def NFW_profile(r,rho0,Rs):
         - NFW profile values at "r" input distances
     """
     rpRs = r/Rs
-    return rho0/(rpRs*np.power((1.0+rpRs),2))
+    return rho0/(rpRs*(1.0+rpRs)**2)
 
 def Hz(z, H0, Om, Ol, DE_model, DE_params):
     """
@@ -217,35 +217,50 @@ def get_Delta_c(z, H0, Om, Ol, DE_model, DE_params, mode="BryanEtAl"):
     else:
         raise Exception("Error: Unknown virial density definition %s!\nExiting.\n" % (mode))
 
-def get_1D_radial_profile(r,M,Nbins,background_density=0.0):
+def get_1D_radial_profile(r, M, Nbins=32, r_range=(0.01, 10.0), scale_radius=None, background_density=0.0):
     """
-    This function reconstructs the 1D density profile of a halo
-    by using equal "Npart" radial binning
-    ---------------------------
-    input:
-            -r: distances from center
-            -M: particle masses
-            -Nbins: Number or radial bins
-            -method: binning method. Must be "NGP" or "CIC"
+    Calculates a 1D density profile using logarithmic binning.
+    
+    Parameters:
+    - r: 1D array of particle distances from center.
+    - M: Particle masses (array or scalar).
+    - Nbins: Number of radial bins.
+    - r_range: (min, max) for binning. If scale_radius is provided, 
+               these are in units of r/scale_radius.
+    - scale_radius: Value to normalize r (e.g., R_s or R200).
+    - background_density: Value to subtract from the final density.
     """
-    rmax = r[-1]
-    NpartTot = len(r)
-    NpartPerBin = int(np.floor(NpartTot/Nbins))
-    #Allocating memory for the profile
-    r_bin_limits = np.zeros(Nbins,dtype=np.double)
-    r_bin_centers = np.zeros(Nbins,dtype=np.double)
-    rho_bins = np.zeros(Nbins,dtype=np.double)
-    # i=0 bin:
-    r_bin_limits[0] = r[NpartPerBin-1] #bin upper limit
-    r_bin_centers[0] = 0.5*(r_bin_limits[0]) #bin center
-    rho_bins[0] = np.sum(M[:NpartPerBin])/(4.0*np.pi/3.0*r_bin_limits[0]**3)
-    for i in range(1,Nbins):
-        r_bin_limits[i] = r[NpartPerBin*(i+1)-1] #bin upper limit
-        r_bin_centers[i] = (0.5*(r_bin_limits[i] + r_bin_limits[i-1])) #bin center
-        rho_bins[i] = np.sum(M[NpartPerBin*i:NpartPerBin*(i+1)])/(4.0*np.pi/3.0*(r_bin_limits[i]**3 - r_bin_limits[i-1]**3))
-    out_idx = rho_bins > 0.0 # selecting non-empty bins
-    rho_bins[out_idx] -= background_density #removing background density
-    return r_bin_centers[out_idx], rho_bins[out_idx]
+    
+    if scale_radius is not None:
+        r_processed = r / scale_radius
+    else:
+        r_processed = r
+
+    bin_edges = np.logspace(np.log10(r_range[0]), np.log10(r_range[1]), Nbins + 1)
+    bin_centers = 10**(0.5 * (np.log10(bin_edges[:-1]) + np.log10(bin_edges[1:])))
+
+    # Calculate Mass in each bin using np.histogram
+    # If M is a scalar (all particles same mass), we multiply the counts
+    if np.isscalar(M):
+        counts, _ = np.histogram(r_processed, bins=bin_edges)
+        mass_in_bin = counts * M
+    else:
+        mass_in_bin, _ = np.histogram(r_processed, bins=bin_edges, weights=M)
+
+    # Calculate Shell Volumes
+    # V = 4/3 * pi * (r_out^3 - r_in^3)
+    # If we scaled by scale_radius, the volume is in units of scale_radius^3
+    v_out = (4.0/3.0) * np.pi * bin_edges[1:]**3
+    v_in  = (4.0/3.0) * np.pi * bin_edges[:-1:]**3
+    shell_volumes = v_out - v_in
+
+    # Density calculation
+    rho_bins = mass_in_bin / shell_volumes
+    
+    # Substracting background
+    rho_bins -= background_density
+    
+    return bin_centers, rho_bins
 
 
 def calculate_halo_shape(coordinates, masses, center_of_mass):
