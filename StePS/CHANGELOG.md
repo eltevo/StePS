@@ -55,7 +55,7 @@ All notable changes to the StePS simulation code is documented in this file.
 ### Fixed
 - MPI max-time tracking bug in `step.cc`: was comparing `force_calc_time` to itself (a no-op); now correctly tracks maximum over all MPI threads
 
-## [v2.0.1.0] - TBA
+## [v2.0.1.0] - 2026-06-04
 
 ### Added
 - Accelerations can be saved to HDF5 snapshots.
@@ -68,10 +68,6 @@ All notable changes to the StePS simulation code is documented in this file.
 - Actual state saved as a snapshot if the simulation wall-clock time limit reached.
 - Mass density is checked both $T^3$, $S^1 \times \mathbb{R}^2$, and $\mathbb{R}^3$ simulations, in the case of cosmological runs.
 - Increased accuracy for mass density check in cosmological simulations
-
-### Fixed
-- Fixed gadget2 binary loading
-- Fixed output list loading bug on newer libc libraries.
 
 ### Fixed
 - Fixed gadget2 binary loading

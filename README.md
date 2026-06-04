@@ -122,15 +122,10 @@ mpirun -np 1 ./build/StePS ./examples/LCDM_SP_1860_com_VOI100.param
 ```
 
 Runnable example parameter files and initial conditions are provided in [`StePS/examples/`](StePS/examples/). Full documentation&mdash;including every compile-time option, the parameter-file reference, and the output formats&mdash;is available in [`StePS/README.md`](StePS/README.md).
-- G. Rácz, I. Szapudi, I. Csabai, and L. Dobos "*Compactified Cosmological Simulations of the Infinite Universe*": MNRAS, Volume 477, Issue 2, p.1949-1957 (2018) [[MNRAS](https://academic.oup.com/mnras/article/477/2/1949/4944906)] [[astro-ph](https://arxiv.org/abs/1711.04959)] [[NASA adsabs](https://ui.adsabs.harvard.edu/abs/2018MNRAS.477.1949R/abstract)]
-- G. Rácz, I. Szapudi, L. Dobos, I. Csabai, and A. S. Szalay "*StePS: A multi-GPU cosmological N-body Code for compactified simulations*": Astron. Comput. 28, 100303 (2019) [[Astronomy and Computing](https://www.sciencedirect.com/science/article/pii/S2213133718301938)] [[astro-ph](https://arxiv.org/abs/1811.05903)] [[NASA adsabs](https://ui.adsabs.harvard.edu/abs/2019A%26C....2800303R/abstract)]
-- G. Rácz, V. H. Varga, B. Pál, I. Szapudi, I. Csabai, and T. Sawala "*Cylindrical cosmological simulations with StePS*": In prep. (2026) [[astro-ph](https://arxiv.org/abs/2602.20787)]
 
 ## Visualizations
 
-![alt text](Images/CylindricalExampleCenter.gif "StePS simulation of structure formation in cylindrical topology with standard LCDM cosmology.")
-
-![alt text](Images/Example_simulation1_R480Mpc_slice.png "A slice from the density field in the StePS example simulation #1")
+![StePS cylindrical simulation #1, slice](Images/Example_simulation1_R480Mpc_slice.png "A slice from the density field in the StePS example simulation #1")
 
 [![StePS example simulation #1, slice](Images/Example1_R480_slice_youtube.png)](https://youtu.be/INuRIqUu0IA "StePS example simulation #1, slice")
 
