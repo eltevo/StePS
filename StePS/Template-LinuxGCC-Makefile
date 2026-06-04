@@ -1,4 +1,3 @@
-
 #-----------------------------------------------------------------------------------------------#
 # StePS Makefile
 # Copyright (C) 2017-2026 Gabor Racz
@@ -49,14 +48,14 @@ OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
 			#-1: the expansion history will be read from an external file
 
 #------------------------------- Compiler
-CXX = g++
+CXX ?= g++
 
 #------------------------------- Location of the MPI libraries
 MPI_LIBS = -L/usr/lib/x86_64-linux-gnu/openmpi/lib -lmpi_cxx -lmpi -lhwloc
 MPI_INC = -I/usr/lib/x86_64-linux-gnu/openmpi/include
 
 #------------------------------- Location of the CUDA Toolkit
-CUDA_PATH       ?= /usr/local/cuda-12.6
+CUDA_PATH ?= /usr/local/cuda
 
 #------------------------------- Location of the HDF5 libraries
 HDF5_LIBS = -L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5
@@ -71,19 +70,23 @@ MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
 
 CPPSTD = c++17
 
-SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc
+SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc $(SRC_DIR)/step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc
 DEPS = $(SRC_DIR)/global_variables.h
 OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o $(BUILD_DIR)/utils.o
 
-COMPILERVERSION=$(shell $(CXX) --version | head -1)
-GITCOMMIT_ID=$(shell git rev-parse HEAD)
-GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
-DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
-BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"'
-CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp
+COMPILERVERSION = $(shell $(CXX) --version | head -1)
+GITCOMMIT_ID = $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+GITBRANCH = $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+DATE = $(shell date +'%Y-%m-%d %A %H:%M %Z')
 
-MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
-MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
+BUILD_NUMBER_CPPFLAGS = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"'
+CPPFLAGS = $(BUILD_NUMBER_CPPFLAGS) $(OPT)
+CXXFLAGS = -Wno-long-long -Wno-unused-result -Wall -pedantic -O3 -ffast-math -std=$(CPPSTD) -fopenmp -pthread
+LDFLAGS =
+LDLIBS = -lm -lgomp
+
+MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile 2>/dev/null || echo $(MPI_INC))
+MPI_LINK_FLAGS = $(shell mpic++ --showme:link 2>/dev/null || echo $(MPI_LIBS))
 
 #------------------------------- Printing out some info
 $(info This is the StePS $(VERSION) Makefile.)
@@ -96,7 +99,7 @@ $(info Compiling StePS with $(CXX) ($(COMPILERVERSION)) without CUDA support (CP
 endif
 $(info MPI compile flags: $(MPI_COMPILE_FLAGS))
 $(info MPI link flags: $(MPI_LINK_FLAGS))
-$(info C++ compiler flags: $(CFLAGS))
+$(info C++ compiler flags: $(CXXFLAGS))
 $(info Build options: $(OPT))
 $(info ----------------------------------------)
 $(info )
@@ -113,14 +116,19 @@ $(info Warning: Unsupported EWALD_INTERPOLATION_ORDER value ($(EWALD_INTERPOLATI
 OPT += -DEWALD_INTERPOLATION_ORDER=4
 endif
 
-ifeq ($(USING_CUDA), YES)
-#------------------------------- Location of the CUDA Toolkit
-OPT += -DUSE_CUDA
-BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
+CPPFLAGS = $(BUILD_NUMBER_CPPFLAGS) $(OPT)
 
-NVCC = $(CUDA_PATH)/bin/nvcc -ccbin
-CUDAFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall -O3 -lm -Xcompiler -pthread
-CUDALFLAGS = -Xcompiler -fopenmp -lineinfo --compiler-options --std=${CPPSTD} --compiler-options -Wall -O3 -lm -Xcompiler -pthread -Xcompiler \'-Wl\\,-rpath\' -Xcompiler \'-Wl\\,$(MPI_LIBS)\' -Xcompiler \'-Wl\\,--enable-new-dtags\' -lmpi_cxx -lmpi -lhwloc
+ifeq ($(USING_CUDA), YES)
+
+#------------------------------- CUDA build settings
+OPT += -DUSE_CUDA
+BUILD_NUMBER_CPPFLAGS += -DPROGRAMNAME='"StePS_CUDA"'
+CPPFLAGS = $(BUILD_NUMBER_CPPFLAGS) $(OPT)
+
+NVCC = $(CUDA_PATH)/bin/nvcc
+NVCC_HOST_COMPILER = $(CXX)
+NVCCFLAGS = -ccbin $(NVCC_HOST_COMPILER) -std=$(CPPSTD) -O3 -lineinfo -Xcompiler=-Wall -Xcompiler=-fopenmp -Xcompiler=-pthread
+NVCCLDFLAGS = -Xcompiler=-fopenmp -Xcompiler=-pthread
 CUDA_INC = -I$(CUDA_PATH)/include
 
 SRC += $(SRC_DIR)/forces_cuda.cu
@@ -129,31 +137,35 @@ PROG = $(BUILD_DIR)/StePS_CUDA
 
 $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
-	$(MAKE_BUILD_DIR)
-	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+	$(NVCC) $(NVCCFLAGS) $(NVCCLDFLAGS) $(CUDA_INC) $(LDFLAGS) $(CPPFLAGS) -o $(PROG) $(OBJ) $(HDF5_LIBS) $(MPI_LIBS) $(LDLIBS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc $(DEPS)
 	$(MAKE_BUILD_DIR)
-	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(MPI_LIBS) $(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+	$(CXX) $(CXXFLAGS) $(CUDA_INC) $(MPI_COMPILE_FLAGS) $(HDF5_INC) $(CPPFLAGS) -o $@ -c $<
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu $(DEPS)
+	$(MAKE_BUILD_DIR)
+	$(NVCC) $(NVCCFLAGS) $(CUDA_INC) $(MPI_INC) $(HDF5_INC) $(CPPFLAGS) -o $@ -c $<
+
 clean:
 	rm -fv $(OBJ) $(PROG)
 
 else
 
-BUILD_NUMBER_LDFLAGS += -DPROGRAMNAME='"StePS"'
+BUILD_NUMBER_CPPFLAGS += -DPROGRAMNAME='"StePS"'
+CPPFLAGS = $(BUILD_NUMBER_CPPFLAGS) $(OPT)
 
 SRC += $(SRC_DIR)/forces.cc
 OBJ += $(BUILD_DIR)/forces.o
 PROG = $(BUILD_DIR)/StePS
+
 $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(CPPFLAGS) -o $(PROG) $(OBJ) $(HDF5_LIBS) $(MPI_LINK_FLAGS) $(LDLIBS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc $(DEPS)
 	$(MAKE_BUILD_DIR)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+	$(CXX) $(CXXFLAGS) $(MPI_COMPILE_FLAGS) $(HDF5_INC) $(CPPFLAGS) -o $@ -c $<
 
 clean:
 	rm -fv $(OBJ) $(PROG)

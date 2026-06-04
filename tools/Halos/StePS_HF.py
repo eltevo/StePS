@@ -36,7 +36,8 @@
 
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..','StePS_IC','src'))
+# adding ../Utils/ to the system path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from os.path import exists
 import copy
 from mpi4py import MPI

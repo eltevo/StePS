@@ -22,8 +22,8 @@ import healpy as hp
 from pynverse import inversefunc
 import yaml
 import sys
-# adding ../../StePS_IC/src/ to the system path
-sys.path.insert(0, '../../StePS_IC/src/')
+# adding ../Utils/ to the system path
+sys.path.insert(0, '../Utils/')
 from inputoutput import *
 import time
 

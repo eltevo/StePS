@@ -1,0 +1,14 @@
+name: steps
+channels:
+  - conda-forge
+# Note: CUDA Toolkit must be installed at the system level (not via conda).
+# build.sh assumes CUDA is available at /usr/local/cuda.
+dependencies:
+  - python=3.12
+  - make
+  - git
+  - pkg-config
+  - gxx_linux-64=13
+  - gcc_linux-64=13
+  - openmpi
+  - hdf5

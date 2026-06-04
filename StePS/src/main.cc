@@ -176,6 +176,7 @@ double friedmann_solver_start(double a0, double t0, double h, double a_start);
 double friedmann_solver_step(double a0, double h);
 double CALCULATE_Hubble_param(double a);
 double CALCULATE_decel_param(double a);
+REAL kahan_sum(const REAL *array, size_t N);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
 void BCAST_MPI_particle_ranges();
@@ -1628,58 +1629,78 @@ int main(int argc, char *argv[])
 		#endif
 		M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
 		#if defined(PERIODIC) || defined(PERIODIC_Z)
-		if(IC_FORMAT == 1)
-		{
+			if(IC_FORMAT == 1)
+			{
+				#if defined(PERIODIC)
+				M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
+				if(rank == 0)
+				{
+					printf("Every particle has the same mass in periodic cosmological simulations, if the input is in GADGET format.\nM=%.10f*10e+11M_sol\n", M_tmp);
+				}
+				//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
+				for(i=0; i<N; i++)
+				{
+					M[i] = M_tmp;
+				}
+				#endif
+			}
+			//Calculating the total mean desity of the simulation volume
+			//in here we sum the total particle mass with Kahan summation
+			REAL rho_mean_full_box = 0.0;
+			rho_mean_full_box = kahan_sum(M, N);
 			#if defined(PERIODIC)
-			M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
-			if(rank == 0)
-			{
-				printf("Every particle has the same mass in periodic cosmological simulations, if the input is in GADGET format.\nM=%.10f*10e+11M_sol\n", M_tmp);
-			}
-			//Every particle has the same mass in periodic cosmological simulations, if the IC is in GADGET format
-			for(i=0; i<N; i++)
-			{
-				M[i] = M_tmp;
-			}
+				rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
+			#elif defined(PERIODIC_Z)
+				rho_mean_full_box /= (pi*Rsim*Rsim*L); //dividing the total mass by the simulation volume
 			#endif
-		}
-		//Calculating the total mean desity of the simulation volume
-		//in here we sum the total particle mass with Kahan summation
-		REAL rho_mean_full_box = 0.0;
-		REAL Kahan_compensation = 0.0;
-		REAL Kahan_t, Kahan_y;
-		for(i=0;i<N;i++)
-		{
-			Kahan_y = M[i] - Kahan_compensation;
-			Kahan_t = rho_mean_full_box + Kahan_y;
-			Kahan_compensation = (Kahan_t - rho_mean_full_box) - Kahan_y;
-			rho_mean_full_box = Kahan_t;
-		}
-		#if defined(PERIODIC)
-			rho_mean_full_box /= pow(L, 3.0); //dividing the total mass by the simulation volume
-		#elif defined(PERIODIC_Z)
-			rho_mean_full_box /= (pi*Rsim*Rsim*L); //dividing the total mass by the simulation volume
-		#endif
-		if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-5)
-		{
-			 #if COSMOPARAM>=0 || !defined(COSMOPARAM)
-			 if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-2)
-			 {
-			 	fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters!\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_m));
-			 	return (-1);
-			 }
-			 else
-			 {
-			 	printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_box/(rho_crit*Omega_m));
-				for(i=0;i<N;i++)
-			 	{
-			 		M[i] /= (rho_mean_full_box/(rho_crit*Omega_m));
-			 	}				
-			 }
-			 #else
-			 printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_m));
-			 #endif
-		}
+			if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-5)
+			{
+				#if COSMOPARAM>=0 || !defined(COSMOPARAM)
+				if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-2)
+				{
+					fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_m));
+					return (-1);
+				}
+				else
+				{
+					printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_box/(rho_crit*Omega_m));
+					for(i=0;i<N;i++)
+					{
+						M[i] /= (rho_mean_full_box/(rho_crit*Omega_m));
+					}				
+				}
+				#else
+				printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_m));
+				#endif
+			}
+		#else
+			//Non-periodic cosmological simulations 
+			REAL rho_mean_full_sphere;
+			rho_mean_full_sphere = kahan_sum(M, N);
+			rho_mean_full_sphere /= (4.0/3.0*pi*pow(Rsim, 3.0)); //dividing the total mass by the simulation volume
+			if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-5)
+			{
+				#if COSMOPARAM>=0 || !defined(COSMOPARAM)
+				if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-2)
+				{
+					fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					return (-1);
+				}
+				else
+				{
+					printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					for(i=0;i<N;i++)					{
+						M[i] /= (rho_mean_full_sphere/(rho_crit*Omega_m));
+					}				
+				}
+				#else
+				printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+				#endif
+			}
+			else
+			{
+				printf("The particle masses are consistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm - 1 = %.6e\n\n", rho_mean_full_sphere/(rho_crit*Omega_m)-1.0);
+			}
 		#endif
 	}
 	else
@@ -2242,7 +2263,17 @@ int main(int argc, char *argv[])
 		if( TIME_LIMIT_IN_MINS != 0 && (omp_get_wtime()-SIM_omp_start_time)/60.0 >= TIME_LIMIT_IN_MINS)
 		{
 			if(rank == 0)
+			{
 				printf("\nSimulation wall-clock time limit reached (%.1fmin >= %.1fmin). Stopping...\n", (omp_get_wtime()-SIM_omp_start_time)/60.0, TIME_LIMIT_IN_MINS);
+				printf("Saving the current state of the simulation as the final output...\n");
+				if(OUTPUT_FORMAT == 0)
+					write_ascii_snapshot(x, v); //writing output
+				#ifdef HAVE_HDF5
+				if(OUTPUT_FORMAT == 2)
+					write_hdf5_snapshot(x, v, M, save_accelerations, F, false); //writing output
+				#endif
+				printf("...done.\n");
+			}
 			break;
 		}
 		MPI_Bcast(&a_tmp,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
@@ -2265,16 +2296,24 @@ int main(int argc, char *argv[])
 			if(COMOVING_INTEGRATION == 1)
 			{
 				printf("Timestep %i, t=%.8fGy, h=%fMy, a=%.8f, H=%.8fkm/s/Mpc, z=%.8f\n", t, T*UNIT_T, h*UNIT_T*1000.0, a, Hubble_param*UNIT_V, 1.0/a-1.0);
-
-				double a_end, b_end;
-				a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
-				b_end = Hubble_param_prev-a_end*a_prev;
-				double H_end = a_max*a_end+b_end;
-				a_end = (T - T_prev)/(a-a_prev);
-			        b_end = T_prev-a_end*a_prev;
-				double T_end = a_max*a_end+b_end;
-				printf("\nAt a = %f state, with linear interpolation:\n",a_max);
-				printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*UNIT_T, a_max, H_end*UNIT_V);
+				
+				//Linear interpolation to calculate the time and Hubble parameter at the final scalefactor a_max, but only if the final scalefactor goes beyond this. (If the final scalefactor is reached.)
+				if(a > a_max)
+				{
+					double a_end, b_end;
+					a_end = (Hubble_param - Hubble_param_prev)/(a-a_prev);
+					b_end = Hubble_param_prev-a_end*a_prev;
+					double H_end = a_max*a_end+b_end;
+					a_end = (T - T_prev)/(a-a_prev);
+						b_end = T_prev-a_end*a_prev;
+					double T_end = a_max*a_end+b_end;
+					printf("\nAt a = %f state, with linear interpolation:\n",a_max);
+					printf("t=%.8fGy, a=%.8f, H=%.8fkm/s/Mpc\n\n", T_end*UNIT_T, a_max, H_end*UNIT_V);
+				}
+				else
+				{
+					printf("\n\n");
+				}
 			}
 			else
 			{

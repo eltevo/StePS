@@ -55,7 +55,7 @@ All notable changes to the StePS simulation code is documented in this file.
 ### Fixed
 - MPI max-time tracking bug in `step.cc`: was comparing `force_calc_time` to itself (a no-op); now correctly tracks maximum over all MPI threads
 
-## [v2.0.1.0] - TBA
+## [v2.0.1.0] - 2026-06-04
 
 ### Added
 - Accelerations can be saved to HDF5 snapshots.
@@ -63,8 +63,11 @@ All notable changes to the StePS simulation code is documented in this file.
 - MPI particle workload is redistributed, if significant workload imbalance is detected.
 
 ### Changed
-- Updated Ewald split parameters in S^1xR^2 Ewald-summation.
+- Updated Ewald split parameters in $S^1 \times \mathbb{R}^2$ Ewald-summation.
 - MPI workload balance is printed out directly in MPI mode.
+- Actual state saved as a snapshot if the simulation wall-clock time limit reached.
+- Mass density is checked both $T^3$, $S^1 \times \mathbb{R}^2$, and $\mathbb{R}^3$ simulations, in the case of cosmological runs.
+- Increased accuracy for mass density check in cosmological simulations
 
 ### Fixed
 - Fixed gadget2 binary loading

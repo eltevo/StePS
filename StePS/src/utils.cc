@@ -91,6 +91,23 @@ void set_REAL_array_to_zero(REAL *array, int N)
     }
 }
 
+//Kahan summation for REAL arrays
+REAL kahan_sum(const REAL *array, size_t N)
+{
+    size_t i;
+    double Kahan_sum = 0.0;
+    double Kahan_compensation = 0.0;
+    volatile double Kahan_t, Kahan_y;
+    for(i=0;i<N;i++)
+    {
+        Kahan_y = (double) array[i] - Kahan_compensation;
+        Kahan_t = Kahan_sum + Kahan_y;
+        Kahan_compensation = (Kahan_t - Kahan_sum) - Kahan_y;
+        Kahan_sum = Kahan_t;
+    }
+    return (REAL) Kahan_sum;
+}
+
 //workload balancing function for the force calculation
 void redistribute_workload(double *mpi_time_array, int numtasks, int N, int **mpi_particle_range)
 {
