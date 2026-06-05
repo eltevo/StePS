@@ -348,3 +348,87 @@ def ascii2gadget(infile, outfile, Lbox, H0, UNITLENGTH_IN_CM):
     del(V)
     del(M)
     return;
+
+
+def save_cosmic_web_hdf5(output_path, structure_type, eigenvalues, eigenvectors, metadata=None):
+    """
+    Saves the classified cosmic web data into an HDF5 file.
+    eigenvectors: Shape (Nx, Ny, Nz, 3, 3) where the last index corresponds to the eigenvalue.
+    """
+    print(f"--- Saving results to {output_path} ---")
+    with h5py.File(output_path, 'w') as f:
+        # GZIP compression is applied to save disk space without heavy overhead
+        f.create_dataset('structure_type', data=structure_type.astype(np.uint8), compression='gzip')
+        f.create_dataset('eigenvalues', data=eigenvalues.astype(np.float32), compression='gzip')
+        
+        # eigh sorts eigenvalues in ascending order. 
+        # Index 0: Minor (spine of filament), Index 1: Intermediate, Index 2: Major (normal to sheet)
+        f.create_dataset('dir_minor', data=eigenvectors[..., :, 0].astype(np.float32), compression='gzip')
+        f.create_dataset('dir_intermediate', data=eigenvectors[..., :, 1].astype(np.float32), compression='gzip')
+        f.create_dataset('dir_major', data=eigenvectors[..., :, 2].astype(np.float32), compression='gzip')
+        
+        # Save structural metadata as HDF5 attributes
+        if metadata:
+            for key, val in metadata.items():
+                f.attrs[key] = val
+
+def load_cosmic_web_hdf5(input_path, verbose=False):
+    """
+    Loads the classified cosmic web data from an HDF5 file.
+    Returns:
+        data (dict): Dictionary containing the numpy arrays.
+        attrs (dict): Dictionary containing the metadata attributes.
+    """
+    data = {}
+    attrs = {}
+    with h5py.File(input_path, 'r') as f:
+        data['structure_type'] = f['structure_type'][:]
+        data['eigenvalues'] = f['eigenvalues'][:]
+        data['dir_minor'] = f['dir_minor'][:]
+        data['dir_intermediate'] = f['dir_intermediate'][:]
+        data['dir_major'] = f['dir_major'][:]
+        
+        for key, val in f.attrs.items():
+            attrs[key] = val
+            
+        args_str = ", ".join([f"{key}={val}" for key, val in attrs.items()])
+        if verbose:
+            print(f"--- Loaded cosmic web data with attributes: {args_str} ---")
+    return data, attrs
+
+def save_density_hdf5(output_path, overdensity, velocity=None, metadata=None):
+    """
+    Saves the overdensity (and optional velocity field) into an HDF5 file.
+    overdensity: Shape (Nx, Ny, Nz)
+    velocity: Shape (Nx, Ny, Nz, 3)
+    """
+    print(f"--- Saving density field to {output_path} ---")
+    with h5py.File(output_path, 'w') as f:
+        f.create_dataset('overdensity', data=overdensity.astype(np.float32), compression='gzip')
+        
+        if velocity is not None:
+            f.create_dataset('velocity', data=velocity.astype(np.float32), compression='gzip')
+            
+        if metadata:
+            for key, val in metadata.items():
+                f.attrs[key] = val
+
+def load_density_hdf5(input_path, verbose=False):
+    """
+    Loads the overdensity data from an HDF5 file.
+    """
+    data = {}
+    attrs = {}
+    with h5py.File(input_path, 'r') as f:
+        data['overdensity'] = f['overdensity'][:]
+        if 'velocity' in f:
+            data['velocity'] = f['velocity'][:]
+            
+        for key, val in f.attrs.items():
+            attrs[key] = val
+            
+        if verbose:
+            args_str = ", ".join([f"{key}={val}" for key, val in attrs.items()])
+            print(f"--- Loaded density data with attributes: {args_str} ---")
+            
+    return data, attrs

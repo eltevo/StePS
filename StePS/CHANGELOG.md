@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.0.1.1] - 2026-06-19
+
+### Added
+- Added input glass mass scaling in BH correction table calculation (in S^1xR^2, R^3 manifolds).
+
+### Changed
+- IC accelerations only saved once in randomized BH mode, if -DSAVE_ACCELERATIONS is on.
+
+### Fixed
+- Removed mass check and rescale messages from slave MPI threads.
+
 ## [v2.0.1.0] - 2026-06-04
 
 ### Added

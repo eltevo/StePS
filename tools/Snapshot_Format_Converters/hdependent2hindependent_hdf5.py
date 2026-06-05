@@ -18,6 +18,7 @@
 #*******************************************************************************#
 
 from os.path import exists
+import time
 import numpy as np
 import h5py
 import sys

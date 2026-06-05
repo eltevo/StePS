@@ -917,6 +917,25 @@ int main(int argc, char *argv[])
 					M[i] /= (H0*UNIT_V/100.0); //converting masses
 				}
 			}
+			//Rescaling the glass or IC particle masses to match the cosmological density, if needed
+			if(COSMOLOGY == 1)
+			{
+				REAL rho_mean_full_sphere;
+				rho_crit = 3.0*H0*H0/(8.0*pi); //Calculating the critical density
+				rho_mean_full_sphere = kahan_sum(M, N);
+				#if defined(PERIODIC_Z)
+					//Cylindrical (S^1 x R^2) topological manifold
+					rho_mean_full_sphere /= (pi*pow(Rsim, 2.0)*L); //dividing the total mass by the simulation volume
+				#else
+					//Spherical (R^3) topological manifold
+					rho_mean_full_sphere /= (4.0/3.0*pi*pow(Rsim, 3.0)); //dividing the total mass by the simulation volume
+				#endif
+				printf("The particle masses in the glass file are consistent with the cosmological density at level: rho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+				for(i=0;i<N;i++)
+				{
+					M[i] /= (rho_mean_full_sphere/(rho_crit*Omega_m));
+				}
+			}
 			calculate_softening_length(SOFT_LENGTH, M, N); //Calculating the softening lengths for the particles
 		}
 		//Bcasting the number of particles
@@ -1193,11 +1212,6 @@ int main(int argc, char *argv[])
 				iter_end_time = omp_get_wtime(); //Timing
 				printf("Radial BH force correction calculated for iteration %d/%d completed under %.2fs.\n\n", i_iter+1, RADIAL_BH_FORCE_TABLE_ITERATION, iter_end_time-iter_start_time);
 				fflush(stdout);
-				#ifdef SAVE_ACCELERATIONS
-					printf("Saving the initial conditions with the calculated forces as a HDF5 snapshot for acceleration comparison...\n");
-					write_hdf5_snapshot(x, v, M, true, F, true);
-					printf("...done.\n");
-				#endif
 			}
 		}
 		//Normalizing the radial BH force correction table
@@ -1496,24 +1510,28 @@ int main(int argc, char *argv[])
 				#if COSMOPARAM>=0 || !defined(COSMOPARAM)
 				if(fabs(rho_mean_full_box/(rho_crit*Omega_m) - 1) > 1e-2)
 				{
-					fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_m));
+					if (rank == 0)
+						fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_box/(rho_crit*Omega_m));
 					return (-1);
 				}
 				else
 				{
-					printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_box/(rho_crit*Omega_m));
+					if(rank == 0)
+						printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_box/(rho_crit*Omega_m));
 					for(i=0;i<N;i++)
 					{
 						M[i] /= (rho_mean_full_box/(rho_crit*Omega_m));
 					}				
 				}
 				#else
-				printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_m));
+				if(rank == 0)
+					printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_box/(rho_crit*Omega_m));
 				#endif
 			}
 		#else
 			//Non-periodic cosmological simulations 
 			REAL rho_mean_full_sphere;
+
 			rho_mean_full_sphere = kahan_sum(M, N);
 			rho_mean_full_sphere /= (4.0/3.0*pi*pow(Rsim, 3.0)); //dividing the total mass by the simulation volume
 			if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-5)
@@ -1521,23 +1539,28 @@ int main(int argc, char *argv[])
 				#if COSMOPARAM>=0 || !defined(COSMOPARAM)
 				if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-2)
 				{
-					fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					if(rank == 0)
+						fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
 					return (-1);
 				}
 				else
 				{
-					printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
-					for(i=0;i<N;i++)					{
+					if(rank == 0)
+						printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm = %.6f\n\tRescaling the particle masses with this number.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					for(i=0;i<N;i++)
+					{
 						M[i] /= (rho_mean_full_sphere/(rho_crit*Omega_m));
 					}				
 				}
 				#else
-				printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+				if(rank == 0)
+					printf("Warning: The particle masses are inconsistent with the cosmological parameters set in the parameter file!\nrho_part/rho_cosm = %.6f\nSince the expansion history read from an external file, this is not necessarily an error.\nPlease make sure that the particle masses are set correctly in the initial condition file.\n\n", rho_mean_full_sphere/(rho_crit*Omega_m));
 				#endif
 			}
 			else
 			{
-				printf("The particle masses are consistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm - 1 = %.6e\n\n", rho_mean_full_sphere/(rho_crit*Omega_m)-1.0);
+				if(rank == 0)
+					printf("The particle masses are consistent with the cosmological parameters set in the parameter file:\nrho_part/rho_cosm - 1 = %.6e\n\n", rho_mean_full_sphere/(rho_crit*Omega_m)-1.0);
 			}
 		#endif
 	}
