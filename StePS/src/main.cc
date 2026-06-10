@@ -116,10 +116,7 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 #if defined(POINCARE_DODECAHEDRAL)
 	//Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
 	REAL *PDS_Q;                 //4D quaternion positions (4*N REAL values)
-	REAL *PDS_EWALD_FORCE_TABLE; //1D Ewald correction table indexed by geodesic distance chi in [0,pi]
-	int   N_PDS_EWALD_GRID;      //number of grid points in the PDS Ewald table
 	REAL  PDS_R_CURV;            //curvature radius of S^3 in internal length units (Mpc)
-	char  pds_ewaldfilepath[0x100];
 #endif
 #if defined(PERIODIC_Z)
 	//Variables only used in S^1 x R^2 simulations
@@ -197,13 +194,8 @@ int save_s1r2_ewald_lookup_table(const char *filename, int Nrho_grid, int Nz_gri
 #endif
 #elif defined(POINCARE_DODECAHEDRAL)
 //Functions for S^3/I* (Poincare Dodecahedral Space) simulations
-void calculate_pds_ewald_lookup_table(int Ngrid, double R_curv, REAL *table);
-double pds_ewald_interpolate(const REAL *table, int Ngrid, double R_curv, double chi);
+//(exact 120-image summation; no Ewald lookup table is needed on the compact S^3)
 void forces_pds(REAL *q, REAL *F, int ID_min, int ID_max);
-#ifdef HAVE_HDF5
-int save_pds_ewald_lookup_table(const char *filename, int Ngrid, double R_curv, const REAL *PDS_EWALD_FORCE_TABLE);
-int load_pds_ewald_lookup_table(const char *filename, int *Ngrid, double *R_curv, REAL **table_out);
-#endif
 #endif
 #if defined(PERIODIC_Z)
 //Functions for direct periodic S^1 x R^2 real space force calculation
@@ -843,101 +835,17 @@ int main(int argc, char *argv[])
 		}
 		if(IS_PERIODIC >= 2)
 		{
-			//Ewald correction table setup
+			//Exact image summation: S^3 is compact, the 120-element I* image sum is
+			//finite and exact, so no Ewald lookup table is needed.  The background-
+			//compensated kernel is used (the bare kernel sum over the antipodal +-g
+			//image pairs would cancel identically; see pds_group.h).
 			if(rank == 0)
-			{
-				if(IS_PERIODIC == 2)
-				{
-					printf("PDS (S^3/I*) Ewald force calculation is on.\n");
-					N_PDS_EWALD_GRID = 1024;
-				}
-				else if(IS_PERIODIC == 3)
-				{
-					printf("Medium precision PDS (S^3/I*) Ewald force calculation is on.\n");
-					N_PDS_EWALD_GRID = 4096;
-				}
-				else
-				{
-					printf("High precision PDS (S^3/I*) Ewald force calculation is on.\n");
-					N_PDS_EWALD_GRID = 16384;
-				}
-				//Allocating memory for the Ewald lookup table
-				printf("MPI task %i: Allocating memory for the PDS Ewald lookup table with %i grid points...\n", rank, N_PDS_EWALD_GRID);
-				if(!(PDS_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_PDS_EWALD_GRID*sizeof(REAL))))
-				{
-					fprintf(stderr, "MPI task %i: failed to allocate memory for the PDS Ewald lookup table.\n", rank);
-					exit(-2);
-				}
-				#ifdef HAVE_HDF5
-					char PDS_EwaldTableFile[] = "PDS_Ewald_table.hdf5";
-					if(snprintf(pds_ewaldfilepath, sizeof(pds_ewaldfilepath), "%s%s", OUT_DIR, PDS_EwaldTableFile) < 0)
-					{
-						fprintf(stderr, "Error: The name of the PDS Ewald table got truncated.\nAborting.\n");
-						abort();
-					}
-					if(file_exist(pds_ewaldfilepath) == 0)
-					{
-						printf("PDS Ewald lookup table file (%s) not found.\nCalculating new lookup table...\n", pds_ewaldfilepath);
-						double EWALD_omp_start_time = omp_get_wtime();
-						calculate_pds_ewald_lookup_table(N_PDS_EWALD_GRID, (double)PDS_R_CURV, PDS_EWALD_FORCE_TABLE);
-						double EWALD_omp_end_time = omp_get_wtime();
-						printf("PDS Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
-						printf("Saving PDS Ewald lookup table into %s\n", pds_ewaldfilepath);
-						save_pds_ewald_lookup_table(pds_ewaldfilepath, N_PDS_EWALD_GRID, (double)PDS_R_CURV, PDS_EWALD_FORCE_TABLE);
-					}
-					else
-					{
-						printf("PDS Ewald lookup table file (%s) found.\nLoading lookup table from file...\n", pds_ewaldfilepath);
-						double EWALD_omp_start_time = omp_get_wtime();
-						double R_curv_from_file;
-						if(load_pds_ewald_lookup_table(pds_ewaldfilepath, &N_PDS_EWALD_GRID, &R_curv_from_file, &PDS_EWALD_FORCE_TABLE) != 0)
-						{
-							fprintf(stderr, "Error: Failed to load the PDS Ewald lookup table from file %s\nAborting.\n", pds_ewaldfilepath);
-							return(-2);
-						}
-						if(fabs(R_curv_from_file - (double)PDS_R_CURV) > 1e-6 * (double)PDS_R_CURV)
-						{
-							fprintf(stderr, "Error: PDS curvature radius mismatch: file has R_curv=%.6g Mpc, parameter file has R_curv=%.6g Mpc.\nPlease delete the old lookup table and run again.\nAborting.\n", R_curv_from_file, (double)PDS_R_CURV);
-							return(-2);
-						}
-						double EWALD_omp_end_time = omp_get_wtime();
-						printf("PDS Ewald lookup table loaded from file %s with %i grid points (R_curv=%.4g Mpc).\n", pds_ewaldfilepath, N_PDS_EWALD_GRID, R_curv_from_file);
-						printf("PDS Ewald lookup table loading finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
-					}
-				#else
-					printf("HDF5 support not compiled in.\nCalculating new PDS Ewald lookup table...\n");
-					double EWALD_omp_start_time = omp_get_wtime();
-					calculate_pds_ewald_lookup_table(N_PDS_EWALD_GRID, (double)PDS_R_CURV, PDS_EWALD_FORCE_TABLE);
-					double EWALD_omp_end_time = omp_get_wtime();
-					printf("PDS Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
-				#endif
-				fflush(stdout);
-			}
-			//Bcast the grid size and R_curv to all MPI threads
-			MPI_Bcast(&N_PDS_EWALD_GRID, 1, MPI_INT, 0, MPI_COMM_WORLD);
-			MPI_Bcast(&PDS_R_CURV, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
-			if(rank != 0)
-			{
-				PDS_EWALD_FORCE_TABLE = (REAL*)malloc((size_t)N_PDS_EWALD_GRID*sizeof(REAL));
-			}
-			#ifdef USE_SINGLE_PRECISION
-				MPI_Bcast(PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID, MPI_FLOAT, 0, MPI_COMM_WORLD);
-			#else
-				MPI_Bcast(PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-			#endif
-			fflush(stdout);
+				printf("PDS (S^3/I*) exact 120-image force summation is on (background-compensated kernel).\n");
 		}
 		else
 		{
 			if(rank == 0)
-				printf("PDS (S^3/I*) nearest-image-only mode (no Ewald correction).\n");
-			N_PDS_EWALD_GRID = 1;
-			if(!(PDS_EWALD_FORCE_TABLE = (REAL*)malloc(sizeof(REAL))))
-			{
-				fprintf(stderr, "MPI task %i: failed to allocate memory for dummy PDS Ewald table.\n", rank);
-				exit(-2);
-			}
-			PDS_EWALD_FORCE_TABLE[0] = 0.0;
+				printf("PDS (S^3/I*) nearest-image-only mode (background-compensated kernel, no image summation).\n");
 		}
 	#else
 		if(IS_PERIODIC  != 0)
@@ -1295,9 +1203,6 @@ int main(int argc, char *argv[])
 					{
 						MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 						mpi_time_array[i] = force_calc_time;
-						//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
-						if(i==1 || force_calc_time > force_calc_time)
-							force_calc_time = force_calc_time;
 					}
 					//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
 					force_calc_time = 0.0;
@@ -1674,17 +1579,29 @@ int main(int argc, char *argv[])
 				#endif
 			}
 		#else
-			//Non-periodic cosmological simulations 
+			//Non-periodic cosmological simulations
 			REAL rho_mean_full_sphere;
 			rho_mean_full_sphere = kahan_sum(M, N);
+			#ifdef POINCARE_DODECAHEDRAL
+			//In PDS the simulation volume is the fundamental domain of S^3/I*:
+			//V = Vol(S^3)/|I*| = 2*pi^2*R^3/120 = pi^2*R^3/60
+			rho_mean_full_sphere /= (REAL)(pi*pi*pow((double)PDS_R_CURV, 3.0)/60.0);
+			#else
 			rho_mean_full_sphere /= (4.0/3.0*pi*pow(Rsim, 3.0)); //dividing the total mass by the simulation volume
+			#endif
 			if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-5)
 			{
 				#if COSMOPARAM>=0 || !defined(COSMOPARAM)
 				if(fabs(rho_mean_full_sphere/(rho_crit*Omega_m) - 1) > 1e-2)
 				{
+					#ifdef POINCARE_DODECAHEDRAL
+					//PDS topology is EXPERIMENTAL: do not abort, so deliberately
+					//non-cosmological particle loads (validation test runs) remain possible.
+					printf("Warning: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nContinuing without rescaling (EXPERIMENTAL PDS topology).\nMake sure the particle masses in the IC are intentional!\n\n", rho_mean_full_sphere/(rho_crit*Omega_m));
+					#else
 					fprintf(stderr, "Error: The particle masses are inconsistent with the cosmological parameters:\nrho_part/rho_cosm = %.6f\nExiting.\n", rho_mean_full_sphere/(rho_crit*Omega_m));
 					return (-1);
+					#endif
 				}
 				else
 				{
@@ -1910,6 +1827,20 @@ int main(int argc, char *argv[])
 	//Timing
 	SIM_omp_start_time = omp_get_wtime();
 	//Timing
+	#ifdef POINCARE_DODECAHEDRAL
+	// Wrap the IC into the fundamental domain BEFORE the initial force
+	// calculation, so the first forces are computed on wrapped positions,
+	// and broadcast the wrapped coordinates to all MPI ranks.
+	if(rank == 0)
+		pds_wrap_ic();
+	#ifdef USE_SINGLE_PRECISION
+	MPI_Bcast(x,    3*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
+	MPI_Bcast(PDS_Q,4*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
+	#else
+	MPI_Bcast(x,    3*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(PDS_Q,4*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	#endif
+	#endif
 	if(rank == 0)
 		printf("Initial force calculation...\n");
 
@@ -1982,9 +1913,6 @@ int main(int argc, char *argv[])
 			{
 				MPI_Recv(&force_calc_time, 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 				mpi_time_array[i] = force_calc_time;
-				//storing the longest time spent in the force_calc_time variable, to calculate the workload-balance later
-				if(i==1 || force_calc_time > force_calc_time)
-					force_calc_time = force_calc_time;
 			}
 			//Adding the time spent in the force calculation to the mpi_time_array, to calculate the total time spent in the force calculation later
 			force_calc_time = 0.0;
@@ -2051,18 +1979,8 @@ int main(int argc, char *argv[])
 		}
 	}
 	MPI_Bcast(&h,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
-	// After calculate_init_h() the PDS wrapping may have moved particles into
-	// the fundamental domain.  Broadcast the updated positions so all MPI ranks
-	// use the correct wrapped coordinates for the first timestep.
-	#ifdef POINCARE_DODECAHEDRAL
-	#ifdef USE_SINGLE_PRECISION
-	MPI_Bcast(x,    3*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
-	MPI_Bcast(PDS_Q,4*N, MPI_FLOAT,  0, MPI_COMM_WORLD);
-	#else
-	MPI_Bcast(x,    3*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	MPI_Bcast(PDS_Q,4*N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	#endif
-	#endif
+	// (PDS IC wrapping and the broadcast of the wrapped coordinates happen
+	//  BEFORE the initial force calculation above, in pds_wrap_ic().)
 	if(rank == 0)
 		printf("The simulation is starting...\n");
 	REAL T_prev,Hubble_param_prev;

@@ -1,32 +1,41 @@
 #*****************************************************************************#
 #  stepsic configuration for the PDS test initial conditions                  #
 #                                                                             #
-#  This generates a flat-approximation IC for a Poincare Dodecahedral Space  #
-#  (S^3/I*) StePS simulation. The particles are placed on a regular grid     #
-#  in a non-periodic box matching the StePS simulation sphere, then          #
-#  converted to S^3 unit quaternions by StePS at load time via the inverse   #
-#  stereographic projection q = (R^2-r^2, 2Rx, 2Ry, 2Rz) / (R^2+r^2).      #
+#  Generates a native Poincare Dodecahedral Space (S^3/I*) IC:               #
+#   - regular stereographic Cartesian grid clipped to the dodecahedral        #
+#     fundamental domain (face midpoints at R_curv*tan(9deg) ~ 491 Mpc,       #
+#     vertices at ~ 575 Mpc for R_curv = 3100 Mpc),                           #
+#   - particle masses weighted by the conformal volume factor Omega(r)^3      #
+#     (exactly uniform comoving density on S^3),                              #
+#   - flat-space 1LPT (Zel'dovich) displacements from a non-periodic box      #
+#     mesh (valid 7A approximation for R_domain/R_curv ~ 0.3; the curved      #
+#     S^3 power spectrum is Phase 7B),                                        #
+#   - /PartType1/Quaternions dataset written, so StePS skips the              #
+#     projection + wrapping at IC load time.                                  #
 #                                                                             #
 #  Usage (from the stepsic repository root):                                  #
-#    python stepsic.py /path/to/PDS_test_ic.toml                             #
+#    conda activate stepsic                                                   #
+#    python stepsic.py /path/to/PDS_test_ic.toml                              #
 #                                                                             #
-#  The output ic.hdf5 will be written to:                                    #
-#    {IC_DIR}/PDS_test_N1000_cubical_Lx1920_Ly1920_Lz1920_Ng10_z31_LPT1_cic/
+#  The output ic.hdf5 will be written to:                                     #
+#    {IC_DIR}/PDS_test_pds_Rcurv3100_L1200_Ng16_z31_LPT1_cic/ic.hdf5          #
+#  Set IC_FILE in PDS_test.param to that path.                                #
 #*****************************************************************************#
 
 
 # -- 1. Geometry -----------------------------------------------------------
 #
-#  Flat approximation: treat the PDS fundamental domain as a flat non-periodic
-#  box of side 2 * R_SIM = 2 * 960 = 1920 Mpc. StePS converts the Cartesian
-#  coordinates to S^3 quaternions at IC load time.
+#  The box only defines the LPT FFT mesh; particles are kept only inside the
+#  dodecahedral fundamental domain.  Constraint:
+#    min(LBOX) >= 2 * PDS_R_CURV * tan(10.5 deg)  (~ 1150 Mpc for R = 3100)
 
-GEOMETRY = "cubical"
-LBOX = [ 1920.0, 1920.0, 1920.0 ]   # 2 * R_SIM [Mpc]
-PERIODIC = [ 0, 0, 0 ]               # non-periodic: StePS handles PDS periodicity
+GEOMETRY = "pds"
+PDS_R_CURV = 3100.0                  # curvature radius of S^3 [Mpc]
+LBOX = [ 1200.0, 1200.0, 1200.0 ]    # LPT mesh box, encloses the domain [Mpc]
+PERIODIC = [ 0, 0, 0 ]               # StePS handles the S^3/I* identifications
 
-# Stereographic parameters (required by the template but unused for cubical)
-R_3D = 960.0
+# Stereographic parameters (required by the template; R_3D is informational)
+R_3D = 974.0                          # geodesic inradius = R_curv * pi/10 [Mpc]
 D_4D = 75.0
 BIN_MODE = "omega"
 NRBINS = 1
@@ -36,18 +45,18 @@ COI = [ 0, 0, 0 ]
 
 # -- 2. Particle generation ------------------------------------------------
 #
-#  Regular 10^3 = 1000 particle grid.
-#  For a glass-based production IC, change TYPE to "glass" and set INPUT_GLASS.
+#  Regular grid clipped to the fundamental domain.  Approximately 36% of the
+#  16^3 = 4096 grid points fall inside the domain (~ 1470 particles).
 
 TYPE = "grid"
-NGRID = 10             # 10^3 = 1000 particles total
+NGRID = 16
 
 NPART = 1000           # (unused for grid, but required by template validation)
-NSHELL = 12288         # (unused for cubical geometry)
+NSHELL = 12288         # (unused for pds geometry)
 INPUT_GLASS = ""       # (unused for grid type)
 
 SEED = 137
-COMOVING = true
+COMOVING = true        # required for pds geometry
 HINDEPENDENT = false   # StePS uses Mpc (not Mpc/h); distances above are in Mpc
 ROTATE = 0.0
 
@@ -56,12 +65,18 @@ ROTATE = 0.0
 #
 #  Zel'dovich (1LPT) is sufficient for a test run.
 #  Use LPTORDER = 2 for production runs.
+#
+#  Note (Phase 7A approximation): the displacement field is generated on a
+#  box-periodic FFT mesh with the flat-space P(k).  The domain is padded
+#  inside the box, so no particle interpolates across the box boundary, but
+#  the mode statistics are those of the periodic box, not of S^3/I*.
+#  Phase 7B will replace this with the discrete S^3 spectrum.
 
 NMESH = 64             # FFT mesh for displacement field; >= NGRID is fine
 LPTORDER = 1           # 1 = Zel'dovich; 2 = 2LPT for production
-REDSHIFT = 31.0        # a_start = 0.03125 = 1/32 → z_start = 31
+REDSHIFT = 31.0        # a_start = 0.03125 = 1/32 -> z_start = 31
 INTERPOLATION = "cic"  # Cloud-in-Cell; COMPENSATE=false for grid ICs
-COMPENSATE = false      # Grid particles sit on mesh points; no compensation needed
+COMPENSATE = false     # Grid particles sit on mesh points; no compensation needed
 SPHEREMODE = false
 PAIRED = false
 PHASE_SHIFT = 0.0
@@ -70,17 +85,14 @@ NMESHSAMPLES = 7       # (unused; only for adaptive multiscale with NMESH=0)
 
 # -- 4. Output -------------------------------------------------------------
 #
-#  The generated file will be at:
-#    <IC_DIR>/PDS_test_N1000_cubical_Lx1920_Ly1920_Lz1920_Ng10_z31_LPT1_cic/ic.hdf5
-#
-#  Set IC_FILE in PDS_test.param to that path, or symlink ic.hdf5 to
-#  examples/ic/PDS_test_N1000.hdf5 for convenience:
-#    ln -s PDS_test_N1000_cubical_.../ic.hdf5 examples/ic/PDS_test_N1000.hdf5
+#  Large IC files belong under the workspace data/ folder, not in the git
+#  repositories.
 
-IC_DIR = "examples/ic"
-IC_PREFIX = "PDS_test_N1000"
+IC_DIR = "/v/csabai/GitHub/steps_dodeca/data/ic"
+IC_PREFIX = "PDS_test"
 IC_FORMAT = "hdf5"
 USE_DOUBLE = false     # Single precision is fine for a test run
+SAVE_WHITE_NOISE = false
 
 
 # -- 5. Cosmology ----------------------------------------------------------

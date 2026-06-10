@@ -1,6 +1,99 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.2.0.0] - 2026-06-10
+
+### Fixed
+- **PDS: `IS_PERIODIC >= 2` produced ~zero gravitational forces (critical physics bug).**
+  The 1D Ewald correction table was built with the bare S³ kernel 1/(R²sin²χ).
+  The binary icosahedral group I* is closed under negation, the bare kernel
+  satisfies G(π−χ) = G(χ), and antipodal images pull in exactly opposite
+  directions — so the force from the full 120-image system of any source
+  cancels identically, and the tabulated 119-image "correction" was exactly
+  −G(χ_nearest). The total PDS force in Ewald mode was therefore zero up to
+  table-interpolation error (median residual ≈ 9×10⁻⁵ of the nearest-image
+  force). The previous validation tests all ran with `IS_PERIODIC = 1` and
+  could not catch this; it also contributed to the missing structure formation
+  in the `PDS_test.param` run. Quantified in
+  `data/pds_anisotropy/REPORT.md` (study script:
+  `examples/pds_tests/pds_anisotropy_study.py`).
+- **PDS: initial forces were computed on un-wrapped IC positions.**
+  `forces_pds()` ran before `calculate_init_h()` wrapped the IC into the
+  fundamental domain and before the wrapped x/PDS_Q broadcast. The wrap is now
+  factored into `pds_wrap_ic()` (`step.cc`), called on rank 0 *before* the
+  initial force calculation, followed immediately by the x/PDS_Q broadcast.
+  Verified: `h_start` is bit-identical for 1 vs 2 MPI ranks.
+- **PDS: `PDS_R_CURV` was re-broadcast with `MPI_FLOAT` regardless of precision**
+  (main.cc), corrupting the value on non-root ranks in double-precision builds
+  with `IS_PERIODIC >= 2`. The redundant broadcast was removed
+  (`read_paramfile.cc` already broadcasts it with the correct datatype).
+- **PDS: mass/density consistency check used the wrong volume.** The check
+  divided the total mass by the R³ sphere volume 4πR_sim³/3; it now uses the
+  fundamental-domain volume V = π²R³_curv/60. A >1% mismatch is a warning (not
+  a fatal error) under the experimental PDS topology, so deliberately
+  non-cosmological validation test loads remain possible.
+- Removed the dead self-comparison in the per-rank force-time bookkeeping in
+  `main.cc` (`if(i==1 || force_calc_time > force_calc_time)`), a leftover of
+  the v2.1.0.0 fix.
+
+### Changed
+- **PDS forces: exact 120-image summation with a background-compensated kernel
+  replaces the nearest-image + 1D Ewald table scheme.**
+  - New kernel `pds_green_compensated()` in `pds_group.h`:
+    [1 − V(χ)/V_S³]/(R²sin²χ) with V(χ)/V_S³ = (2χ − sin 2χ)/(2π) — a point
+    mass plus uniform negative background (the mean density is already in the
+    Friedmann expansion; the exact analogue of dropping the k = 0 mode in T³
+    Ewald summation). Finite at the antipode, → 1/r² as χ → 0, and it breaks
+    the antipodal degeneracy that nullified the bare-kernel image sum.
+  - For `IS_PERIODIC >= 2`, `forces_pds()` (and the CUDA `ForceKernel_pds`)
+    now sums the compensated force over ALL 120 I* images of every source —
+    exact on the compact S³, no lookup table needed. The j == i self-images
+    are included (their sum is identically zero by the symmetry of the image
+    constellation — χ(q, gq) = arccos(Re g) is independent of q — which is the
+    PDS form of homogeneity, verified by the new Test 4).
+  - `IS_PERIODIC == 1` remains a nearest-image-only fast mode, now with the
+    compensated kernel. The former Ewald grid resolutions for
+    IS_PERIODIC = 2/3/4 are obsolete; all values >= 2 select the exact sum.
+  - Removed: `calculate_pds_ewald_lookup_table()`, `pds_ewald_interpolate()`,
+    `save/load_pds_ewald_lookup_table()`, the `PDS_EWALD_FORCE_TABLE` /
+    `N_PDS_EWALD_GRID` globals and the table setup/broadcast in `main.cc`.
+    Old `PDS_Ewald_table.hdf5` files are no longer read.
+  - Measured cost: ~2.3× per force evaluation (N=1000, CPU; 0.53 s → 1.24 s
+    per step) — the price of exact, anisotropy-free image forces.
+  - Cross-validated against an independent NumPy implementation
+    (`stepsic/stepsic/pds.py`): max relative error 5×10⁻⁷ in single-precision
+    snapshots, 4×10⁻¹² in double precision (new Test 6).
+
+### Added
+- **Native PDS initial-condition generation in stepsic** (`GEOMETRY = 'pds'`,
+  see ../stepsic): stereographic Cartesian grid clipped to the dodecahedral
+  fundamental domain, conformal-volume (Ω³) mass weighting for an exactly
+  uniform comoving density on S³, flat-space 1LPT/2LPT displacements
+  (Phase 7A approximation), out-of-domain particles wrapped with the exact
+  velocity Jacobian, and a `/PartType1/Quaternions` (N,4) dataset that StePS
+  reads directly. Example config: `examples/PDS_test_ic.toml` (NGRID=16 →
+  1552 particles); `examples/PDS_test.param` updated to the new IC and to the
+  Planck2018EE+BAO "best" parameters used by stepsic. With the new IC the
+  StePS density check passes at the 10⁻⁷ level and `errmax` at startup is
+  physical (no more 1.28×10⁸ from collapsing wrapped pairs).
+- **`stepsic/stepsic/pds.py`** — NumPy port of `pds_group.h` (I* generation,
+  wrapping, kernels, stereographic maps, velocity Jacobian) with a unit-test
+  suite `stepsic/tests/test_pds.py` (17 tests).
+- **Force-law study** `examples/pds_tests/pds_anisotropy_study.py` → results
+  in `data/pds_anisotropy/REPORT.md`: documents the bare-kernel cancellation,
+  the compensated-correction anisotropy (radial spread up to 0.45 and
+  transverse component up to 0.19 of F_nearest at the domain boundary — too
+  large for ANY 1D table, justifying exact summation), and reproduces the
+  Roukema & Różański (2009) χ⁵ scaling of the anisotropic residual
+  (fitted exponent 5.00).
+- **Test suite extended from 3 to 8 tests** (`examples/pds_tests/run_tests.py`,
+  outputs now under `data/pds_tests/`): Test 4 homogeneity (zero self-image
+  force anywhere, drift < 10⁻¹⁶ Mpc), Test 5 multi-particle stability,
+  Test 6 Python/C++ force cross-validation (< 10⁻⁶), Test 7 end-to-end
+  stepsic-PDS-IC → StePS run with growing density contrast, Test 8 R³
+  regression with a non-PDS build of the shared sources. The harness builds
+  and caches the `StePS_saveacc` and `StePS_r3` binary variants.
+
 ## [v2.1.1.0] - TBA 2026-06-03
 
 ### Added

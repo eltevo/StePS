@@ -1410,14 +1410,23 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
 #ifdef POINCARE_DODECAHEDRAL
 #include "pds_group.h"
 
-REAL pds_ewald_interpolate(const REAL *table, int Ngrid, double R_curv, double chi_nearest);
-
 /*  Force calculation for S³/I* (Poincaré Dodecahedral Space).
  *
  *  Particle positions are read from PDS_Q[4*N] (unit quaternions).
- *  For each pair (i, j) the 120 I* images of source j are enumerated; the
- *  nearest image contributes the direct force, and when IS_PERIODIC >= 2 the
- *  Ewald correction table adds the contribution from the remaining 119 images.
+ *
+ *  IS_PERIODIC >= 2 — EXACT image summation: for each pair (i, j) the force
+ *  from ALL 120 I* images of source j is summed with the background-
+ *  compensated kernel pds_green_compensated().  S³ is compact, so unlike T³
+ *  there is no infinite lattice sum and no Ewald table is needed — the sum
+ *  over the deck group is exact.  The compensated kernel is REQUIRED here:
+ *  with the bare kernel the 120-image sum cancels identically (the I* images
+ *  come in antipodal ±g pairs).  The j == i term is included as well: a
+ *  particle feels the gravity of its own 119 non-trivial images (the trivial
+ *  identity image is skipped by the chi < 1e-12 guard).
+ *
+ *  IS_PERIODIC == 1 — nearest-image-only mode (fast tests / glass making):
+ *  only the nearest I* image of each source contributes, with the same
+ *  compensated kernel.
  *
  *  Force convention: F[3*(i-ID_min)+k] accumulates the k-th Cartesian component
  *  of the force on particle i.  The force is stored as the last three components
@@ -1446,45 +1455,57 @@ void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
 
         for(j = 0; j < N; j++)
         {
-            if(j == i) continue;
-
             double qj[4];
             for(k = 0; k < 4; k++) qj[k] = (double)pds_q[4*j+k];
 
-            /* Find the nearest I* image of particle j as seen from particle i */
-            double chi_nearest = 1e30;
-            double q_nearest[4] = {1.0, 0.0, 0.0, 0.0};
-            for(int g = 0; g < PDS_N_ISTAR; g++) {
-                double q_img[4];
-                pds_apply_group_element(g, qj, q_img);
-                double chi_g = pds_chi(qi, q_img);
-                if(chi_g < chi_nearest) {
-                    chi_nearest = chi_g;
-                    for(k = 0; k < 4; k++) q_nearest[k] = q_img[k];
-                }
-            }
-            if(chi_nearest >= M_PI - 1e-10) continue; /* antipodal — force is zero */
-
-            /* Unit tangent at qi toward nearest image of qj */
-            double t_4d[4];
-            pds_force_direction(qi, q_nearest, t_4d);
-
-            /* Force magnitude with softening: cap chi at chi_soft = soft/R_curv */
             double soft = (double)(SOFT_LENGTH[i] + SOFT_LENGTH[j]);
             double chi_soft = soft / R_curv;
-            double chi_eff  = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
-            double f_mag    = (double)M[j] * pds_green(chi_eff, R_curv);
+            double f_acc[3] = {0.0, 0.0, 0.0};
 
-            /* Ewald correction: add contribution from all 119 non-nearest images */
-            if(IS_PERIODIC >= 2) {
-                double D = (double)pds_ewald_interpolate(PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID, R_curv, chi_nearest);
-                f_mag += (double)M[j] * D;
+            if(IS_PERIODIC >= 2)
+            {
+                /* Exact summation over all 120 I* images (incl. self-images for j == i) */
+                for(int g = 0; g < PDS_N_ISTAR; g++) {
+                    double q_img[4];
+                    pds_apply_group_element(g, qj, q_img);
+                    double chi_g = pds_chi(qi, q_img);
+                    /* skip the trivial identity self-image and the exact antipode
+                     * BEFORE the softening floor (their force direction is undefined) */
+                    if(chi_g < 1e-12 || chi_g > M_PI - 1e-12) continue;
+                    double t_4d[4];
+                    pds_force_direction(qi, q_img, t_4d);
+                    double chi_eff = (chi_g < chi_soft) ? chi_soft : chi_g;
+                    double f_mag = (double)M[j] * pds_green_compensated(chi_eff, R_curv);
+                    for(k = 0; k < 3; k++) f_acc[k] += f_mag * t_4d[k+1];
+                }
+            }
+            else
+            {
+                /* Nearest-image-only mode */
+                if(j == i) continue;
+                double chi_nearest = 1e30;
+                double q_nearest[4] = {1.0, 0.0, 0.0, 0.0};
+                for(int g = 0; g < PDS_N_ISTAR; g++) {
+                    double q_img[4];
+                    pds_apply_group_element(g, qj, q_img);
+                    double chi_g = pds_chi(qi, q_img);
+                    if(chi_g < chi_nearest) {
+                        chi_nearest = chi_g;
+                        for(k = 0; k < 4; k++) q_nearest[k] = q_img[k];
+                    }
+                }
+                if(chi_nearest >= M_PI - 1e-10) continue; /* antipodal — force is zero */
+                double t_4d[4];
+                pds_force_direction(qi, q_nearest, t_4d);
+                double chi_eff = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
+                double f_mag = (double)M[j] * pds_green_compensated(chi_eff, R_curv);
+                for(k = 0; k < 3; k++) f_acc[k] += f_mag * t_4d[k+1];
             }
 
             /* Accumulate: use last 3 components of the 4D tangent as 3D force */
             for(k = 0; k < 3; k++) {
                 #pragma omp atomic
-                F[3*(i - ID_min) + k] += (REAL)(f_mag * t_4d[k+1]);
+                F[3*(i - ID_min) + k] += (REAL)f_acc[k];
             }
         }
     }

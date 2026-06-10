@@ -89,9 +89,8 @@ extern int BUFFER_start_ID;
 #elif defined(POINCARE_DODECAHEDRAL)
     // Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
     // Particle positions are stored as 4D unit quaternions in the separate q[] array.
+    // Forces use exact 120-image summation (no Ewald lookup table on the compact S^3).
     extern REAL *PDS_Q;                 // 4D quaternion positions for PDS mode (4*N REAL values)
-    extern REAL *PDS_EWALD_FORCE_TABLE; // 1D lookup table indexed by geodesic distance chi in [0,pi] (N_PDS_EWALD_GRID values)
-    extern int   N_PDS_EWALD_GRID;     // number of grid points in the PDS Ewald table
     extern REAL  PDS_R_CURV;           // curvature radius of S^3 in internal length units (Mpc)
 #endif
 
@@ -164,6 +163,11 @@ extern double T, delta_a, Omega_m_eff; //Physical time, change of scalefactor, e
 //Functions
 //Initial timestep length calculation
 double calculate_init_h();
+#ifdef POINCARE_DODECAHEDRAL
+//Wrapping the initial conditions into the PDS fundamental domain (rank 0 only,
+//must run before the initial force calculation; caller broadcasts x and PDS_Q)
+void pds_wrap_ic();
+#endif
 //Functions used for the Friedmann-equation
 double friedmann_solver_step(double a0, double h);
 double CALCULATE_Hubble_param(double a);

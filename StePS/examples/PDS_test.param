@@ -1,10 +1,10 @@
 Cosmological parameters:
 ------------------------
 Omega_b         0.0
-Omega_lambda    0.6889
-Omega_m         0.3111
+Omega_lambda    0.6894
+Omega_m         0.3106
 Omega_r         0.0
-HubbleConstant  67.66
+HubbleConstant  67.702
 a_start         0.03125
 a_max           1.0
 
@@ -16,10 +16,10 @@ IS_PERIODIC             2
 COMOVING_INTEGRATION    1
 PDS_R_CURV              3100.0
 L_BOX                   6200.0
-R_SIM                   960.0
-IC_FILE                 ./examples/ic/pds_test_n1000_cubical_Lx1919_Ly1919_Lz1919_Ng10_Nm64_z31_LPT1_cic/ic.hdf5
+R_SIM                   974.0
+IC_FILE                 /v/csabai/GitHub/steps_dodeca/data/ic/pds_test_pds_Rcurv3100_L1200_Ng16_Nm64_z31_LPT1_cic/ic.hdf5
 IC_FORMAT               2
-OUT_DIR                 /v/scratch/astro/dodeca/
+OUT_DIR                 /v/csabai/GitHub/steps_dodeca/data/pds_run_7a/
 OUT_LST                 ./examples/outredshifts.txt
 OUTPUT_TIME_VARIABLE    1
 OUTPUT_FORMAT           2

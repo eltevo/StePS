@@ -907,19 +907,25 @@ __device__ static inline void pds_force_dir_dev(const double p[4], const double 
     for(int k = 0; k < 4; k++) t[k] *= inv;
 }
 
-__device__ static inline double pds_green_dev(double chi, double R)
+__device__ static inline double pds_green_comp_dev(double chi, double R)
 {
+    /* Background-compensated S^3 kernel: [1 - V(chi)/V_S3] / (R^2 sin^2 chi).
+     * REQUIRED for image summation: the bare kernel cancels identically over
+     * the antipodal +-g image pairs of I* (see pds_group.h). */
     if(chi < 1.0e-12 || chi > 3.14159265358979 - 1.0e-12) return 0.0;
     double s = sin(chi);
-    return 1.0 / (R * R * s * s);
+    double frac = (2.0*chi - sin(2.0*chi)) / (2.0*3.14159265358979);
+    return (1.0 - frac) / (R * R * s * s);
 }
 
 /*  PDS force kernel.
  *
- *  Each thread handles one field particle i.  For every source j the 120 I*
- *  images are enumerated; the nearest contributes the direct force (with
- *  softening); when IS_PERIODIC >= 2 the 1D Ewald table adds the remaining
- *  119 images' contribution.
+ *  Each thread handles one field particle i.
+ *  IS_PERIODIC >= 2: EXACT summation over all 120 I* images of every source j
+ *  (including the 119 non-trivial self-images for j == i) with the
+ *  background-compensated kernel.  S^3 is compact, so the image sum is exact
+ *  and no Ewald table is needed.
+ *  IS_PERIODIC == 1: nearest-image-only mode (same compensated kernel).
  *
  *  Force is stored as the last 3 components of the 4D tangent vector.        */
 __global__ void ForceKernel_pds(
@@ -930,9 +936,6 @@ __global__ void ForceKernel_pds(
     const REAL* Mdev,
     const REAL* soft_dev,
     const double R_curv,
-    const REAL* ewald_table,    /* 1D Ewald correction table (may be NULL)     */
-    const int ewald_ngrid,
-    const double ewald_dchi,    /* pi/(ewald_ngrid+1)                          */
     int ID_min, int ID_max)
 {
     const int tid    = blockIdx.x * blockDim.x + threadIdx.x;
@@ -950,44 +953,58 @@ __global__ void ForceKernel_pds(
 
         for(int j = 0; j < N; j++)
         {
-            if(j == i) continue;
             double qj[4];
             for(int k=0;k<4;k++) qj[k] = (double)pds_q[4*j+k];
 
-            /* Find nearest I* image of particle j */
-            double chi_nearest = 1.0e30;
-            double qn[4] = {1.0, 0.0, 0.0, 0.0};
-            for(int g = 0; g < 120; g++) {
-                double gq[4];
-                double g_elem[4] = { PDS_I_STAR_DEV[g][0], PDS_I_STAR_DEV[g][1],
-                                     PDS_I_STAR_DEV[g][2], PDS_I_STAR_DEV[g][3] };
-                pds_quat_mult_dev(g_elem, qj, gq);
-                double chi_g = pds_chi_dev(qi, gq);
-                if(chi_g < chi_nearest) { chi_nearest = chi_g; for(int k=0;k<4;k++) qn[k]=gq[k]; }
-            }
-            if(chi_nearest >= 3.14159265358979 - 1.0e-10) continue;
-
-            double t4[4];
-            pds_force_dir_dev(qi, qn, t4);
-
             double soft = (double)(soft_dev[i] + soft_dev[j]);
             double chi_soft = soft / R_curv;
-            double chi_eff = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
-            double fmag = (double)Mdev[j] * pds_green_dev(chi_eff, R_curv);
 
-            if(IS_PERIODIC >= 2 && ewald_table != NULL) {
-                double idx_d = chi_nearest / ewald_dchi - 1.0;
-                int i0 = (int)idx_d;
-                if(i0 < 0) i0 = 0;
-                if(i0 >= ewald_ngrid - 1) i0 = ewald_ngrid - 2;
-                double frac = idx_d - (double)i0;
-                double D = (1.0 - frac)*(double)ewald_table[i0] + frac*(double)ewald_table[i0+1];
-                fmag += (double)Mdev[j] * D;
+            if(IS_PERIODIC >= 2)
+            {
+                /* Exact summation over all 120 I* images (incl. self-images for j == i) */
+                for(int g = 0; g < 120; g++) {
+                    double gq[4];
+                    double g_elem[4] = { PDS_I_STAR_DEV[g][0], PDS_I_STAR_DEV[g][1],
+                                         PDS_I_STAR_DEV[g][2], PDS_I_STAR_DEV[g][3] };
+                    pds_quat_mult_dev(g_elem, qj, gq);
+                    double chi_g = pds_chi_dev(qi, gq);
+                    /* skip the trivial identity self-image / exact antipode
+                     * BEFORE applying the softening floor */
+                    if(chi_g < 1.0e-12 || chi_g > 3.14159265358979 - 1.0e-12) continue;
+                    double t4[4];
+                    pds_force_dir_dev(qi, gq, t4);
+                    double chi_eff = (chi_g < chi_soft) ? chi_soft : chi_g;
+                    double fmag = (double)Mdev[j] * pds_green_comp_dev(chi_eff, R_curv);
+                    Fx += fmag * t4[1];
+                    Fy += fmag * t4[2];
+                    Fz += fmag * t4[3];
+                }
             }
+            else
+            {
+                /* Nearest-image-only mode */
+                if(j == i) continue;
+                double chi_nearest = 1.0e30;
+                double qn[4] = {1.0, 0.0, 0.0, 0.0};
+                for(int g = 0; g < 120; g++) {
+                    double gq[4];
+                    double g_elem[4] = { PDS_I_STAR_DEV[g][0], PDS_I_STAR_DEV[g][1],
+                                         PDS_I_STAR_DEV[g][2], PDS_I_STAR_DEV[g][3] };
+                    pds_quat_mult_dev(g_elem, qj, gq);
+                    double chi_g = pds_chi_dev(qi, gq);
+                    if(chi_g < chi_nearest) { chi_nearest = chi_g; for(int k=0;k<4;k++) qn[k]=gq[k]; }
+                }
+                if(chi_nearest >= 3.14159265358979 - 1.0e-10) continue;
 
-            Fx += fmag * t4[1];
-            Fy += fmag * t4[2];
-            Fz += fmag * t4[3];
+                double t4[4];
+                pds_force_dir_dev(qi, qn, t4);
+                double chi_eff = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
+                double fmag = (double)Mdev[j] * pds_green_comp_dev(chi_eff, R_curv);
+
+                Fx += fmag * t4[1];
+                Fy += fmag * t4[2];
+                Fz += fmag * t4[3];
+            }
         }
 
         atomicAdd(&F[3*ii],   (REAL)Fx);
@@ -1015,8 +1032,6 @@ cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_
     /* Ensure the I* group table is filled in this TU before copying to GPU */
     pds_init();
 
-    double ewald_dchi = M_PI / (double)(N_PDS_EWALD_GRID + 1);
-
     #pragma omp parallel num_threads(n_GPU) private(GPU_ID, mprocessors, nthreads, N_GPU, GPU_index_min)
     {
         GPU_ID = omp_get_thread_num();
@@ -1031,7 +1046,7 @@ cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_
         nthreads = 32 * mprocessors * BLOCKSIZE;
 
         /* Allocate and copy particle positions */
-        REAL *dev_q = NULL, *dev_F = NULL, *dev_M = NULL, *dev_soft = NULL, *dev_ewald = NULL;
+        REAL *dev_q = NULL, *dev_F = NULL, *dev_M = NULL, *dev_soft = NULL;
 
         cudaMalloc((void**)&dev_q,    4*N*(size_t)sizeof(REAL));
         cudaMalloc((void**)&dev_F,    3*N_GPU*(size_t)sizeof(REAL));
@@ -1043,22 +1058,15 @@ cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_
         cudaMemcpy(dev_soft, SOFT_LENGTH,  N*sizeof(REAL),     cudaMemcpyHostToDevice);
         cudaMemset(dev_F, 0, 3*N_GPU*sizeof(REAL));
 
-        if(IS_PERIODIC >= 2 && PDS_EWALD_FORCE_TABLE != NULL) {
-            cudaMalloc((void**)&dev_ewald, N_PDS_EWALD_GRID*(size_t)sizeof(REAL));
-            cudaMemcpy(dev_ewald, PDS_EWALD_FORCE_TABLE, N_PDS_EWALD_GRID*sizeof(REAL), cudaMemcpyHostToDevice);
-        }
-
         ForceKernel_pds<<<32*mprocessors, BLOCKSIZE>>>(
             nthreads, N, dev_q, dev_F, IS_PERIODIC,
             dev_M, dev_soft, (double)PDS_R_CURV,
-            dev_ewald, N_PDS_EWALD_GRID, ewald_dchi,
             GPU_index_min, GPU_index_min + N_GPU - 1);
 
         cudaDeviceSynchronize();
 
         cudaMemcpy(&F[3*(GPU_index_min - ID_min)], dev_F, 3*N_GPU*sizeof(REAL), cudaMemcpyDeviceToHost);
 
-        if(dev_ewald)   cudaFree(dev_ewald);
         cudaFree(dev_soft); cudaFree(dev_M);
         cudaFree(dev_F);    cudaFree(dev_q);
     }

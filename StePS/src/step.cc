@@ -40,6 +40,53 @@ void BCAST_MPI_particle_ranges();
 void Log_write_glass(REAL F_mean, REAL Fmax, REAL A_mean, REAL A_max, REAL dmean, REAL dmax, REAL V_mean, REAL V_max);
 #endif
 
+#ifdef POINCARE_DODECAHEDRAL
+//Wrap the initial conditions into the PDS fundamental domain and back-project.
+//Transform the stereographic velocity whenever the wrapping group element is non-trivial.
+//Must be called on rank 0 BEFORE the initial force calculation, so the first
+//forces are computed on wrapped positions; the caller broadcasts x and PDS_Q afterwards.
+void pds_wrap_ic()
+{
+	int i,k;
+	double R  = (double)PDS_R_CURV;
+	double R2 = R * R;
+	for(i=0;i<N;i++)
+	{
+		double cx = (double)x[3*i];
+		double cy = (double)x[3*i+1];
+		double cz = (double)x[3*i+2];
+		double r2    = cx*cx + cy*cy + cz*cz;
+		double denom = R2 + r2;
+		double q_in[4] = { (R2 - r2)/denom,
+		                   2.0*R*cx/denom,
+		                   2.0*R*cy/denom,
+		                   2.0*R*cz/denom };
+		double q_out[4];
+		pds_wrap(q_in, q_out);
+		for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+		double inv_1pq0 = 1.0 / (1.0 + q_out[0]);
+		double xo0 = R * q_out[1] * inv_1pq0;
+		double xo1 = R * q_out[2] * inv_1pq0;
+		double xo2 = R * q_out[3] * inv_1pq0;
+		if(!pds_quat_same(q_in, q_out))
+		{
+			// Particle was outside the fundamental domain: rotate velocity
+			// to match the new stereographic frame.
+			double x_in[3]  = {cx,  cy,  cz};
+			double x_out[3] = {xo0, xo1, xo2};
+			double vel[3]   = {(double)v[3*i], (double)v[3*i+1], (double)v[3*i+2]};
+			pds_stereo_vel_transform(q_in, q_out, x_in, x_out, vel, R);
+			v[3*i]   = (REAL)vel[0];
+			v[3*i+1] = (REAL)vel[1];
+			v[3*i+2] = (REAL)vel[2];
+		}
+		x[3*i]   = (REAL)xo0;
+		x[3*i+1] = (REAL)xo1;
+		x[3*i+2] = (REAL)xo2;
+	}
+}
+#endif
+
 double calculate_init_h()
 {
 	//calculating the initial timesep length
@@ -76,46 +123,9 @@ double calculate_init_h()
 		}
 	}
 	#elif defined(POINCARE_DODECAHEDRAL)
-	// Wrap into fundamental domain and back-project.
-	// Transform stereographic velocity whenever the wrapping group element is non-trivial.
-	{
-		double R  = (double)PDS_R_CURV;
-		double R2 = R * R;
-		for(i=0;i<N;i++)
-		{
-			double cx = (double)x[3*i];
-			double cy = (double)x[3*i+1];
-			double cz = (double)x[3*i+2];
-			double r2    = cx*cx + cy*cy + cz*cz;
-			double denom = R2 + r2;
-			double q_in[4] = { (R2 - r2)/denom,
-			                   2.0*R*cx/denom,
-			                   2.0*R*cy/denom,
-			                   2.0*R*cz/denom };
-			double q_out[4];
-			pds_wrap(q_in, q_out);
-			for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
-			double inv_1pq0 = 1.0 / (1.0 + q_out[0]);
-			double xo0 = R * q_out[1] * inv_1pq0;
-			double xo1 = R * q_out[2] * inv_1pq0;
-			double xo2 = R * q_out[3] * inv_1pq0;
-			if(!pds_quat_same(q_in, q_out))
-			{
-				// Particle was outside the fundamental domain: rotate velocity
-				// to match the new stereographic frame.
-				double x_in[3]  = {cx,  cy,  cz};
-				double x_out[3] = {xo0, xo1, xo2};
-				double vel[3]   = {(double)v[3*i], (double)v[3*i+1], (double)v[3*i+2]};
-				pds_stereo_vel_transform(q_in, q_out, x_in, x_out, vel, R);
-				v[3*i]   = (REAL)vel[0];
-				v[3*i+1] = (REAL)vel[1];
-				v[3*i+2] = (REAL)vel[2];
-			}
-			x[3*i]   = (REAL)xo0;
-			x[3*i+1] = (REAL)xo1;
-			x[3*i+2] = (REAL)xo2;
-		}
-	}
+	// PDS boundary wrapping of the ICs is done in pds_wrap_ic(), which main()
+	// calls BEFORE the initial force calculation (so F[] below was computed on
+	// already-wrapped positions).
 	#endif
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
 	for(i=0; i<N; i++)

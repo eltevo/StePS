@@ -24,8 +24,37 @@ Three tests:
      at the same speed.  Their mutual S³ gravity should draw them closer together.
      For d << R_curv the S³ force reduces to Newtonian 1/r², giving a measurable
      (and analytically checkable) convergence rate.
+
+  4. PDS homogeneity — zero self-image force (IS_PERIODIC = 2)
+     A single particle at rest must stay at rest ANYWHERE in the fundamental
+     domain: its 119 non-trivial I* self-images always sit at fixed geodesic
+     distances (chi(q, gq) = arccos(Re g) is independent of q) in a symmetric
+     constellation, so their compensated forces cancel exactly.  Tests the exact
+     120-image summation path including the j == i self-image terms.
+
+  5. Multi-particle stability sanity (IS_PERIODIC = 2)
+     8 random in-domain particles with the exact image summation: no NaN,
+     no velocity blow-up, all particles stay in the fundamental domain.
+
+  6. Python/C++ force cross-validation (IS_PERIODIC = 2)
+     A SAVE_ACCELERATIONS build writes the forces computed on a 50-particle
+     random IC; they are compared against an independent NumPy implementation
+     of the exact compensated 120-image sum (stepsic.pds).  Max relative
+     error must be < 1e-6.
+
+  7. End-to-end stepsic PDS IC → StePS run
+     Generates a small native PDS IC with stepsic (GEOMETRY='pds', NGRID=8),
+     runs StePS for one output interval, and checks that the quaternions are
+     used directly, the mass/density consistency check passes, and the
+     density contrast grows.
+
+  8. R³ regression (non-PDS build)
+     Compiles the default spherical (R³) binary from the shared sources and
+     runs a small cosmological cloud — guards against PDS work breaking the
+     other topologies (shared files: main.cc, step.cc, forces.cc).
 """
 
+import os
 import sys
 import shutil
 import subprocess
@@ -38,8 +67,13 @@ import numpy as np
 # ── Paths ──────────────────────────────────────────────────────────────────────
 REPO     = Path(__file__).resolve().parent.parent.parent  # StePS/StePS/
 BINARY   = REPO / "build" / "StePS"
+BINARY_SAVEACC = REPO / "build" / "StePS_saveacc"
+BINARY_R3      = REPO / "build" / "StePS_r3"
+STEPSIC_ROOT   = REPO.parent.parent / "stepsic"
 TEST_DIR = Path(__file__).resolve().parent
-OUT_BASE = Path("/v/scratch/astro/pds_tests")
+OUT_BASE = Path("/v/csabai/GitHub/steps_dodeca/data/pds_tests")
+
+sys.path.insert(0, str(STEPSIC_ROOT))  # for stepsic.pds (Test 6)
 
 # ── Physical constants / unit system ──────────────────────────────────────────
 # StePS internal units (from global_variables.h)
@@ -115,15 +149,17 @@ def write_ic(path, pos_mpc, vel_pec_kmps, mass_code, a_start):
 # ── Parameter file writer ──────────────────────────────────────────────────────
 def write_param(path, out_dir, ic_path, out_lst, a_start, a_max,
                 acc_param=0.005, step_min=1e-5, step_max=0.01,
-                particle_radii=1.0, is_periodic=1):
+                particle_radii=1.0, is_periodic=1, pds=True,
+                omega_m=OMEGA_M, omega_l=OMEGA_L, h0=H0):
+    pds_line = f"PDS_R_CURV              {R_CURV}\n" if pds else ""
     Path(path).write_text(f"""\
 Cosmological parameters:
 ------------------------
 Omega_b         0.0
-Omega_lambda    {OMEGA_L}
-Omega_m         {OMEGA_M}
+Omega_lambda    {omega_l}
+Omega_m         {omega_m}
 Omega_r         0.0
-HubbleConstant  {H0}
+HubbleConstant  {h0}
 a_start         {a_start}
 a_max           {a_max}
 
@@ -132,8 +168,7 @@ Simulation parameters:
 COSMOLOGY               1
 IS_PERIODIC             {is_periodic}
 COMOVING_INTEGRATION    1
-PDS_R_CURV              {R_CURV}
-L_BOX                   6200.0
+{pds_line}L_BOX                   6200.0
 R_SIM                   960.0
 IC_FILE                 {ic_path}
 IC_FORMAT               2
@@ -160,18 +195,18 @@ def write_redshift_list(path, z_values):
 
 
 # ── Simulation runner ──────────────────────────────────────────────────────────
-def run_sim(param_file, timeout=120):
+def run_sim(param_file, timeout=120, binary=BINARY):
     # Write output to a file (not a pipe) to avoid kernel-buffer deadlocks.
     # OMP_NUM_THREADS=1 prevents OpenMPI from probing GPUs at MPI_Init,
     # which would otherwise stall for minutes on a machine with CUDA devices.
     out_path = Path(param_file).parent / "run.log"
-    env = {**__import__("os").environ,
+    env = {**os.environ,
            "OMP_NUM_THREADS": "1",
            "OMPI_MCA_pml": "ob1",
            "OMPI_MCA_btl": "self,tcp",
            "OMPI_MCA_btl_tcp_if_include": "lo"}
     with open(out_path, "w") as log:
-        result = subprocess.run([str(BINARY), str(param_file)],
+        result = subprocess.run([str(binary), str(param_file)],
                                 stdout=log, stderr=log,
                                 env=env, timeout=timeout)
     if result.returncode != 0:
@@ -179,6 +214,55 @@ def run_sim(param_file, timeout=120):
             lines = f.readlines()
         print("  Run log (last 20 lines):\n", "".join(lines[-20:]))
         raise RuntimeError(f"StePS exited with code {result.returncode}")
+
+
+# ── Build orchestration for the binary variants (Tests 6 and 8) ───────────────
+def _make(opt=None, extra=()):
+    """Run make -f PDS-LinuxGCC-Makefile in REPO with the conda toolchain."""
+    conda = os.environ.get("CONDA_PREFIX", "")
+    args = ["make", "-f", "PDS-LinuxGCC-Makefile", "-j8",
+            "CXX=x86_64-conda-linux-gnu-c++",
+            f"MPI_INC=-I{conda}/include", f"MPI_LIBS=-L{conda}/lib -lmpi",
+            f"HDF5_INC=-I{conda}/include", f"HDF5_LIBS=-L{conda}/lib -lhdf5"]
+    if opt is not None:
+        args.append(f"OPT={opt}")
+    args.extend(extra)
+    subprocess.run(["make", "-f", "PDS-LinuxGCC-Makefile", "clean"],
+                   cwd=REPO, capture_output=True)
+    res = subprocess.run(args, cwd=REPO, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"make failed:\n{res.stdout[-2000:]}\n{res.stderr[-2000:]}")
+
+
+def ensure_binary_variants():
+    """
+    Build (once) the two extra binary variants needed by Tests 6 and 8:
+      build/StePS_saveacc — PDS build with -DSAVE_ACCELERATIONS
+      build/StePS_r3      — default spherical R^3 build (no PDS)
+    The standard PDS binary is rebuilt afterwards so build/StePS is always
+    the production variant.  Variants are cached: nothing happens when both
+    already exist and are newer than every src/ file.
+    """
+    src_mtime = max(p.stat().st_mtime for p in (REPO / "src").glob("*"))
+    need_saveacc = not (BINARY_SAVEACC.exists()
+                        and BINARY_SAVEACC.stat().st_mtime > src_mtime)
+    need_r3 = not (BINARY_R3.exists() and BINARY_R3.stat().st_mtime > src_mtime)
+    need_main = not (BINARY.exists() and BINARY.stat().st_mtime > src_mtime)
+    if not (need_saveacc or need_r3):
+        if need_main:
+            print("Rebuilding the standard PDS binary...")
+            _make()
+        return
+    if need_saveacc:
+        print("Building StePS_saveacc (PDS + SAVE_ACCELERATIONS)...")
+        _make(opt="-DPOINCARE_DODECAHEDRAL -DHAVE_HDF5 -DCOSMOPARAM=0 -DSAVE_ACCELERATIONS")
+        shutil.copy2(BINARY, BINARY_SAVEACC)
+    if need_r3:
+        print("Building StePS_r3 (default spherical R^3 topology)...")
+        _make(opt="-DHAVE_HDF5 -DCOSMOPARAM=0")
+        shutil.copy2(BINARY, BINARY_R3)
+    print("Rebuilding the standard PDS binary...")
+    _make()
 
 
 # ── Snapshot loader ────────────────────────────────────────────────────────────
@@ -278,12 +362,11 @@ def test2():
     param  = outdir / f"{tag}.param"
     outlst = outdir / "redshifts.txt"
 
-    # Strategy: start the particle just inside the dodecahedral face so it
-    # crosses in the very first timestep.  The face inradius in stereographic
-    # coords is at R·tan(chi_in/2) ≈ 1919 Mpc along any face-normal direction.
-    # x₀ = 1915 Mpc gives chi ≈ 63.4° ≈ chi_in (inside, barely).
-    # With v = 50 000 km/s the first drift Δx ≈ 6 Mpc pushes it to ~1921 Mpc
-    # (chi > chi_in → outside) → pds_wrap fires, testing the gluing.
+    # Strategy: start the particle far outside the fundamental domain
+    # (x0 = 1915 Mpc stereo, chi ≈ 63°; the domain boundary is at 18–21°) so
+    # the IC wrap maps it inside immediately, and give it a high velocity so
+    # it keeps crossing dodecahedral faces during the run — each crossing
+    # exercises pds_wrap + the velocity transformation (gluing).
     a_start = 0.5
     a_max   = 1.0
     v_pec   = 50_000.0   # km/s — modest, ensures fast simulation
@@ -456,9 +539,287 @@ def test3():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 4 — PDS homogeneity: zero self-image force everywhere
+# ══════════════════════════════════════════════════════════════════════════════
+def test4():
+    print("\n── Test 4: Homogeneity — zero self-image force (IS_PERIODIC=2) ──────")
+    tag    = "test4"
+    outdir = OUT_BASE / tag
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Two independent single-particle runs at rest: one at the domain centre,
+    # one at a generic off-centre point.  The 119 non-trivial self-images sit
+    # at q-independent distances (chi(q, gq) = arccos(Re g)) in a symmetric
+    # constellation, so the exact compensated image sum must vanish and the
+    # particle must stay at rest — the PDS analogue of homogeneity.
+    a_start, a_max = 0.5, 1.0
+    ok = True
+    for sub, x0 in (("centre", [0.0, 0.0, 0.0]),
+                    ("offcentre", [300.0, 200.0, 100.0])):
+        subdir = outdir / sub
+        subdir.mkdir(parents=True, exist_ok=True)
+        ic, param, outlst = subdir / "ic.hdf5", subdir / "t4.param", subdir / "redshifts.txt"
+        write_ic(ic,
+                 pos_mpc      = np.array([x0]),
+                 vel_pec_kmps = np.zeros((1, 3)),
+                 mass_code    = np.array([1.0e8]),   # huge mass: any spurious self-force would show
+                 a_start      = a_start)
+        z_out = 1.0 / np.linspace(a_start, a_max, 6) - 1.0
+        write_redshift_list(outlst, z_out)
+        write_param(param, subdir, ic, outlst, a_start=a_start, a_max=a_max,
+                    acc_param=0.1, step_max=0.2, particle_radii=1.0,
+                    is_periodic=2)
+        run_sim(param)
+        snaps = load_snapshots(subdir)
+        ok &= check(len(snaps) >= 5, f"[{sub}] Got {len(snaps)} snapshots")
+        drift = max(np.linalg.norm(s[1][0] - np.array(x0)) for s in snaps)
+        ok &= check(drift < 1e-3,
+                    f"[{sub}] Particle at rest stays at rest: max drift = {drift:.2e} Mpc")
+        vmax = max(np.linalg.norm(s[2][0]) for s in snaps)
+        ok &= check(vmax < 1e-3,
+                    f"[{sub}] No spurious velocity: max |v| = {vmax:.2e} km/s")
+
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 5 — Multi-particle stability sanity
+# ══════════════════════════════════════════════════════════════════════════════
+def test5():
+    print("\n── Test 5: 8-particle stability sanity (IS_PERIODIC=2) ──────────────")
+    tag    = "test5"
+    outdir = OUT_BASE / tag
+    ic     = outdir / "ic.hdf5"
+    param  = outdir / f"{tag}.param"
+    outlst = outdir / "redshifts.txt"
+
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    a_start, a_max = 0.5, 1.0
+    rng = np.random.default_rng(11)
+    # random in-domain positions (stereo radius < 480 Mpc is safely inside)
+    pos = rng.normal(size=(8, 3))
+    pos = pos / np.linalg.norm(pos, axis=1, keepdims=True) \
+        * rng.uniform(50, 480, size=(8, 1))
+    write_ic(ic,
+             pos_mpc      = pos,
+             vel_pec_kmps = rng.normal(scale=100.0, size=(8, 3)),
+             mass_code    = np.full(8, 1.0e4),   # ~1e15 Msun each
+             a_start      = a_start)
+    z_out = 1.0 / np.linspace(a_start, a_max, 6) - 1.0
+    write_redshift_list(outlst, z_out)
+    write_param(param, outdir, ic, outlst, a_start=a_start, a_max=a_max,
+                acc_param=0.05, step_max=0.1, particle_radii=5.0,
+                is_periodic=2)
+    run_sim(param)
+    snaps = load_snapshots(outdir)
+
+    ok = True
+    ok &= check(len(snaps) >= 5, f"Got {len(snaps)} snapshots")
+    ok &= check(all(np.isfinite(s[1]).all() and np.isfinite(s[2]).all()
+                    for s in snaps), "No NaN / Inf in positions or velocities")
+    vmax = max(np.abs(s[2]).max() for s in snaps)
+    ok &= check(vmax < 1.0e4, f"No velocity blow-up: max |v| = {vmax:.1f} km/s")
+    max_chi = 0.0
+    for _, p, _ in snaps:
+        q = to_quaternion(p)
+        max_chi = max(max_chi, np.degrees(np.arccos(np.clip(q[:, 0], -1, 1))).max())
+    ok &= check(max_chi <= np.degrees(CHI_IN) + 3.0,
+                f"All particles stay in the fundamental domain: max chi = {max_chi:.2f}°")
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 6 — Python/C++ force cross-validation
+# ══════════════════════════════════════════════════════════════════════════════
+def test6():
+    print("\n── Test 6: Python/C++ force cross-validation (IS_PERIODIC=2) ────────")
+    from stepsic import pds
+
+    tag    = "test6"
+    outdir = OUT_BASE / tag
+    ic     = outdir / "ic.hdf5"
+    param  = outdir / f"{tag}.param"
+    outlst = outdir / "redshifts.txt"
+
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    a_start = 0.5
+    soft = 10.0
+    rng = np.random.default_rng(7)
+    pos = rng.normal(size=(50, 3))
+    pos = pos / np.linalg.norm(pos, axis=1, keepdims=True) \
+        * rng.uniform(20, 480, size=(50, 1))
+    mass = rng.uniform(500.0, 2000.0, size=50)
+    write_ic(ic, pos_mpc=pos, vel_pec_kmps=np.zeros((50, 3)),
+             mass_code=mass, a_start=a_start)
+    # the run only needs to reach the SAVE_ACCELERATIONS dump (at startup)
+    z_out = 1.0 / np.linspace(a_start, a_start + 0.02, 3) - 1.0
+    write_redshift_list(outlst, z_out)
+    write_param(param, outdir, ic, outlst, a_start=a_start, a_max=a_start + 0.02,
+                acc_param=0.05, step_max=0.1, particle_radii=soft,
+                is_periodic=2)
+    run_sim(param, binary=BINARY_SAVEACC)
+
+    with h5py.File(outdir / "initial_conditions_0000.hdf5", "r") as f:
+        F_cpp = f["PartType1/Accelerations"][:]
+
+    # independent NumPy reference: exact compensated 120-image sum with the
+    # same per-pair softening floor chi_eff = max(chi, (soft_i + soft_j)/R)
+    R = R_CURV
+    quat = to_quaternion(pos.astype(np.float64))
+    quat /= np.linalg.norm(quat, axis=1, keepdims=True)
+    chi_soft = 2.0 * soft / R
+    imgs = pds.images(quat)                       # (N, 120, 4)
+    F_py = np.zeros((50, 3))
+    for i in range(50):
+        chis = pds.chi(quat[i], imgs)             # (N, 120)
+        dirs = pds.force_direction(quat[i], imgs)
+        valid = (chis > 1e-12) & (chis < np.pi - 1e-12)
+        mags = pds.green_compensated(np.maximum(chis, chi_soft), R) * valid
+        F_py[i] = np.sum(mass[:, None, None] * mags[..., None] * dirs,
+                         axis=(0, 1))[1:]
+
+    rel = (np.linalg.norm(F_cpp - F_py, axis=1)
+           / np.linalg.norm(F_py, axis=1))
+    ok = check(rel.max() < 1e-6,
+               f"C++ vs NumPy exact compensated sum: max rel err = {rel.max():.2e} "
+               f"(median {np.median(rel):.2e})")
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 7 — End-to-end stepsic PDS IC → StePS
+# ══════════════════════════════════════════════════════════════════════════════
+def test7():
+    print("\n── Test 7: stepsic PDS IC → StePS end-to-end ────────────────────────")
+    tag    = "test7"
+    outdir = OUT_BASE / tag
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # small native PDS IC: NGRID=8 → ~190 particles in the domain
+    base_toml = (REPO / "examples" / "PDS_test_ic.toml").read_text()
+    toml = (base_toml
+            .replace('NGRID = 16', 'NGRID = 8')
+            .replace('NMESH = 64', 'NMESH = 32')
+            .replace('IC_DIR = "/v/csabai/GitHub/steps_dodeca/data/ic"',
+                     f'IC_DIR = "{outdir}"')
+            .replace('IC_PREFIX = "PDS_test"', 'IC_PREFIX = "t7"'))
+    toml_path = outdir / "t7.toml"
+    toml_path.write_text(toml)
+    res = subprocess.run([sys.executable, "stepsic.py", str(toml_path)],
+                         cwd=STEPSIC_ROOT, capture_output=True, text=True,
+                         timeout=300)
+    ok = check(res.returncode == 0, "stepsic IC generation succeeded")
+    if not ok:
+        print(res.stdout[-1500:], res.stderr[-1500:])
+        return False
+    ic_files = list(outdir.glob("t7_*/ic.hdf5"))
+    ok &= check(len(ic_files) == 1, f"IC file written ({len(ic_files)} found)")
+    if not ic_files:
+        return False
+    ic = ic_files[0]
+    with h5py.File(ic, "r") as f:
+        n_part = f["PartType1/Coordinates"].shape[0]
+        has_quat = "Quaternions" in f["PartType1"]
+    ok &= check(has_quat, f"IC contains /PartType1/Quaternions (N = {n_part})")
+
+    # run StePS over one growth interval: a = 1/32 → 1/16 (z 31 → 15)
+    param  = outdir / "t7.param"
+    outlst = outdir / "redshifts.txt"
+    write_redshift_list(outlst, [31.0, 23.0, 15.0])
+    # cosmology must match the stepsic IC exactly (Planck2018EE+BAO "best"
+    # values from stepsic/config/cosmology.toml), otherwise the StePS
+    # mass/density consistency check reports a (correct!) small mismatch
+    write_param(param, outdir, ic, outlst, a_start=0.03125, a_max=0.0625,
+                acc_param=0.01, step_max=0.05, particle_radii=10.0,
+                is_periodic=2,
+                omega_m=0.3106, omega_l=0.6894, h0=67.702)
+    run_sim(param, timeout=600)
+
+    log_text = (outdir / "run.log").read_text()
+    ok &= check("Reading /PartType1/Quaternions" in log_text,
+                "StePS used the quaternions from the IC")
+    ok &= check("The particle masses are consistent" in log_text,
+                "Mass/density consistency check passed")
+
+    snaps = load_snapshots(outdir)
+    ok &= check(len(snaps) >= 2, f"Got {len(snaps)} snapshots")
+    if len(snaps) >= 2:
+        # density contrast growth: the scatter of the nearest-neighbour
+        # distance (relative to its mean) must grow from z=31 to z=15
+        from scipy.spatial import cKDTree
+        def nn_scatter(p):
+            d, _ = cKDTree(p).query(p, k=2)
+            return np.std(d[:, 1]) / np.mean(d[:, 1])
+        s0, s1 = nn_scatter(snaps[0][1]), nn_scatter(snaps[-1][1])
+        ok &= check(s1 > s0,
+                    f"Density contrast grows: nn-distance scatter "
+                    f"{s0:.4f} → {s1:.4f} (a = {snaps[0][0]:.4f} → {snaps[-1][0]:.4f})")
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 8 — R³ regression with the non-PDS build
+# ══════════════════════════════════════════════════════════════════════════════
+def test8():
+    print("\n── Test 8: R³ (spherical) regression with the non-PDS build ─────────")
+    tag    = "test8"
+    outdir = OUT_BASE / tag
+    ic     = outdir / "ic.hdf5"
+    param  = outdir / f"{tag}.param"
+    outlst = outdir / "redshifts.txt"
+
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # cosmologically consistent cloud: total mass = rho_m * V(R_SIM) so the
+    # R^3 density check passes (it is FATAL in the R^3 build)
+    a_start, a_max = 0.5, 1.0
+    R_sim = 960.0
+    H_int = H0 / UNIT_V                       # internal Hubble constant
+    rho_crit_int = 3.0 * H_int**2 / (8.0 * np.pi)
+    M_tot = OMEGA_M * rho_crit_int * 4.0 / 3.0 * np.pi * R_sim**3
+    n = 64
+    rng = np.random.default_rng(5)
+    pos = rng.normal(size=(n, 3))
+    pos = pos / np.linalg.norm(pos, axis=1, keepdims=True) \
+        * R_sim * rng.uniform(0, 1, size=(n, 1)) ** (1 / 3)
+    write_ic(ic, pos_mpc=pos,
+             vel_pec_kmps=rng.normal(scale=100.0, size=(n, 3)),
+             mass_code=np.full(n, M_tot / n), a_start=a_start)
+    z_out = 1.0 / np.linspace(a_start, a_max, 6) - 1.0
+    write_redshift_list(outlst, z_out)
+    write_param(param, outdir, ic, outlst, a_start=a_start, a_max=a_max,
+                acc_param=0.05, step_max=0.1, particle_radii=20.0,
+                is_periodic=0, pds=False)
+    run_sim(param, timeout=300, binary=BINARY_R3)
+    snaps = load_snapshots(outdir)
+
+    ok = True
+    ok &= check(len(snaps) >= 5, f"Got {len(snaps)} snapshots")
+    ok &= check(all(np.isfinite(s[1]).all() and np.isfinite(s[2]).all()
+                    for s in snaps), "No NaN / Inf in positions or velocities")
+    vmax = max(np.abs(s[2]).max() for s in snaps)
+    ok &= check(vmax < 1.0e5, f"No velocity blow-up: max |v| = {vmax:.1f} km/s")
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
+    print("Checking/building the binary variants (StePS, StePS_saveacc, StePS_r3)...")
+    ensure_binary_variants()
     if not BINARY.exists():
         print(f"ERROR: StePS binary not found at {BINARY}")
         print("       Run: make -f PDS-LinuxGCC-Makefile  (from the StePS/StePS/ directory)")
@@ -466,8 +827,8 @@ if __name__ == "__main__":
 
     OUT_BASE.mkdir(parents=True, exist_ok=True)
 
-    print("Running all 3 tests in parallel...")
-    test_fns = [test1, test2, test3]
+    print("Running all 8 tests in parallel...")
+    test_fns = [test1, test2, test3, test4, test5, test6, test7, test8]
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(fn): fn for fn in test_fns}
         result_map = {}

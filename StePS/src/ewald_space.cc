@@ -1050,106 +1050,13 @@ void ewald_interpolate_D( const REAL* T, int Nrho, int Nz, REAL rho_max, REAL Lz
 
 #endif // PERIODIC_Z
 
-/* ─── PDS (Poincaré Dodecahedral Space) Ewald/image correction table ───────── */
-#ifdef POINCARE_DODECAHEDRAL
-
-#include "pds_group.h"
-
-/*  calculate_pds_ewald_lookup_table
- *
- *  Builds a 1D lookup table D(χ) of the Ewald-style image correction for PDS.
- *
- *  For a test particle at geodesic distance χ from a source particle, the
- *  nearest-image force (from the nearest of the 120 I* images of the source)
- *  is already included in the direct force kernel.  This table provides the
- *  CORRECTION: the total force from all remaining 119 images.
- *
- *  The table is 1D in χ ∈ [0, π] because S³ is maximally symmetric and the
- *  correction depends only on the geodesic separation to the nearest image, not
- *  on the direction.
- *
- *  Inputs:
- *    Ngrid    — number of grid points in χ ∈ (0, π) (e.g. 1000)
- *    R_curv   — curvature radius in internal length units
- *  Output:
- *    table[Ngrid] — correction force per unit source mass, positive means
- *                   the force is directed from field point TOWARD source
- *                   (i.e., same sign convention as pds_green).
- *
- *  Algorithm: For each χ value, place the source at the north pole e₀ and the
- *  field point at (cos(χ), sin(χ), 0, 0).  Compute the force from all 120
- *  I* images of e₀, subtract the nearest-image force, and store the remainder.
- *
- *  NOTE: This function is called once at startup and may take a few seconds.
- *  The result should be saved to disk and reloaded on subsequent runs.
- */
-void calculate_pds_ewald_lookup_table(int Ngrid, double R_curv, REAL *table)
-{
-    pds_init();  /* ensure I* group is generated */
-
-    const double dchi = M_PI / (double)(Ngrid + 1);  /* grid spacing, avoids 0 and π */
-
-    #pragma omp parallel for schedule(dynamic, 16)
-    for(int n = 0; n < Ngrid; n++)
-    {
-        double chi_field = (n + 1.0) * dchi;  /* geodesic distance of field point from source */
-
-        /* Field point at distance chi_field from north pole e₀ along the geodesic toward e₁ */
-        double p[4] = { cos(chi_field), sin(chi_field), 0.0, 0.0 };
-        /* Source at north pole */
-        double e0[4] = { 1.0, 0.0, 0.0, 0.0 };
-
-        /* Find the nearest-image distance (minimum chi over all 120 I* images of e₀) */
-        double chi_nearest = 1e30;
-        int    nearest_idx = 0;
-        for(int g = 0; g < PDS_N_ISTAR; g++) {
-            double q_img[4];
-            pds_apply_group_element(g, e0, q_img);
-            double chi_g = pds_chi(p, q_img);
-            if(chi_g < chi_nearest) { chi_nearest = chi_g; nearest_idx = g; }
-        }
-
-        /* Sum the image corrections: force from all images EXCEPT the nearest */
-        double D = 0.0;
-        for(int g = 0; g < PDS_N_ISTAR; g++) {
-            if(g == nearest_idx) continue;
-            double q_img[4];
-            pds_apply_group_element(g, e0, q_img);
-            double chi_g = pds_chi(p, q_img);
-
-            /* Force magnitude from this image */
-            double Fg = pds_green(chi_g, R_curv);
-
-            /* Project the force direction onto the unit vector from p toward source e₀
-             * (the "radial" direction in the 1D table).
-             * The force on p from source image q_img points along the geodesic p→q_img.
-             * Its component along p→e₀ is dot(tangent_to_q_img, tangent_to_e0). */
-            double t_img[4], t_src[4];
-            pds_force_direction(p, q_img, t_img);
-            pds_force_direction(p, e0, t_src);
-            double proj = 0.0;
-            for(int k = 0; k < 4; k++) proj += t_img[k] * t_src[k];
-
-            D += Fg * proj;
-        }
-        table[n] = (REAL)D;
-    }
-    printf("PDS: Ewald image correction table calculated (%d grid points, R_curv=%.3f).\n", Ngrid, R_curv);
-}
-
-/*  Interpolate the PDS image correction table at geodesic distance chi_nearest.
- *
- *  Uses linear interpolation.  Returns 0 if chi_nearest is outside [0, π]. */
-REAL pds_ewald_interpolate(const REAL *table, int Ngrid, double R_curv, double chi_nearest)
-{
-    if(chi_nearest <= 0.0 || chi_nearest >= M_PI) return (REAL)0.0;
-    const double dchi = M_PI / (double)(Ngrid + 1);
-    double idx_d = chi_nearest / dchi - 1.0;
-    int i0 = (int)idx_d;
-    if(i0 < 0) i0 = 0;
-    if(i0 >= Ngrid - 1) i0 = Ngrid - 2;
-    double frac = idx_d - (double)i0;
-    return (REAL)((1.0 - frac) * (double)table[i0] + frac * (double)table[i0+1]);
-}
-
-#endif /* POINCARE_DODECAHEDRAL */
+/* ─── PDS (Poincaré Dodecahedral Space) ─────────────────────────────────────── */
+/*  The former 1D Ewald/image correction table (calculate_pds_ewald_lookup_table,
+ *  pds_ewald_interpolate) has been REMOVED.  With the bare 1/(R²sin²χ) kernel
+ *  it was an exact cancellation of the nearest-image force, not a correction:
+ *  I* is closed under negation, so the images come in antipodal ±g pairs whose
+ *  bare forces cancel one by one, making the tabulated 119-image "correction"
+ *  identically equal to −pds_green(χ_nearest).  PDS forces are now computed by
+ *  exact summation over all 120 I* images with the background-compensated
+ *  kernel directly in forces.cc / forces_cuda.cu (no lookup table is needed on
+ *  the compact S³).  See pds_group.h and docs/PDS_guide.md. */

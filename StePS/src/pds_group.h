@@ -42,8 +42,14 @@
  *  - S³ has unit radius (particles stored as unit 4-vectors).
  *  - Geodesic distance: χ(p,q) = arccos(p·q) ∈ [0, π].
  *  - Physical distances scale as r = R_curv · χ.
- *  - Green's function: G(χ) = (π − χ) / (4π² R_curv sin χ)
- *    (force per unit source mass; see Lachieze-Rey & Luminet 1995, Phys. Rep. 254).
+ *  - Force kernels (per unit source mass, G = 1, no 4π factor):
+ *      pds_green()             — bare 1/(R² sin²χ) (isolated point mass)
+ *      pds_green_compensated() — [1 − V(χ)/V_S³]/(R² sin²χ) (point mass +
+ *        uniform negative background; see Lachieze-Rey & Luminet 1995,
+ *        Phys. Rep. 254).  The COMPENSATED kernel must be used when summing
+ *        over the I* images: I* is closed under negation and the bare kernel
+ *        satisfies G(π−χ) = G(χ) with opposite tangent directions, so the
+ *        bare force from the full 120-image system cancels identically.
  *  - Fundamental domain: Voronoi cell of e₀ under I* action,
  *    i.e., q ∈ domain ⟺ q[0] = max_{g ∈ I*}(q·g) (real-part condition,
  *    NOT absolute value — since −e₀ ∈ I* this gives q[0] ≥ 0 automatically).
@@ -255,6 +261,32 @@ static inline double pds_green(double chi, double R_curv)
     if(chi < 1e-12 || chi > M_PI - 1e-12) return 0.0;
     double s = sin(chi);
     return 1.0 / (R_curv * R_curv * s * s);
+}
+
+/*  Background-compensated force kernel on S³ (per unit source mass):
+ *
+ *    pds_green_compensated(χ, R) = [1 − V(χ)/V_S³] / (R² sin²χ),
+ *    V(χ)/V_S³ = (2χ − sin 2χ) / (2π)
+ *
+ *  This is the force of a point mass plus a uniform NEGATIVE background of
+ *  equal total mass.  In comoving cosmological simulations the homogeneous
+ *  mean density is already accounted for by the Friedmann expansion, so
+ *  peculiar forces must be sourced by fluctuations only — the exact analogue
+ *  of dropping the k = 0 mode in T³ Ewald summation.
+ *
+ *  Crucially, the compensation breaks the antipodal degeneracy of the bare
+ *  kernel: with pds_green() the force from the full 120-image I* system of
+ *  any source is IDENTICALLY ZERO (images come in ±g pairs with equal bare
+ *  magnitudes and opposite directions).  The compensated kernel yields the
+ *  finite, physical peculiar force.
+ *
+ *  Limits: → 1/r² (r = Rχ) as χ → 0;  → 0 smoothly (∝ π−χ) at the antipode. */
+static inline double pds_green_compensated(double chi, double R_curv)
+{
+    if(chi < 1e-12 || chi > M_PI - 1e-12) return 0.0;
+    double s = sin(chi);
+    double frac = (2.0*chi - sin(2.0*chi)) / (2.0*M_PI);
+    return (1.0 - frac) / (R_curv * R_curv * s * s);
 }
 
 /* ─── Fundamental domain test and boundary wrapping ────────────────────────── */

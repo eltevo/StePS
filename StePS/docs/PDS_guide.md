@@ -41,27 +41,54 @@ conjugate.
 
 ### Force Law
 
-The gravitational force on S³ follows from Gauss's law on a 3-sphere of curvature radius R:
-the geodesic sphere at distance χ has area 4πR²sin²χ, giving:
+The gravitational force on S³ uses the **background-compensated kernel** (per unit
+source mass, curvature radius R):
 
 ```
-|F| = G M / (R² sin²χ)
+|F| = G M [1 − V(χ)/V_S³] / (R² sin²χ),     V(χ)/V_S³ = (2χ − sin 2χ) / (2π)
 ```
 
-which reduces to the Newtonian G M/r² as χ → 0 (r = Rχ).  The direction is the unit geodesic
-tangent at the field particle pointing toward the source.
+i.e. a point mass plus a uniform *negative* background of equal total mass.  On a
+compact space a bare point mass is inconsistent (its flux has nowhere to end), and
+in comoving cosmological simulations the homogeneous mean density is already part
+of the Friedmann expansion — peculiar forces must be sourced by fluctuations only.
+This is the exact analogue of dropping the k = 0 mode in T³ Ewald summation.
 
-The geodesic distance is `χ = arccos(p · q)` where p and q are unit quaternions.
+The compensated kernel reduces to the Newtonian G M/r² as χ → 0 (r = Rχ) and goes
+smoothly to zero at the antipode.  The direction is the unit geodesic tangent at
+the field particle pointing toward the source.  The geodesic distance is
+`χ = arccos(p · q)` where p and q are unit quaternions.
 
-### Image Summation and Ewald Correction
+> **Why not the bare 1/(R² sin²χ) kernel?**  I* is closed under negation, the bare
+> kernel satisfies G(π−χ) = G(χ), and antipodal images pull in exactly opposite
+> directions — so the bare force from the full 120-image system of any source
+> **cancels identically**.  (StePS ≤ v2.1.1.0 used the bare kernel with a 1D
+> "Ewald correction" table; that table was exactly −G(χ_nearest), and Ewald-mode
+> runs had essentially zero gravity.  Fixed in v2.2.0.0.)
 
-For IS_PERIODIC = 1 (nearest-image mode) only the single closest I* image of each source
-particle contributes.  For IS_PERIODIC ≥ 2, a precomputed **1D Ewald correction table** D(χ)
-adds the contributions from all 119 non-nearest images.
+### Exact Image Summation
 
-The table exploits the maximal symmetry of S³: the correction from the non-nearest images
-depends only on the geodesic distance χ to the nearest image, not on the direction.  This
-reduces what would be a 3D table to a 1D table of ≤ 16 384 entries.
+S³ is compact: every source has exactly 119 non-trivial I* images, so — unlike the
+infinite lattice sums of T³ — the image sum is **finite and exact**.  For
+IS_PERIODIC ≥ 2 StePS sums the compensated force over **all 120 images of every
+source**, including the particle's own self-images.  No Ewald table is involved.
+
+Two structural facts worth knowing:
+
+- **Homogeneity / zero self-force:** the self-image distances
+  χ(q, g·q) = arccos(Re g) do not depend on q, and each image shell is symmetric
+  around the particle, so the self-image force vanishes identically everywhere
+  (validated by Test 4 of the test suite).
+- **Anisotropy:** the 119-image correction is *not* isotropic — its radial part
+  varies with direction by up to 0.45·F_nearest and it has a transverse component
+  up to 0.19·F_nearest near the domain boundary (see
+  `data/pds_anisotropy/REPORT.md`).  This is why no 1D table can replace the
+  exact sum; the directional residual scales as (r/R)⁵ near the centre, matching
+  Roukema & Różański (2009).
+
+For IS_PERIODIC = 1 (nearest-image mode, fast tests / glass making) only the
+single closest I* image of each source contributes, with the same compensated
+kernel.
 
 ---
 
@@ -93,7 +120,7 @@ PDS simulations use the same `.param` format as other StePS modes.  The key para
 
 | Parameter | Meaning | Typical value |
 |---|---|---|
-| `IS_PERIODIC` | 1 = nearest-image only; 2 = low-res Ewald; 3 = medium-res Ewald; 4 = high-res Ewald | 2 |
+| `IS_PERIODIC` | 1 = nearest-image only; ≥ 2 = exact 120-image summation | 2 |
 | `COSMOLOGY` | 1 for cosmological integration | 1 |
 | `Omega_m` | Matter density | 0.3111 |
 | `Omega_lambda` | Cosmological constant | 0.6889 |
@@ -182,24 +209,27 @@ H_OUT                   1.0
 
 ### 3 · Generate initial conditions
 
-For a first test, use the **flat approximation** (Strategy A): generate ICs in a non-periodic
-Cartesian box of side 2 × R_SIM = 1920 Mpc.  StePS automatically converts the Cartesian
-coordinates to S³ unit quaternions at IC load time using the inverse stereographic projection
-q = (R²−r², 2Rx, 2Ry, 2Rz) / (R²+r²).  This is valid when the simulation volume ≪ R_curv.
+[stepsic](https://github.com/eltevo/stepsic) has a **native PDS geometry**
+(`GEOMETRY = "pds"`, since 2026-06-10): particles are placed on a regular
+stereographic Cartesian grid clipped to the dodecahedral fundamental domain,
+particle masses carry the conformal volume factor Ω(r)³ = (2R²/(R²+r²))³ so the
+comoving density on S³ is exactly uniform, flat-space LPT displacements are
+applied (Phase 7A approximation, valid for R_domain/R_curv ≈ 0.3), particles
+displaced out of the domain are wrapped back with the exact velocity Jacobian,
+and the IC file contains a `PartType1/Quaternions` (N, 4) dataset that StePS
+uses directly (skipping the projection + wrap at load time).
 
-Use [stepsic](https://github.com/eltevo/stepsic) with the provided config file.
 Run from the stepsic repository root:
 
 ```bash
 conda activate stepsic
-cd STEPS_ROOT
-python STEPSIC_ROOT stepsic.py STEPS_ROOT/examples/PDS_test_ic.toml
+cd STEPSIC_ROOT
+python stepsic.py STEPS_ROOT/examples/PDS_test_ic.toml
 ```
-
 
 The IC file will be written to:
 ```
-STEPS_ROOT/examples/ic/PDS_test_N1000_cubical_Lx1920_Ly1920_Lz1920_Ng10_z31_LPT1_cic/ic.hdf5
+/v/csabai/GitHub/steps_dodeca/data/ic/pds_test_pds_Rcurv3100_L1200_Ng16_Nm64_z31_LPT1_cic/ic.hdf5
 ```
 This path is already set in `PDS_test.param` as `IC_FILE`.
 
@@ -207,46 +237,49 @@ Key settings in [examples/PDS_test_ic.toml](../examples/PDS_test_ic.toml):
 
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
-| `GEOMETRY` | `"cubical"` | Flat non-periodic box |
-| `LBOX` | `[1920, 1920, 1920]` | 2 × R_SIM [Mpc] |
-| `PERIODIC` | `[0, 0, 0]` | Non-periodic; StePS handles PDS periodicity |
-| `TYPE` | `"grid"` | Regular lattice |
-| `NGRID` | `10` | 10³ = 1000 particles |
+| `GEOMETRY` | `"pds"` | Native PDS: domain-clipped grid + quaternions |
+| `PDS_R_CURV` | `3100.0` | Curvature radius of S³ [Mpc] |
+| `LBOX` | `[1200, 1200, 1200]` | LPT mesh box; must enclose the domain (≥ 2·R·tan 10.7° ≈ 1172 Mpc) |
+| `PERIODIC` | `[0, 0, 0]` | StePS handles the S³/I* identifications |
+| `TYPE` | `"grid"` | Regular lattice clipped to the domain |
+| `NGRID` | `16` | 16³ grid → 1552 particles inside the domain (~38%) |
 | `REDSHIFT` | `31` | Matches `a_start = 0.03125` |
 | `LPTORDER` | `1` | Zel'dovich (use 2 for production) |
-| `COSMOLOGY` | `"Planck2018EE+BAO"` | Matches `PDS_test.param` |
+| `COSMOLOGY` | `"Planck2018EE+BAO"` | Matches `PDS_test.param` ("best" values) |
 | `HINDEPENDENT` | `false` | Distances in Mpc, not Mpc/h |
 
-No manual quaternion conversion is needed — StePS performs this automatically whenever
-`PartType1/Quaternions` is absent from the IC file.  If your IC generator can output
-quaternions directly (future stepsic PDS mode), add a `PartType1/Quaternions` dataset with
-shape (N, 4) and StePS will use it verbatim.
+For legacy flat-approximation ICs (`GEOMETRY = "cubical"`), StePS still converts
+Cartesian coordinates to quaternions at load time whenever
+`PartType1/Quaternions` is absent — but the cubical box tiles into 120 copies
+under wrapping and destroys the LPT correlations, so the native pds geometry
+should always be preferred.
 
 ### 4 · Run
 
-Note: Currently on our V100 server the output folder is set to /v/scratch/astro/dodeca/ change it to examples/PDS_test_output
+The example writes its output under the workspace data folder
+(`/v/csabai/GitHub/steps_dodeca/data/pds_run_7a/`); large outputs do not belong
+in the git repositories.
 
 ```bash
-mkdir -p examples/PDS_test_output
+mkdir -p /v/csabai/GitHub/steps_dodeca/data/pds_run_7a
 mpirun -np 4 ./build/StePS examples/PDS_test.param
 ```
 
 At startup, StePS will print:
 
 ```
-Topology: S^3/I* (Poincare Dodecahedral Space)  [EXPERIMENTAL]
-IS_PERIODIC = 2  (Ewald force correction enabled, low-resolution table)
-PDS curvature radius R_curv = 3100.0000 Mpc
+PDS (S^3/I*) exact 120-image force summation is on (background-compensated kernel).
+PDS curvature radius		3100.000000 Mpc
+...
+	Reading /PartType1/Quaternions
+...
+The particle masses are consistent with the cosmological parameters set in the parameter file:
+rho_part/rho_cosm - 1 = -6.9e-08
 PDS: Binary icosahedral group I* generated (120 elements).
-MPI task 0: Allocating memory for the PDS Ewald lookup table with 1024 grid points...
-PDS Ewald lookup table file (./examples/PDS_test_output/PDS_Ewald_table.hdf5) not found.
-Calculating new lookup table...
-PDS: Ewald image correction table calculated (1024 grid points, R_curv=3100.000).
-PDS Ewald lookup table calculation finished. Wall-clock time = 2.31s.
 ```
 
-The Ewald table is saved to `OUT_DIR/PDS_Ewald_table.hdf5` and reloaded on subsequent runs
-with the same curvature radius.
+There is no Ewald table any more — nothing is cached between runs, and old
+`PDS_Ewald_table.hdf5` files are ignored.
 
 ### 5 · Read output snapshots
 
@@ -268,21 +301,36 @@ with h5py.File("snapshot_0001.hdf5", "r") as f:
 
 ## IS_PERIODIC Levels
 
-| IS_PERIODIC | Mode | Ewald grid | Use case |
-|---|---|---|---|
-| 1 | Nearest image only | — | Fast tests, glass making |
-| 2 | Low-res Ewald | 1 024 pts | Standard science runs |
-| 3 | Medium-res Ewald | 4 096 pts | Higher accuracy |
-| 4 | High-res Ewald | 16 384 pts | Maximum accuracy |
+| IS_PERIODIC | Mode | Use case |
+|---|---|---|
+| 1 | Nearest image only (compensated kernel) | Fast tests, glass making |
+| ≥ 2 | Exact 120-image summation (compensated kernel) | Science runs |
 
-The Ewald table is computed once and cached.  Reuse is automatic when `R_curv` matches to
-within 10⁻⁶ relative tolerance.
+Since v2.2.0.0 all values ≥ 2 are equivalent: the image sum over the compact
+S³ is exact, so there are no Ewald resolution levels (and no cached table).
+The exact mode costs ≈ 2.3× a nearest-image force evaluation.
 
 ---
 
 ## Validation Tests
 
-Before production runs, we recommend running the following sanity checks.
+The automated suite covers most of these checks (8 tests, ~2 min, builds the
+needed binary variants itself):
+
+```bash
+conda activate stepsic
+cd StePS/StePS
+python examples/pds_tests/run_tests.py
+```
+
+Tests: free flight / Hubble drag, boundary wrapping, two-particle Newtonian
+limit, homogeneity (zero self-image force, IS_PERIODIC = 2), multi-particle
+stability, Python/C++ exact-force cross-validation (< 10⁻⁶), end-to-end
+stepsic-PDS-IC run with growing density contrast, and an R³ regression of the
+shared sources.  The force-law study `examples/pds_tests/pds_anisotropy_study.py`
+regenerates `data/pds_anisotropy/REPORT.md`.
+
+The manual sanity checks below remain useful for debugging by hand.
 
 ### Test 1 — I* group closure
 
@@ -392,15 +440,20 @@ The 4D geodesic tangent force is projected to 3D by discarding the e₀ componen
 (t₁, t₂, t₃).  The error is ∝ sin(|q₁:₄|) and is small for particles near the domain centre
 but can reach ~30% for particles at the domain boundary.
 
-### No IC generator
+### Flat-spectrum initial conditions (Phase 7A approximation)
 
-No PDS-native IC generator is included.  Use the flat approximation (Strategy A, see Quick
-Start) or modify `stepsic2` to draw from the discrete S³ power spectrum (Strategy B).
+The native stepsic PDS IC (see Quick Start) clips the particle load to the
+fundamental domain and weights masses with the conformal factor, but the LPT
+displacement field is still generated from the flat-space P(k) on a
+box-periodic FFT mesh.  The mode statistics of S³/I* (discrete spectrum
+k_n = √(n(n+2))/R_curv restricted to I*-invariant modes) are Phase 7B work.
 
 ### CUDA kernel: no BH tree
 
-The `ForceKernel_pds` CUDA kernel uses direct O(N²) summation only.  There is no PDS
-Barnes-Hut tree implementation.  For N > 10 000, use the CPU build.
+The `ForceKernel_pds` CUDA kernel uses direct O(N²) summation only (updated to
+the exact compensated 120-image sum in v2.2.0.0, but not compile-tested on a
+CUDA machine).  There is no PDS Barnes-Hut tree implementation.  For
+N > 10 000, use the CPU build.
 
 ---
 
@@ -408,15 +461,15 @@ Barnes-Hut tree implementation.  For N > 10 000, use the CPU build.
 
 | File | Changes |
 |---|---|
-| `src/pds_group.h` | NEW: I* group (BFS generation), quaternion algebra, geodesic distance, force magnitude, fundamental domain test, boundary wrapping, image enumeration |
-| `src/global_variables.h` | Added `PDS_Q`, `PDS_EWALD_FORCE_TABLE`, `N_PDS_EWALD_GRID`, `PDS_R_CURV` under `#elif defined(POINCARE_DODECAHEDRAL)` |
-| `src/ewald_space.cc` | Added `calculate_pds_ewald_lookup_table()` and `pds_ewald_interpolate()` |
-| `src/inputoutput.cc` | Added `save_pds_ewald_lookup_table()`, `load_pds_ewald_lookup_table()`; PDS fields in HDF5 header |
-| `src/main.cc` | Global variable definitions; PDS forward declarations; Ewald table setup and MPI broadcast; topology warning |
-| `src/step.cc` | PDS boundary wrapping after drift; force dispatch to `forces_pds()`; MPI broadcast of `PDS_Q` |
-| `src/forces.cc` | `forces_pds()`: O(N²) CPU force with 120-image loop, softening, and Ewald correction |
-| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory; `forces_pds_cuda()` host wrapper |
-| All Makefiles | Added `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default) |
+| `src/pds_group.h` | I* group (BFS generation), quaternion algebra, geodesic distance, **bare and background-compensated force kernels**, fundamental domain test, boundary wrapping, velocity Jacobian, image enumeration |
+| `src/global_variables.h` | `PDS_Q`, `PDS_R_CURV` under `#elif defined(POINCARE_DODECAHEDRAL)`; `pds_wrap_ic()` prototype |
+| `src/main.cc` | Global variable definitions; PDS forward declarations; **IC wrap + broadcast before the initial force calculation**; PDS-volume density check; topology warning |
+| `src/step.cc` | `pds_wrap_ic()` (IC wrapping); PDS boundary wrapping after drift with velocity transform; force dispatch to `forces_pds()`; MPI broadcast of `PDS_Q` |
+| `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1) |
+| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory, same two force modes |
+| `src/inputoutput.cc` | Reads `/PartType1/Quaternions` when present; PDS fields in HDF5 snapshot headers |
+| All Makefiles | `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default); `PDS-LinuxGCC-Makefile` has it enabled |
+| `../stepsic/stepsic/pds.py` | NumPy port of the PDS primitives (reference implementation, IC generation, force cross-validation) |
 
 ---
 

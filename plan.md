@@ -401,10 +401,24 @@ The original `PDS_upgrade_ideas.md` plan is correct in structure but underestima
 
 | Issue | Root cause | Required action |
 |-------|-----------|-----------------|
-| **No LSS in PDS_test.param** | Cubical IC places 912/1000 particles outside the fundamental domain; post-wrap density–velocity coherence is destroyed even with correct velocity transform | New PDS IC (see Phase 7 below) |
-| **6 particle pairs < 10 Mpc after wrapping** | Cubical grid tiles into 120 copies; some pairs from adjacent copies collapse to < softening after wrapping | Fixed by proper IC; can also increase softening temporarily |
-| **PDS_explorer reference circle too large** | Draws circle at geodesic `SimulationRadius` (960 Mpc) in stereo coordinates; domain extends only to ≈ 575 Mpc stereo | Fix in PDS_explorer: draw at stereo outradius = R_curv × tan(χ_out/2) ≈ 575 Mpc |
-| **Initial force computed with un-wrapped positions** | `forces_pds()` is called before `calculate_init_h()` in main.cc | Move initial force calc to after the IC-wrap broadcast, or call pds_wrap in IC loading |
+| **PDS_explorer reference circle too large** | Draws circle at geodesic `SimulationRadius` (960 Mpc) in stereo coordinates; domain extends only to ≈ 585 Mpc stereo (vertices, χ_out ≈ 21.4°) | Fix in PDS_explorer: draw at stereo outradius = R_curv × tan(χ_out/2) ≈ 585 Mpc |
+
+### Issues RESOLVED in v2.2.0.0 (2026-06-10)
+
+| Issue | Resolution |
+|-------|-----------|
+| **IS_PERIODIC ≥ 2 gravity was ~ZERO (critical, newly discovered)** | The bare 1/(R²sin²χ) kernel cancels identically over the 120 I* images (antipodal ±g pairs ⇒ the 1D Ewald table was exactly −F_nearest). Replaced by **exact 120-image summation with the background-compensated kernel** [1−V(χ)/V_S³]/(R²sin²χ); the Ewald table code was retired. See `data/pds_anisotropy/REPORT.md`. |
+| **Force-law isotropy question (AGENTS.md)** | Settled: the compensated image correction is strongly anisotropic near the domain boundary (radial spread ≤ 0.45·F_near, transverse ≤ 0.19·F_near) ⇒ no 1D table can represent it; the exact sum includes all anisotropic terms by construction. Small-χ anisotropic residual scales as χ^5.00, reproducing Roukema & Różański (2009). |
+| **Initial force computed with un-wrapped positions** | Wrap factored into `pds_wrap_ic()` (step.cc), called before the initial force calculation + x/PDS_Q broadcast in main.cc. h_start bit-identical for 1 vs 2 MPI ranks. |
+| **No LSS in PDS_test.param** (cubical IC scrambled by wrapping + zero Ewald-mode forces) | Native PDS IC implemented in stepsic (`GEOMETRY='pds'`, Phase 7A): domain-clipped grid, Ω³ conformal mass weighting, LPT, quaternions in the IC file. `examples/PDS_test_ic.toml` + `PDS_test.param` updated. Density check passes at 1e-7; startup errmax physical. |
+| **6 particle pairs < 10 Mpc after wrapping** | Gone with the native in-domain IC (no more tiling collapse). |
+| **PDS_R_CURV MPI_FLOAT broadcast corruption (double builds, np>1)** | Redundant unguarded broadcast removed from main.cc. |
+| **Density check used sphere volume for PDS** | Now uses the fundamental-domain volume π²R³/60; >1% mismatch is a warning (not fatal) under the experimental PDS topology. |
+
+Key new facts learned (document for Phase 7B+):
+- The self-image force vanishes identically everywhere (χ(q, gq) = arccos(Re g) is q-independent and each distance shell of images is symmetric around q) — the PDS form of homogeneity; verified as Test 4.
+- Exact summation costs ~2.3× per force evaluation vs the old (broken) scheme; no table I/O or R_curv-match bookkeeping remains.
+- Python reference implementation of all PDS primitives lives in `../stepsic/stepsic/pds.py` (unit tests: `../stepsic/tests/test_pds.py`); Test 6 cross-validates the C++ forces against it on every test-suite run.
 
 ---
 
@@ -489,8 +503,24 @@ Full expansion of δ(r) in I*-invariant eigenfunctions of the S³ Laplacian. See
 
 ## Summary: Immediate Next Actions
 
-1. **Add PDS geometry to `stepsic`** (`../stepsic/stepsic/geometry.py`) — implement `PDSGeometry` class with dodecahedral domain sampling.
-2. **Generate a proper PDS IC** with N = 1000–10000 particles, all inside χ < 18°, using 1LPT flat-space displacements as a first approximation.
-3. **Fix `PDS_explorer.ipynb`** reference circle to use stereo outradius (≈ 575 Mpc) instead of geodesic `SimulationRadius`.
-4. **Move initial force calculation** in `main.cc` to after `calculate_init_h()` + broadcast.
-5. **Run a new PDS simulation** with the new IC and verify structure formation (growing density variance, converging particle pairs).
+Items 1, 2, 4, 5 below were completed in v2.2.0.0 (2026-06-10) — see "Issues
+RESOLVED" above. Phase 7A is done: `GEOMETRY='pds'` in stepsic generates the
+domain-clipped, Ω³-mass-weighted, quaternion-carrying IC; the
+`PDS_test.param` run with the new IC and the exact compensated force shows
+growing density contrast (nearest-neighbour-distance scatter rises
+monotonically from z = 31).
+
+Remaining / next:
+
+1. **Fix `PDS_explorer.ipynb`** reference circle to use the stereo outradius
+   (≈ 585 Mpc, χ_out ≈ 21.4°) instead of geodesic `SimulationRadius`, and
+   re-baseline the notebook numbers against the v2.2.0.0 physics.
+2. **Phase 7B — curved/discrete power spectrum**: replace the flat-space P(k)
+   evaluated on the box-periodic FFT mesh with the discrete S³ spectrum
+   k_n = √(n(n+2))/R_curv restricted to I*-invariant modes. The quaternion
+   utilities to build on live in `../stepsic/stepsic/pds.py`.
+3. **Larger 7A production run** (NGRID = 32–48, 2LPT) once 7B specs are
+   settled; current example uses NGRID = 16 (1552 particles) for speed.
+4. **Geodesic drift integrator** (see Known Limitations in docs/PDS_guide.md):
+   the KDK drift is still Euclidean in the stereographic chart; curvature
+   corrections are O((r/R)²) ≈ 10% at the domain boundary.
