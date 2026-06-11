@@ -1015,27 +1015,27 @@ __global__ void ForceKernel_pds(
 
 cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_max)
 {
-    int i, mprocessors, GPU_ID, nthreads;
+    int mprocessors, GPU_ID, nthreads;
     int N_GPU, GPU_index_min;
-    cudaError_t cudaStatus;
+    cudaError_t cudaStatus = cudaSuccess;
 
     int N_total = ID_max - ID_min + 1;
     double omp_start_time = omp_get_wtime();
 
-    /* Copy I* group elements to device constant memory (idempotent) */
-    cudaStatus = cudaMemcpyToSymbol(PDS_I_STAR_DEV, PDS_I_STAR, 120*4*sizeof(double));
-    if(cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpyToSymbol PDS_I_STAR_DEV failed: %s\n", cudaGetErrorString(cudaStatus));
-        return cudaStatus;
-    }
-
-    /* Ensure the I* group table is filled in this TU before copying to GPU */
+    /* Ensure the I* group table is filled before copying it to the GPUs */
     pds_init();
 
     #pragma omp parallel num_threads(n_GPU) private(GPU_ID, mprocessors, nthreads, N_GPU, GPU_index_min)
     {
         GPU_ID = omp_get_thread_num();
         cudaSetDevice(GPU_ID);
+        /* Copy I* group elements to constant memory. __constant__ symbols are
+         * per-device, so this must run on every GPU, not just device 0. */
+        cudaError_t cpyStatus = cudaMemcpyToSymbol(PDS_I_STAR_DEV, PDS_I_STAR, 120*4*sizeof(double));
+        if(cpyStatus != cudaSuccess) {
+            fprintf(stderr, "cudaMemcpyToSymbol PDS_I_STAR_DEV failed on GPU %i: %s\n", GPU_ID, cudaGetErrorString(cpyStatus));
+            cudaStatus = cpyStatus;
+        }
         cudaDeviceProp deviceProp;
         cudaGetDeviceProperties(&deviceProp, GPU_ID);
         mprocessors = deviceProp.multiProcessorCount;
@@ -1073,7 +1073,7 @@ cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_
 
     double omp_end_time = omp_get_wtime();
     printf("PDS force calculation finished on MPI task %i. Wall-clock time = %fs.\n", rank, omp_end_time - omp_start_time);
-    return cudaSuccess;
+    return cudaStatus;
 }
 
 void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)

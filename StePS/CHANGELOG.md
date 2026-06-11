@@ -1,6 +1,55 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.2.1.0] - 2026-06-11
+
+### Fixed
+- **PDS: multi-GPU CUDA runs computed zero forces on every GPU except device 0
+  (critical physics bug).** The I* group table lives in `__constant__ double
+  PDS_I_STAR_DEV[120][4]`, and CUDA constant memory is *per device* — but the
+  `cudaMemcpyToSymbol` upload in `forces_pds_cuda()` ran once in the serial
+  section, so only the current device (GPU 0) ever received the table. The
+  remaining GPUs ran `ForceKernel_pds` with an all-zero table: every image
+  quaternion g⊗q evaluated to zero, `pds_force_dir_dev()` hit its
+  `len2 < 1e-24` guard, and those GPUs returned exactly zero force. With the
+  block particle decomposition this froze the upper (n−1)/n of the particle
+  array on the initial grid (visually: a contiguous spatial region of the
+  domain never evolving). The upload now happens inside the per-GPU OpenMP
+  section right after `cudaSetDevice()`, with `pds_init()` called *before* the
+  copy (the old order also uploaded the still-empty table on the first call).
+  Per-GPU upload errors are now reported and returned.
+  Verified on 4× NVIDIA H200: 4-GPU vs 1-GPU snapshots bit-identical through
+  z = 0.5; 4-GPU vs CPU run (identical ICs) agree to RMS ≈ 10⁻¹⁰ Mpc through
+  z = 0.7 with identical adaptive-timestep output redshifts.
+
+### Changed
+- **`PDS-Linux_CUDA-Makefile` reworked for the stepsic conda-env toolchain**
+  (CUDA 12.9 + OpenMPI 5 + HDF5 from `$CONDA_PREFIX`; activate the env before
+  building): `CUDA_PATH ?= $(CONDA_PREFIX)`, new `CUDA_ARCH ?= sm_90` knob
+  passed as `-arch=` (H200/Hopper default), MPI/HDF5 include+lib paths taken
+  from the env. Fixed a latent typo — link flags were defined as `CUDALFLAGS`
+  but the rules referenced `CUDALDFLAGS`, so they were silently dropped — and
+  the new `CUDALDFLAGS` no longer links `-lmpi_cxx` (removed C++ bindings,
+  absent from OpenMPI ≥ 5) and adds an rpath to `$(CONDA_PREFIX)/lib` so the
+  binary runs without `LD_LIBRARY_PATH`. The PDS CUDA build is now
+  compile-tested and physics-validated on GPU hardware (it previously was not).
+
+### Added
+- **Millennium-style snapshot renderer** in `../tools/Visualization`:
+  - `millennium_render.py` — SPH-like adaptively smoothed, logarithmic
+    projected density maps in the classic Millennium/Gadget look (dark
+    background, magma colormap, cosmic-age/redshift info box, Mpc +
+    light-year scale bar). Pure numpy/scipy/matplotlib — no py-sphviewer
+    dependency: per-particle smoothing lengths from the k-th nearest
+    neighbour, deposited via a multi-scale histogram + Gaussian-filter stack
+    in O(N log N). Works for any StePS HDF5 snapshot (R³, S¹×R², T³, and PDS);
+    slice or full-projection modes, XY/XZ/YZ planes, animated-GIF helper,
+    usable as a module or CLI.
+  - `PDS_Millennium_View.ipynb` — companion notebook (defaults to the
+    `data/pds_tests/test7b` run): snapshot overview table, full-size z = 0
+    render, three projection planes, redshift-evolution mosaic, per-snapshot
+    PNG frames + `evolution.gif`, and a parameter-tuning guide.
+
 ## [v2.2.0.0] - 2026-06-10
 
 ### Fixed

@@ -265,6 +265,13 @@ mkdir -p /v/csabai/GitHub/steps_dodeca/data/pds_run_7a
 mpirun -np 4 ./build/StePS examples/PDS_test.param
 ```
 
+Or on a GPU node (much faster; the trailing argument is the number of GPUs —
+see [Running on GPUs](#running-on-gpus-cuda)):
+
+```bash
+mpirun -np 1 ./build/StePS_CUDA examples/PDS_test.param 4
+```
+
 At startup, StePS will print:
 
 ```
@@ -296,6 +303,85 @@ with h5py.File("snapshot_0001.hdf5", "r") as f:
     quats    = f["PartType1/Quaternions"][:]               # shape (N, 4)
     print(f"Topology: {topology},  R = {R_curv:.1f} Mpc,  Ω_k = {Omega_k:.4f}")
 ```
+
+---
+
+## Running on GPUs (CUDA)
+
+Since v2.2.1.0 the PDS CUDA path is validated on real hardware (4× NVIDIA
+H200): multi-GPU snapshots are bit-identical to single-GPU, and agree with the
+CPU build to RMS ≈ 10⁻¹⁰ Mpc with identical adaptive-timestep output redshifts.
+
+### Build
+
+`PDS-Linux_CUDA-Makefile` builds against the **stepsic conda environment**
+(CUDA toolkit, OpenMPI and HDF5 all come from `$CONDA_PREFIX`), so activate it
+first:
+
+```bash
+conda activate stepsic
+make -f PDS-Linux_CUDA-Makefile        # produces build/StePS_CUDA
+```
+
+Set `CUDA_ARCH` for your GPU generation (default `sm_90` = Hopper/H100/H200;
+use `sm_80` for A100, `sm_86` for consumer Ampere, …).
+
+### Run
+
+`StePS_CUDA` takes an extra trailing argument: the **number of GPUs per MPI
+task**.  On a single node always use *one* MPI task and give it all the GPUs:
+
+```bash
+mpirun -np 1 ./build/StePS_CUDA <paramfile> 4     # one node, 4 GPUs
+```
+
+Inside the task one OpenMP thread drives each GPU (thread i → device i) and
+the particle range is block-split between them.  Two pitfalls:
+
+- **Do not start several MPI ranks on one node** — each rank assigns its GPUs
+  starting from device 0, so the ranks pile onto the same GPUs.  Multiple MPI
+  tasks are for multi-node runs (one task per node, each with the GPUs-per-node
+  argument).
+- If the trailing argument is omitted, the default is **one GPU per MPI task**.
+
+### Troubleshooting
+
+If `mpirun` itself segfaults instantly with no output (even
+`mpirun -np 1 hostname`), the conda-forge hwloc library may be crashing while
+serializing the node's hardware topology to XML at PMIx startup (observed with
+libhwloc 2.12–2.13 on H200 nodes; the crash is triggered by a PCI/GPU I/O
+object).  Workaround — generate an I/O-free topology once and load it via
+environment variables:
+
+```bash
+lstopo-no-graphics --no-io --of xml $CONDA_PREFIX/etc/hwloc-topology-noio.xml
+export HWLOC_XMLFILE=$CONDA_PREFIX/etc/hwloc-topology-noio.xml
+export HWLOC_THISSYSTEM=1
+```
+
+(Put the two exports in `$CONDA_PREFIX/etc/conda/activate.d/` to make them
+automatic; regenerate the XML after hardware or kernel changes.)
+
+---
+
+## Visualizing Snapshots
+
+`../tools/Visualization` contains a Millennium-simulation-style renderer that
+works directly on PDS snapshots (added in v2.2.1.0):
+
+- **`millennium_render.py`** — adaptively smoothed logarithmic projected
+  density maps (dark background, magma colormap, cosmic-age/redshift info box,
+  scale bar).  Pure numpy/scipy/matplotlib, no py-sphviewer needed.  Use as a
+  module (`render_snapshot("snapshot_0010.hdf5")`) or CLI
+  (`./millennium_render.py snapshot.hdf5 out.png`).
+- **`PDS_Millennium_View.ipynb`** — companion notebook: snapshot overview
+  table, z = 0 render, XY/XZ/YZ projections, redshift-evolution mosaic, and an
+  animated GIF of the run.  Defaults to `data/pds_tests/test7b`; point
+  `SNAP_DIR` at any other output directory.
+
+The older scatter-plot explorers (`data/pds_tests/PDS_explorer*.ipynb`) remain
+useful for per-particle diagnostics (velocities, S³ angular distributions,
+NaN screening).
 
 ---
 
@@ -450,10 +536,14 @@ k_n = √(n(n+2))/R_curv restricted to I*-invariant modes) are Phase 7B work.
 
 ### CUDA kernel: no BH tree
 
-The `ForceKernel_pds` CUDA kernel uses direct O(N²) summation only (updated to
-the exact compensated 120-image sum in v2.2.0.0, but not compile-tested on a
-CUDA machine).  There is no PDS Barnes-Hut tree implementation.  For
-N > 10 000, use the CPU build.
+The `ForceKernel_pds` CUDA kernel uses direct O(N²) summation only (the exact
+compensated 120-image sum, same as the CPU path).  There is no PDS Barnes-Hut
+tree implementation.  Since v2.2.1.0 the CUDA build is compile-tested and
+physics-validated on GPU hardware (see [Running on GPUs](#running-on-gpus-cuda)):
+multi-GPU results are bit-identical to single-GPU and agree with the CPU build
+to floating-point round-off.  Direct summation on modern GPUs is fast — a
+12 240-particle test7b run to z = 0 takes ≈ 7.5 minutes on 4× H200 — so for
+large N prefer the CUDA build over the CPU one.
 
 ---
 
@@ -466,9 +556,10 @@ N > 10 000, use the CPU build.
 | `src/main.cc` | Global variable definitions; PDS forward declarations; **IC wrap + broadcast before the initial force calculation**; PDS-volume density check; topology warning |
 | `src/step.cc` | `pds_wrap_ic()` (IC wrapping); PDS boundary wrapping after drift with velocity transform; force dispatch to `forces_pds()`; MPI broadcast of `PDS_Q` |
 | `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1) |
-| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory, same two force modes |
+| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory (uploaded per device inside the per-GPU OpenMP section — constant memory is not shared between GPUs), same two force modes |
 | `src/inputoutput.cc` | Reads `/PartType1/Quaternions` when present; PDS fields in HDF5 snapshot headers |
-| All Makefiles | `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default); `PDS-LinuxGCC-Makefile` has it enabled |
+| All Makefiles | `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default); `PDS-LinuxGCC-Makefile` (CPU) and `PDS-Linux_CUDA-Makefile` (GPU, stepsic conda-env toolchain, `CUDA_ARCH` knob) have it enabled |
+| `../tools/Visualization/millennium_render.py` | Millennium-style adaptive density renderer (module + CLI), works on PDS snapshots; companion notebook `PDS_Millennium_View.ipynb` |
 | `../stepsic/stepsic/pds.py` | NumPy port of the PDS primitives (reference implementation, IC generation, force cross-validation) |
 
 ---
