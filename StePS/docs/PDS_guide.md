@@ -306,6 +306,92 @@ with h5py.File("snapshot_0001.hdf5", "r") as f:
 
 ---
 
+## Barnes-Hut tree force (experimental)
+
+Direct 120-image summation is O(N²) and becomes prohibitive at research-grade
+resolution (N ≳ 10⁵). Since v2.2.2.0 a **Barnes-Hut octree** force is available
+for PDS on both **CPU and GPU**, scaling as O(N log N).
+
+```bash
+conda activate stepsic
+
+# CPU build:
+make -f PDS-Linux_BH-Makefile          # builds build/StePS_BH (theta = 0.3)
+# IMPORTANT: --bind-to none, or all OpenMP threads pile onto one core (~18x slower)
+OMP_NUM_THREADS=16 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 \
+    ./build/StePS_BH <paramfile>
+
+# GPU build (much faster; <n_gpu> is the trailing argument as for StePS_CUDA):
+make -f PDS-Linux_CUDA_BH-Makefile     # builds build/StePS_CUDA_BH (theta = 0.3)
+# Use --bind-to none here too: the octree build is parallel on the host CPU, so
+# binding to one core slows it down (the GPU kernels are unaffected).
+OMP_NUM_THREADS=32 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 \
+    ./build/StePS_CUDA_BH <paramfile> 4
+```
+
+> **Build dir note:** all PDS makefiles share `build/` with the same object
+> names but different macros (`USE_BH`, `USE_CUDA`). Run `rm -f build/*.o` (or
+> `make -f <makefile> clean`) when switching between StePS / StePS_BH /
+> StePS_CUDA / StePS_CUDA_BH.
+
+On the GPU the octree is built on the host with a **Morton (Z-order) sort**
+(parallel: `__gnu_parallel::sort` + OpenMP) into a flattened DFS-preorder array
+with a per-node "escape"/skip pointer, then walked **iteratively** on the device
+— no recursion, no per-thread stack. Each GPU thread handles one field particle
+and does the 120 per-image stackless walks. Device buffers are persistent
+(allocated once, reused across steps) and the tree is staged through pinned host
+memory, so there is no per-step `cudaMalloc`/`cudaFree`. The field-particle range
+is split across GPUs (one OpenMP thread per device), exactly like the exact
+kernel.
+
+The per-step log line reports the split, e.g.
+`[host tree build 0.06s (…%), GPU section …]`, so you can see how much time is
+host-side tree construction vs GPU force evaluation. At N ≈ 7.8×10⁵ the parallel
+Morton build is ~0.06 s (down from ~0.30 s for the original recursive build).
+
+The opening angle θ is set by the macro value (`-DUSE_BH=0.3` in the Makefile).
+θ ≈ 0.3–0.35 gives ~0.5–1 % force accuracy; smaller θ is more accurate and
+slower. The implementation (`forces_pds_bh` in `src/forces.cc`) evaluates the
+opening test **separately for each of the 120 I\* images** in the geodesic
+metric — a node far in the identity image can be the physical neighbour across a
+shared dodecahedral face in another image, so a single opening test is wrong.
+See `examples/pds_tests/pds_bh_prototype.cc` for the standalone θ-vs-accuracy
+validator and `pds_bh_prototype_README.md` for the design notes.
+
+**Validation (test7b, N = 12 240, θ = 0.3):** the end-to-end z = 31 → 0 run
+matches the exact 120-image run with density-field cross-correlation 0.93 (z = 0)
+and power-spectrum agreement to ~5 % across all scales, in 78 s on 16 CPU cores
+(vs ~450 s for the exact run on 4× H200). Individual particle trajectories
+diverge over time (chaotic N-body), as expected; the *statistics* match.
+
+**GPU port validation (test7b):** `StePS_CUDA_BH` reproduces the CPU `StePS_BH`
+run to printed precision at every snapshot through z = 0 (RMS Δx = 0), 4-GPU and
+1-GPU runs are bit-identical, and GPU-BH vs exact gives the same density
+cross-correlation (0.935 at z = 0). Force eval ≈ 0.025 s on one GPU (vs 0.25 s on
+16 CPU cores); the whole test7b run finishes in < 60 s on a single GPU. At
+N = 7.8×10⁵ the GPU tree force is ≈ 0.35 s/eval on 4 GPUs (~9.4×10⁵ nodes) versus
+an extrapolated ~46 min/eval for exact direct summation on the same GPUs (~10⁴×).
+
+**Momentum-conservation audit:** Barnes-Hut's monopole approximation breaks
+Newton's third law in general, so the net force S = Σ_i M_i a_i was checked
+against the exact force. The exact PDS force is itself not perfectly
+pairwise-antisymmetric (the compact-S³ force projected to 3D gives an inherent
+|S|/Σ|M a| ≈ 0.17 % early, rising to ≈ 0.66 % at z = 0). The tree force stays
+within **0.91–1.04× of that exact baseline at every epoch** and converges to
+exactly 1.0× as θ → 0 — i.e. it adds no momentum drift of its own. The
+integrated run confirms this: the bulk momentum |P|/(M v_rms) of the θ = 0.3 run
+tracks the exact run (~0.2–0.5 %) and *decreases* from the IC value rather than
+accumulating. Reproduce with
+`./pds_bh_prototype <snapshot> <particle_radii> 0 momentum`.
+
+> **Status:** EXPERIMENTAL (CPU and GPU), monopole-only. Accuracy (~5 % in P(k)
+> at θ = 0.3) and momentum conservation are validated, and the GPU port
+> reproduces the CPU run to printed precision; use the exact direct summation
+> (`IS_PERIODIC ≥ 2`, no `USE_BH`) for the reference runs these are validated
+> against.
+
+---
+
 ## Running on GPUs (CUDA)
 
 Since v2.2.1.0 the PDS CUDA path is validated on real hardware (4× NVIDIA
@@ -534,16 +620,19 @@ displacement field is still generated from the flat-space P(k) on a
 box-periodic FFT mesh.  The mode statistics of S³/I* (discrete spectrum
 k_n = √(n(n+2))/R_curv restricted to I*-invariant modes) are Phase 7B work.
 
-### CUDA kernel: no BH tree
+### Force methods on the GPU
 
-The `ForceKernel_pds` CUDA kernel uses direct O(N²) summation only (the exact
-compensated 120-image sum, same as the CPU path).  There is no PDS Barnes-Hut
-tree implementation.  Since v2.2.1.0 the CUDA build is compile-tested and
-physics-validated on GPU hardware (see [Running on GPUs](#running-on-gpus-cuda)):
-multi-GPU results are bit-identical to single-GPU and agree with the CPU build
-to floating-point round-off.  Direct summation on modern GPUs is fast — a
-12 240-particle test7b run to z = 0 takes ≈ 7.5 minutes on 4× H200 — so for
-large N prefer the CUDA build over the CPU one.
+Two PDS force kernels run on the GPU:
+- `ForceKernel_pds` — direct O(N²) exact compensated 120-image sum. Validated
+  since v2.2.1.0: multi-GPU bit-identical to single-GPU, agrees with the CPU
+  build to round-off. A 12 240-particle test7b run to z = 0 takes ≈ 7.5 min on
+  4× H200.
+- `ForceKernel_pds_bh` — O(N log N) Barnes-Hut tree (v2.2.2.0, `-DUSE_BH`). See
+  [Barnes-Hut tree force](#barnes-hut-tree-force-experimental).
+
+Use exact direct CUDA for reference/validation runs; use the GPU Barnes-Hut
+build for large production runs. There is still no GPU Barnes-Hut tree for the
+non-PDS topologies (R³, S¹×R², T³).
 
 ---
 
@@ -555,8 +644,11 @@ large N prefer the CUDA build over the CPU one.
 | `src/global_variables.h` | `PDS_Q`, `PDS_R_CURV` under `#elif defined(POINCARE_DODECAHEDRAL)`; `pds_wrap_ic()` prototype |
 | `src/main.cc` | Global variable definitions; PDS forward declarations; **IC wrap + broadcast before the initial force calculation**; PDS-volume density check; topology warning |
 | `src/step.cc` | `pds_wrap_ic()` (IC wrapping); PDS boundary wrapping after drift with velocity transform; force dispatch to `forces_pds()`; MPI broadcast of `PDS_Q` |
-| `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1) |
-| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory (uploaded per device inside the per-GPU OpenMP section — constant memory is not shared between GPUs), same two force modes |
+| `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1). `forces_pds_bh()`: O(N log N) Barnes-Hut tree force with per-image geodesic opening test (`-DUSE_BH`, experimental) |
+| `PDS-Linux_BH-Makefile` | CPU build with the PDS Barnes-Hut force (`build/StePS_BH`); stepsic conda toolchain |
+| `examples/pds_tests/pds_bh_prototype.cc` | Standalone Barnes-Hut θ-vs-accuracy validator (+ `pds_bh_prototype_plot.py`, `pds_bh_prototype_README.md`) |
+| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory (uploaded per device inside the per-GPU OpenMP section — constant memory is not shared between GPUs), same two force modes. `ForceKernel_pds_bh` / `forces_pds_bh_cuda`: GPU Barnes-Hut tree force (host-built flattened octree with escape pointers, stackless per-image device traversal; `-DUSE_BH`) |
+| `PDS-Linux_CUDA_BH-Makefile` | GPU build with the PDS Barnes-Hut force (`build/StePS_CUDA_BH`) |
 | `src/inputoutput.cc` | Reads `/PartType1/Quaternions` when present; PDS fields in HDF5 snapshot headers |
 | All Makefiles | `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default); `PDS-LinuxGCC-Makefile` (CPU) and `PDS-Linux_CUDA-Makefile` (GPU, stepsic conda-env toolchain, `CUDA_ARCH` knob) have it enabled |
 | `../tools/Visualization/millennium_render.py` | Millennium-style adaptive density renderer (module + CLI), works on PDS snapshots; companion notebook `PDS_Millennium_View.ipynb` |

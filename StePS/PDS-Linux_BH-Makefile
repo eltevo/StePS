@@ -1,0 +1,102 @@
+
+#-----------------------------------------------------------------------------------------------#
+# StePS Makefile — PDS (S^3/I*) CPU build with the Barnes-Hut tree force
+# Copyright (C) 2017-2026 Gabor Racz
+#		Department of Physics, University of Helsinki | Helsinki, Finland
+#		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
+# 		Department of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+# 		Department of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+VERSION='"v2.0.1.0"'
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#-----------------------------------------------------------------------------------------------#
+# Builds build/StePS_BH (CPU, OpenMP+MPI) using the experimental PDS Barnes-Hut
+# tree force (forces_pds_bh in forces.cc).  Activate the stepsic conda env first.
+# CUDA + Barnes-Hut is not yet implemented, so this is a CPU-only build.
+
+
+#------------------------------- Precision option for the force calculation
+#OPT += -DUSE_SINGLE_PRECISION
+
+#------------------------------- Force calculation method
+# Barnes-Hut (octree) with opening angle theta.  theta ~ 0.3-0.35 gives ~0.5-1%
+# force accuracy on the PDS topology (see examples/pds_tests/pds_bh_prototype*).
+OPT += -DUSE_BH=0.3
+#OPT += -DSAVE_ACCELERATIONS # Save accelerations to snapshots (HDF5 only).
+
+#------------------------------- Boundary conditions / topology
+OPT += -DPOINCARE_DODECAHEDRAL # Poincare Dodecahedral Space topology (S^3/I*). EXPERIMENTAL.
+EWALD_INTERPOLATION_ORDER=2# Not used in PDS mode; left at default.
+
+#------------------------------- Option for enabling HDF5 I/O
+OPT += -DHAVE_HDF5
+
+#------------------------------- Parametrization of the background cosmology
+OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
+			#1: wCDM dark energy parametrization
+			#2: w0waCDM (a.k.a. CPL) dark energy parametrization
+			#-1: the expansion history will be read from an external file
+
+#------------------------------- Compiler
+CXX = g++
+
+#------------------------------- Location of the MPI libraries
+# OpenMPI is provided by the stepsic conda environment (activate it before building).
+MPI_LIBS = -L$(CONDA_PREFIX)/lib -lmpi -lhwloc
+MPI_INC = -I$(CONDA_PREFIX)/include
+
+#------------------------------- Location of the HDF5 libraries
+HDF5_LIBS = -L$(CONDA_PREFIX)/lib -lhdf5
+HDF5_INC  = -I$(CONDA_PREFIX)/include
+
+#---------------- Do not edit beyond this line! ----------------
+
+SRC_DIR = ./src
+BUILD_DIR = ./build
+
+MAKE_BUILD_DIR = @mkdir -p $(BUILD_DIR)
+
+CPPSTD = c++17
+
+SRC = $(SRC_DIR)/main.cc $(SRC_DIR)/inputoutput.cc $(SRC_DIR)/ewald_space.cc step.cc $(SRC_DIR)/read_paramfile.cc $(SRC_DIR)/friedmann_solver.cc $(SRC_DIR)/read_gadget_ic.cc $(SRC_DIR)/utils.cc $(SRC_DIR)/forces.cc
+DEPS = $(SRC_DIR)/global_variables.h
+OBJ = $(BUILD_DIR)/main.o $(BUILD_DIR)/inputoutput.o $(BUILD_DIR)/ewald_space.o $(BUILD_DIR)/step.o $(BUILD_DIR)/read_paramfile.o $(BUILD_DIR)/friedmann_solver.o $(BUILD_DIR)/read_gadget_ic.o $(BUILD_DIR)/utils.o $(BUILD_DIR)/forces.o
+
+COMPILERVERSION=$(shell $(CXX) --version | head -1)
+GITCOMMIT_ID=$(shell git rev-parse HEAD)
+GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
+DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
+BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"' -DPROGRAMNAME='"StePS_BH"'
+CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp -DOMPI_SKIP_MPICXX
+
+MPI_COMPILE_FLAGS = $(shell mpicxx --showme:compile)
+MPI_LINK_FLAGS = $(shell mpicxx --showme:link)
+
+#------------------------------- Ewald interpolation order setting (unused in PDS)
+OPT += -DEWALD_INTERPOLATION_ORDER=$(EWALD_INTERPOLATION_ORDER)
+
+#------------------------------- Printing out some info
+$(info This is the StePS $(VERSION) PDS Barnes-Hut (CPU) Makefile.)
+$(info Compiling StePS with $(CXX) ($(COMPILERVERSION)), CPU only, Barnes-Hut PDS force.)
+$(info Build options: $(OPT))
+$(info )
+
+PROG = $(BUILD_DIR)/StePS_BH
+
+$(PROG): $(OBJ)
+	$(MAKE_BUILD_DIR)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+	$(MAKE_BUILD_DIR)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
+
+clean:
+	rm -fv $(OBJ) $(PROG)

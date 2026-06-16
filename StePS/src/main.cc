@@ -268,12 +268,16 @@ int main(int argc, char *argv[])
 	{
 		printf("\tUsing CUDA capable GPUs for force calculation.\n");
 	}
-	#ifdef USE_BH
+	#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
 	if(rank == 0)
 	{
-		fprintf(stderr,"\nError: Barnes-Hut octree force calculation is not (yet) implemented on CUDA capable GPUs.\nPlease recompile StePS without the USE_BH or USE_CUDA option.\nExiting...\n");
+		fprintf(stderr,"\nError: Barnes-Hut octree force calculation is not (yet) implemented on CUDA capable GPUs for this topology.\nIt is only available on the GPU for the Poincare Dodecahedral Space (POINCARE_DODECAHEDRAL) topology.\nPlease recompile StePS without the USE_BH or USE_CUDA option.\nExiting...\n");
 	}
 	return (-1);
+	#endif
+	#if defined(USE_BH) && defined(POINCARE_DODECAHEDRAL)
+	if(rank == 0)
+		printf("\tForce calculation: PDS Barnes-Hut tree on GPU(s).\n");
 	#endif
 	#endif
 	#ifdef GLASS_MAKING

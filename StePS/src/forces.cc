@@ -104,6 +104,7 @@ typedef struct OctreeNode
 	REAL nodesize;			      // length of the cube
 	REAL mass;
 	REAL com_x, com_y, com_z;  // center of mass
+	REAL soft;                 // mass-weighted softening length (used by the PDS BH force)
 	int particle_index;		   // -1 if internal node
 	struct OctreeNode *children[8];
 } OctreeNode;
@@ -116,6 +117,7 @@ OctreeNode* create_node(REAL cx, REAL cy, REAL cz, REAL nodesize)
     node->nodesize = nodesize;
     node->mass = 0;
     node->com_x = node->com_y = node->com_z = 0;
+    node->soft = 0;
     node->particle_index = -1;
     for (int i = 0; i < 8; i++) node->children[i] = NULL;
     return node;
@@ -139,6 +141,7 @@ void insert_particle(OctreeNode *node, REAL *X, REAL *M, int i)
         node->com_x = X[3*i];
         node->com_y = X[3*i+1];
         node->com_z = X[3*i+2];
+        node->soft = SOFT_LENGTH[i];
         return;
     }
 
@@ -167,6 +170,7 @@ void insert_particle(OctreeNode *node, REAL *X, REAL *M, int i)
     node->com_x = (node->com_x * node->mass + X[3*i] * M[i]) / total_mass;
     node->com_y = (node->com_y * node->mass + X[3*i+1] * M[i]) / total_mass;
     node->com_z = (node->com_z * node->mass + X[3*i+2] * M[i]) / total_mass;
+    node->soft  = (node->soft  * node->mass + SOFT_LENGTH[i] * M[i]) / total_mass;
     node->mass = total_mass;
 }
 void free_node(OctreeNode *node)
@@ -1432,8 +1436,108 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
  *  of the force on particle i.  The force is stored as the last three components
  *  of the 4D geodesic tangent vector (the e0=(1,0,0,0) component is zero to first
  *  order for particles near the fundamental domain centre). */
+#if defined(USE_BH)
+/*  Barnes-Hut tree force for the PDS (S^3/I*) topology.
+ *
+ *  The octree is built in the stereographic Cartesian coordinates x[] (the
+ *  same coordinates StePS drifts in).  Inside the fundamental domain the
+ *  stereographic map is conformal with a nearly constant scale factor, so the
+ *  Euclidean octree faithfully represents the S^3 geometry.
+ *
+ *  CRUCIAL: the opening test must be evaluated separately for EACH I* image g,
+ *  in the S^3 geodesic metric.  A node that is far in the identity image can be
+ *  adjacent to the field particle in an image that shares a dodecahedral face
+ *  (that image IS the physical neighbour across the face); approximating such a
+ *  near image by a monopole is catastrophically wrong.  So we descend the tree
+ *  once per image, using chi(qi, g.q_C) for that image.  Genuinely far images
+ *  (most of the 119) terminate at shallow levels, so the cost is far below 120
+ *  deep walks.  See examples/pds_tests/pds_bh_prototype.cc for the standalone
+ *  validation of this scheme (force error vs theta).
+ *
+ *  A node of stereo side `nodesize` at stereo radius r_C subtends the geodesic
+ *  angle  ang = Omega(r_C)*nodesize/R = 2R*nodesize/(R^2 + r_C^2)  (Omega is the
+ *  conformal factor of the stereographic map); isometries preserve it, so the
+ *  imaged node has the same angular size.                                      */
+static void compute_BH_pds_force_image(OctreeNode *node, const double qi[4],
+        double soft_i, int g, double theta2, double R_curv,
+        double *Fx, double *Fy, double *Fz)
+{
+    if(node == NULL || node->mass == 0.0) return;
+
+    double r2 = (double)node->com_x*node->com_x
+              + (double)node->com_y*node->com_y
+              + (double)node->com_z*node->com_z;
+    double R2 = R_curv*R_curv;
+    double dn = R2 + r2;
+    /* node centre of mass mapped to a unit quaternion (inverse stereo map) */
+    double qC[4] = { (R2 - r2)/dn,
+                     2.0*R_curv*node->com_x/dn,
+                     2.0*R_curv*node->com_y/dn,
+                     2.0*R_curv*node->com_z/dn };
+    double qg[4]; pds_apply_group_element(g, qC, qg);
+    double chi = pds_chi(qi, qg);
+    double ang = 2.0*R_curv*node->nodesize / dn;   /* geodesic angular size */
+
+    if(node->particle_index != -1 || ang*ang < theta2*chi*chi)
+    {
+        if(chi < 1e-12 || chi > M_PI - 1e-12) return; /* identity self / antipode */
+        double t[4]; pds_force_direction(qi, qg, t);
+        double chi_soft = (soft_i + (double)node->soft) / R_curv;
+        double chi_eff = (chi < chi_soft) ? chi_soft : chi;
+        double fm = (double)node->mass * pds_green_compensated(chi_eff, R_curv);
+        *Fx += fm*t[1]; *Fy += fm*t[2]; *Fz += fm*t[3];
+        return;
+    }
+    for(int c = 0; c < 8; c++)
+        compute_BH_pds_force_image(node->children[c], qi, soft_i, g, theta2, R_curv, Fx, Fy, Fz);
+}
+
+void forces_pds_bh(REAL* pds_q, REAL* F, int ID_min, int ID_max)
+{
+    pds_init();
+    double omp_start_time = omp_get_wtime();
+    double R_curv = (double)PDS_R_CURV;
+    double theta2 = (double)THETA * (double)THETA;
+
+    /* Build the octree over ALL N particles from the stereographic coords x[] */
+    REAL Max_radius = 0.0;
+    for(int i = 0; i < N; i++) {
+        REAL r = sqrt(x[3*i]*x[3*i] + x[3*i+1]*x[3*i+1] + x[3*i+2]*x[3*i+2]);
+        if(r > Max_radius) Max_radius = r;
+    }
+    OctreeNode *root = create_node(0.0, 0.0, 0.0, 2.00002*Max_radius);
+    for(int i = 0; i < N; i++) insert_particle(root, x, M, i);
+
+    int chunk = (ID_max - ID_min + 1) / omp_get_max_threads();
+    if(chunk < 1) chunk = 1;
+
+    #pragma omp parallel for schedule(dynamic, chunk)
+    for(int i = ID_min; i <= ID_max; i++)
+    {
+        double qi[4] = {(double)pds_q[4*i], (double)pds_q[4*i+1],
+                        (double)pds_q[4*i+2], (double)pds_q[4*i+3]};
+        double soft_i = (double)SOFT_LENGTH[i];
+        double Fx = 0.0, Fy = 0.0, Fz = 0.0;
+        for(int g = 0; g < PDS_N_ISTAR; g++)
+            compute_BH_pds_force_image(root, qi, soft_i, g, theta2, R_curv, &Fx, &Fy, &Fz);
+        F[3*(i - ID_min)]   = (REAL)Fx;
+        F[3*(i - ID_min)+1] = (REAL)Fy;
+        F[3*(i - ID_min)+2] = (REAL)Fz;
+    }
+
+    free_node(root);
+    double omp_end_time = omp_get_wtime();
+    printf("PDS Barnes-Hut force calculation finished on MPI task %i (theta = %.3f). Wall-clock time = %fs.\n",
+           rank, (double)THETA, omp_end_time - omp_start_time);
+}
+#endif /* USE_BH */
+
 void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
 {
+#if defined(USE_BH)
+    forces_pds_bh(pds_q, F, ID_min, ID_max);
+    return;
+#endif
     pds_init();
     double omp_start_time = omp_get_wtime();
     int i, j, k;

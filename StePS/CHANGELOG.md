@@ -1,6 +1,86 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.2.2.0] - 2026-06-15
+
+### Added
+- **EXPERIMENTAL: Barnes-Hut (octree) tree force for the PDS (S^3/I*) topology**
+  on both **CPU and GPU**, enabled with `-DUSE_BH=<theta>` in a PDS build.
+  Direct 120-image summation is O(N^2) and becomes prohibitive at research-grade
+  N (a 7.8x10^5-particle run would take weeks); the tree force is O(N log N).
+  - CPU: `forces_pds_bh()` in `forces.cc` (`PDS-Linux_BH-Makefile` → `StePS_BH`).
+  - GPU: `forces_pds_bh_cuda()` / `ForceKernel_pds_bh` in `forces_cuda.cu`
+    (`PDS-Linux_CUDA_BH-Makefile` → `StePS_CUDA_BH`). The octree is built and
+    flattened on the host (DFS preorder + per-node "escape"/skip pointer) and
+    walked iteratively on the GPU — no recursion, no per-thread stack. One GPU
+    thread per field particle does the 120 per-image stackless walks; the I*
+    table is copied to each device's `__constant__` memory; the field-particle
+    range is split across GPUs. (`main.cc` no longer rejects USE_BH+USE_CUDA for
+    the PDS topology; other topologies still have no GPU tree.)
+  - **GPU port validation (test7b):** GPU-BH reproduces CPU-BH to printed
+    precision at every snapshot through z=0 (RMS Δx = 0), 4-GPU = 1-GPU
+    bit-identical, and GPU-BH vs exact density cross-correlation 0.935 (z=0).
+    Force eval 0.025 s (1 GPU) vs 0.25 s (16 CPU cores); the full test7b run
+    takes < 60 s on one GPU. At N = 7.8x10^5 the GPU tree force is ~0.35 s/eval
+    (4 GPUs, ~9.4x10^5 nodes) vs an extrapolated ~46 min/eval for exact direct
+    on the same GPUs (~10^4x), turning a multi-week run into minutes.
+  - **Key design point:** the octree opening test is evaluated *per I* image*,
+    in the S^3 geodesic metric. A node that is far in the identity image can be
+    the *physical neighbour across a shared dodecahedral face* in another image,
+    so a single identity-image opening test lumps near images into monopoles and
+    gives forces 10-45x too large (and divergent as theta shrinks). Descending
+    the tree once per image (genuinely far images terminate shallow) fixes this;
+    node angular size uses the conformal factor of the stereographic map,
+    `ang = 2R*nodesize/(R^2 + r_C^2)`, preserved by I* isometries.
+  - Reuses the shared `OctreeNode`/`insert_particle` scaffolding (extended with a
+    mass-weighted `soft` field). `forces_pds()` dispatches to the tree force when
+    `USE_BH` is defined; both call sites (initial force, integrator) pick it up.
+  - New CPU build file `PDS-Linux_BH-Makefile` (stepsic conda toolchain) →
+    `build/StePS_BH`.
+  - **Validation** (test7b, N=12 240): standalone force check converges to exact
+    (rel. err 3x10^-5 as theta->0); at theta=0.3 the end-to-end z=31->0 run
+    matches the exact 120-image run with density cross-correlation 0.93 (z=0) /
+    0.95 (z=1) and P(k) agreement to ~5% across all scales, no NaNs. Runtime
+    78 s (16 CPU cores) vs ~450 s for the exact run on 4x H200 GPUs.
+    Tooling: `examples/pds_tests/pds_bh_prototype.cc` (standalone θ-vs-accuracy
+    validator) and `pds_bh_prototype_plot.py`.
+  - **Momentum-conservation audit (passed):** Barnes-Hut monopole forces break
+    Newton's third law in general, but the exact PDS force is itself not
+    perfectly pairwise-antisymmetric (projected-to-3D compact-S^3 force; net
+    |S|/sum|M a| ~ 0.17% early, ~0.66% at z=0). The tree net force stays within
+    0.91-1.04x that exact baseline at every epoch and converges to 1.0x as
+    theta->0 — no momentum drift of its own. The integrated run's bulk momentum
+    tracks the exact run and decreases from the IC value rather than
+    accumulating. Audit mode: `pds_bh_prototype <snap> <radii> 0 momentum`.
+  - **GPU performance:** the host octree build was found to dominate the GPU
+    force step (60-78% at N=7.8x10^5, GPUs idle meanwhile — the cause of the
+    fluctuating GPU utilisation / low power). Now built with a parallel Morton
+    (Z-order) sort into the flattened array (`__gnu_parallel::sort` + OpenMP),
+    cutting the build from ~0.30 s to ~0.06 s at that N (~5x); the tree is
+    structurally identical (same node count, density cross-correlation 0.935 vs
+    exact unchanged, trajectories match the recursive build to ~1e-10).
+    Device buffers are now persistent (no per-step cudaMalloc/cudaFree) and the
+    tree is staged through pinned host memory. NOTE: the GPU build's tree
+    construction is parallel, so it too needs `mpirun --bind-to none` to avoid
+    OpenMP threads binding to one core.
+  - **Not yet done:** quadrupole terms (would tighten the per-particle error
+    tail); overlapping/​hiding the remaining host build behind GPU work (or a
+    full GPU-side tree build) to push utilisation higher; Morton-ordering the
+    field particles to cut warp divergence in the kernel.
+
+### Notes
+- **Both Barnes-Hut builds must launch with `mpirun --bind-to none`** (or run the
+  binary directly without mpirun). With the default binding, `mpirun -np 1`
+  confines all OpenMP threads to a single core. This slows the CPU tree force
+  ~18x (4.8 s vs 0.25 s per force evaluation on this node), and from v2.2.2.0 it
+  also throttles the **GPU** build's parallel host-side octree construction.
+  Recommended launch:
+  ```
+  # CPU:  OMP_NUM_THREADS=16 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 ./build/StePS_BH <param>
+  # GPU:  OMP_NUM_THREADS=32 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 ./build/StePS_CUDA_BH <param> <n_gpu>
+  ```
+  The exact-direct builds (`StePS`, `StePS_CUDA`) do not need it.
+
 ## [v2.2.1.0] - 2026-06-11
 
 ### Fixed
