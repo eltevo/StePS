@@ -1520,9 +1520,15 @@ void forces_pds_bh(REAL* pds_q, REAL* F, int ID_min, int ID_max)
         double Fx = 0.0, Fy = 0.0, Fz = 0.0;
         for(int g = 0; g < PDS_N_ISTAR; g++)
             compute_BH_pds_force_image(root, qi, soft_i, g, theta2, R_curv, &Fx, &Fy, &Fz);
-        F[3*(i - ID_min)]   = (REAL)Fx;
-        F[3*(i - ID_min)+1] = (REAL)Fy;
-        F[3*(i - ID_min)+2] = (REAL)Fz;
+        /* Conformal Jacobian: the kernel returns the PHYSICAL geodesic acceleration
+         * (magnitude M/d_geodesic^2), but the drift integrates the position in the
+         * conformally-flat stereographic chart ds^2 = Omega^2 dx^2.  The Newtonian
+         * coordinate acceleration is a_phys/Omega, with Omega = 2R^2/(R^2+r^2) = 1+q0.
+         * Omitting this makes gravity ~Omega(~2)x too strong -> structure over-grows. */
+        double invOmega = 1.0/(1.0 + qi[0]);
+        F[3*(i - ID_min)]   = (REAL)(Fx*invOmega);
+        F[3*(i - ID_min)+1] = (REAL)(Fy*invOmega);
+        F[3*(i - ID_min)+2] = (REAL)(Fz*invOmega);
     }
 
     free_node(root);
@@ -1612,6 +1618,11 @@ void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
                 F[3*(i - ID_min) + k] += (REAL)f_acc[k];
             }
         }
+        /* Conformal Jacobian (see forces_pds_bh): the kernel returns the physical
+         * geodesic acceleration; the drift integrates in the conformally-flat
+         * stereographic chart, so divide by Omega = 2R^2/(R^2+r^2) = 1+q0. */
+        double invOmega = 1.0/(1.0 + qi[0]);
+        for(k = 0; k < 3; k++) F[3*(i - ID_min) + k] *= (REAL)invOmega;
     }
     double omp_end_time = omp_get_wtime();
     printf("PDS force calculation finished on MPI task %i. Wall-clock time = %fs.\n", rank, omp_end_time - omp_start_time);

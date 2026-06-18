@@ -59,6 +59,18 @@ smoothly to zero at the antipode.  The direction is the unit geodesic tangent at
 the field particle pointing toward the source.  The geodesic distance is
 `χ = arccos(p · q)` where p and q are unit quaternions.
 
+> **Conformal Jacobian (the force→drift mapping).** The kernel above is the
+> *physical geodesic* acceleration, but the integrator drifts particles in the
+> flat stereographic chart (`x_stereo += v·dt`, see Known Limitations). The
+> stereographic map is conformal, `ds² = Ω²·dx_stereo²`, with
+> `Ω = 2R²/(R² + r²)`, so the correct **coordinate** acceleration is `a_phys/Ω`.
+> Each PDS force is therefore divided by `Ω(r_i)` for its target particle `i`,
+> using the identity **`Ω = 1 + q₀`** (q₀ = quaternion scalar part of `i`).
+> Omitting this made gravity ~Ω ≈ 2× too strong throughout the domain and caused
+> a runaway over-growth (`D ∝ a^1.6` instead of `a`); fixed in v2.2.3.0. Ω varies
+> only ~3.5% across the domain (2.00 at the centre → 1.93 at r_in = 960 Mpc), so
+> the per-particle factor captures the effect to a few percent.
+
 > **Why not the bare 1/(R² sin²χ) kernel?**  I* is closed under negation, the bare
 > kernel satisfies G(π−χ) = G(χ), and antipodal images pull in exactly opposite
 > directions — so the bare force from the full 120-image system of any source
@@ -597,8 +609,19 @@ This is a first-order approximation valid when:
 - The simulation volume ≪ R_curv (curvature corrections ∝ r²/R²)
 - Time steps are small (so drift trajectories remain close to geodesics)
 
-For Ω_k ≈ −0.018 and simulation radius r_in ≈ 960 Mpc, the curvature correction is:
-(r_in/R)² ≈ (960/3100)² ≈ 10%, which is not negligible for precision science.
+> **Note (v2.2.3.0).** The *leading* conformal effect of the flat drift was **not**
+> the ~10% (r/R)² curvature correction below — it was a ~100% (factor Ω ≈ 2) error.
+> The physical geodesic force was being applied directly as the stereographic
+> coordinate acceleration without the conformal Jacobian, making peculiar gravity
+> ~2× too strong (runaway over-growth). That dominant term is now corrected by
+> dividing each force by Ω = 1 + q₀ (see [Force Law](#force-law)). What remains
+> below is the genuinely second-order residual:
+
+After the Ω correction, the leftover error is the **spatial variation** of Ω across
+the domain (~3.5%, since Ω = 2.00 at the centre → 1.93 at r_in = 960 Mpc) plus the
+velocity-dependent Christoffel terms of the conformal metric, both ∝ (r/R)².
+For Ω_k ≈ −0.018 and simulation radius r_in ≈ 960 Mpc this is
+(r_in/R)² ≈ (960/3100)² ≈ 10%, still not negligible for precision science.
 
 **Future work:** Replace the drift phase with the geodesic exponential map on S³:
 ```
@@ -644,10 +667,10 @@ non-PDS topologies (R³, S¹×R², T³).
 | `src/global_variables.h` | `PDS_Q`, `PDS_R_CURV` under `#elif defined(POINCARE_DODECAHEDRAL)`; `pds_wrap_ic()` prototype |
 | `src/main.cc` | Global variable definitions; PDS forward declarations; **IC wrap + broadcast before the initial force calculation**; PDS-volume density check; topology warning |
 | `src/step.cc` | `pds_wrap_ic()` (IC wrapping); PDS boundary wrapping after drift with velocity transform; force dispatch to `forces_pds()`; MPI broadcast of `PDS_Q` |
-| `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1). `forces_pds_bh()`: O(N log N) Barnes-Hut tree force with per-image geodesic opening test (`-DUSE_BH`, experimental) |
+| `src/forces.cc` | `forces_pds()`: O(N²) CPU force — **exact compensated 120-image summation** (IS_PERIODIC ≥ 2, incl. self-images) or nearest-image mode (IS_PERIODIC = 1). `forces_pds_bh()`: O(N log N) Barnes-Hut tree force with per-image geodesic opening test (`-DUSE_BH`, experimental). Both **divide the stored force by the conformal Jacobian Ω = 1 + q₀** (v2.2.3.0) |
 | `PDS-Linux_BH-Makefile` | CPU build with the PDS Barnes-Hut force (`build/StePS_BH`); stepsic conda toolchain |
 | `examples/pds_tests/pds_bh_prototype.cc` | Standalone Barnes-Hut θ-vs-accuracy validator (+ `pds_bh_prototype_plot.py`, `pds_bh_prototype_README.md`) |
-| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory (uploaded per device inside the per-GPU OpenMP section — constant memory is not shared between GPUs), same two force modes. `ForceKernel_pds_bh` / `forces_pds_bh_cuda`: GPU Barnes-Hut tree force (host-built flattened octree with escape pointers, stackless per-image device traversal; `-DUSE_BH`) |
+| `src/forces_cuda.cu` | `ForceKernel_pds` CUDA kernel with I* in `__constant__` memory (uploaded per device inside the per-GPU OpenMP section — constant memory is not shared between GPUs), same two force modes. `ForceKernel_pds_bh` / `forces_pds_bh_cuda`: GPU Barnes-Hut tree force (host-built flattened octree with escape pointers, stackless per-image device traversal; `-DUSE_BH`). Both kernels apply the same **Ω = 1 + q₀ conformal division** (v2.2.3.0) |
 | `PDS-Linux_CUDA_BH-Makefile` | GPU build with the PDS Barnes-Hut force (`build/StePS_CUDA_BH`) |
 | `src/inputoutput.cc` | Reads `/PartType1/Quaternions` when present; PDS fields in HDF5 snapshot headers |
 | All Makefiles | `#OPT += -DPOINCARE_DODECAHEDRAL` (commented out by default); `PDS-LinuxGCC-Makefile` (CPU) and `PDS-Linux_CUDA-Makefile` (GPU, stepsic conda-env toolchain, `CUDA_ARCH` knob) have it enabled |

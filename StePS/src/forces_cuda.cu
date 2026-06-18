@@ -1011,9 +1011,12 @@ __global__ void ForceKernel_pds(
             }
         }
 
-        atomicAdd(&F[3*ii],   (REAL)Fx);
-        atomicAdd(&F[3*ii+1], (REAL)Fy);
-        atomicAdd(&F[3*ii+2], (REAL)Fz);
+        /* Conformal Jacobian: divide physical geodesic accel by Omega=1+q0 so it
+         * becomes the coordinate accel for the stereographic drift (see forces.cc). */
+        double invOmega = 1.0/(1.0 + qi[0]);
+        atomicAdd(&F[3*ii],   (REAL)(Fx*invOmega));
+        atomicAdd(&F[3*ii+1], (REAL)(Fy*invOmega));
+        atomicAdd(&F[3*ii+2], (REAL)(Fz*invOmega));
     }
 }
 
@@ -1164,9 +1167,12 @@ __global__ void ForceKernel_pds_bh(
                 }
             }
         }
-        F[3*ii]   = (REAL)Fx;
-        F[3*ii+1] = (REAL)Fy;
-        F[3*ii+2] = (REAL)Fz;
+        /* Conformal Jacobian: divide physical geodesic accel by Omega=1+q0 so it
+         * becomes the coordinate accel for the stereographic drift (see forces.cc). */
+        double invOmega = 1.0/(1.0 + qi[0]);
+        F[3*ii]   = (REAL)(Fx*invOmega);
+        F[3*ii+1] = (REAL)(Fy*invOmega);
+        F[3*ii+2] = (REAL)(Fz*invOmega);
     }
 }
 

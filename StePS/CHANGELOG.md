@@ -1,6 +1,49 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.2.3.0] - 2026-06-18
+
+### Fixed
+- **PDS (S^3/I*) structure over-growth — missing stereographic conformal factor
+  in the force→drift mapping.** PDS runs grew structure far too fast (long-standing
+  complaint; the dodecahedral run collapsed into bright clusters while the matched
+  flat T^3 run showed only a mild cosmic web). Root cause: `forces_pds()` /
+  `forces_pds_bh()` return the **physical geodesic** acceleration on S^3
+  (`pds_green_compensated ≈ G M / r^2_geodesic`, correct magnitude and direction),
+  but `step.cc` drifts the particle in the **stereographic coordinate** chart
+  (`x_stereo += v*dt`) treating it as flat. The stereographic map is conformal,
+  `ds^2 = Omega^2 dx_stereo^2` with `Omega = 2R^2/(R^2 + r^2)`, so the correct
+  coordinate acceleration is `a_phys/Omega`, not `a_phys`. With `Omega ≈ 2` across
+  the fundamental domain the peculiar gravity was **~2x too strong everywhere**,
+  turning the linear growth `D ∝ a` into `D ∝ a^~1.6` — a runaway over-growth.
+  - **Fix:** divide the PDS force on each target particle `i` by
+    `Omega(r_i) = 2R^2/(R^2 + r_i^2)`. Uses the identity **`Omega = 1 + q0`**
+    (`q0` = quaternion scalar part of particle `i`, since
+    `q0 = (R^2 - r^2)/(R^2 + r^2)`), so the correction is a single multiply by
+    `1.0/(1.0 + qi[0])`. Applied in all four PDS force paths before the force is
+    stored: `forces_pds()` (CPU direct) and `forces_pds_bh()` (CPU BH) in
+    `forces.cc`; `ForceKernel_pds` (CUDA direct) and the CUDA BH kernel in
+    `forces_cuda.cu`. The 4D-tangent force *direction* was already correct and is
+    unchanged.
+  - **Confirmation:** a standalone reimplementation gives `F_code/F_correct =
+    Omega(r_i)` exactly (2.00 at the domain centre, 1.93 at the edge), direction
+    dot-product 1.000.
+  - **Validation** (test128, N = 7.8x10^5, R_curv = 3100 Mpc, z = 31→0, 4x H200,
+    ~15 min): measured against the matched flat T^3 StePS run (same IC realization,
+    `testCubic128`) with the coordinate-invariant geodesic displacement `R*chi`.
+    The PDS growth relative to linear theory went from a runaway ramp
+    (`sim/lin` 1.00→1.16→1.46→1.72→1.93 over z = 15→2) to **flat ≈1.0**
+    (1.00→1.00→0.99→0.98→0.98) — i.e. it now tracks linear growth. Counts-in-cells
+    over-clustering at z = 0 dropped **~16x** (sigma^2 ratio vs flat 49.5 → 3.2; the
+    small residual is a cross-geometry resolution/shot-noise baseline visible even
+    at z = 10 where the physics is linear, not a force error).
+  - **Note:** this captures the dominant (constant-Omega) effect exactly; the
+    leftover spatial variation of Omega (~3.5% across the domain) and the
+    velocity-dependent Christoffel terms remain part of the first-order integrator
+    approximation (see PDS guide "Known Limitations"). Earlier component tests
+    (force = M/r^2, Hubble drag = a^-2, T^3 mode = Gadget4) were all correct; the
+    defect was confined to the PDS coordinate mapping.
+
 ## [v2.2.2.0] - 2026-06-15
 
 ### Added
@@ -67,6 +110,10 @@ All notable changes to the StePS simulation code is documented in this file.
     tail); overlapping/​hiding the remaining host build behind GPU work (or a
     full GPU-side tree build) to push utilisation higher; Morton-ordering the
     field particles to cut warp divergence in the kernel.
+
+### Fixed
+- `ewald_space.cc` did not include `<string.h>`, so any `-DPERIODIC` (T^3) build
+  failed to compile (`'memset' was not declared`). Added the include.
 
 ### Notes
 - **Both Barnes-Hut builds must launch with `mpirun --bind-to none`** (or run the

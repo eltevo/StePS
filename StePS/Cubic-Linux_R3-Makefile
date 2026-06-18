@@ -1,6 +1,6 @@
 
 #-----------------------------------------------------------------------------------------------#
-# StePS Makefile — PDS (S^3/I*) CPU build with the Barnes-Hut tree force
+# StePS Makefile — T^3 periodic (flat cubical) CPU build with the Barnes-Hut tree force
 # Copyright (C) 2017-2026 Gabor Racz
 #		Department of Physics, University of Helsinki | Helsinki, Finland
 #		Jet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
@@ -17,7 +17,7 @@ VERSION='"v2.2.3.0"'
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
 #-----------------------------------------------------------------------------------------------#
-# Builds build/StePS_BH (CPU, OpenMP+MPI) using the experimental PDS Barnes-Hut
+# Builds build/StePS_R3: flat T^3 periodic + Barnes-Hut (for the cubical
 # tree force (forces_pds_bh in forces.cc).  Activate the stepsic conda env first.
 # CUDA + Barnes-Hut is not yet implemented, so this is a CPU-only build.
 
@@ -27,13 +27,13 @@ VERSION='"v2.2.3.0"'
 
 #------------------------------- Force calculation method
 # Barnes-Hut (octree) with opening angle theta.  theta ~ 0.3-0.35 gives ~0.5-1%
-# force accuracy on the PDS topology (see examples/pds_tests/pds_bh_prototype*).
-OPT += -DUSE_BH=0.3
+# force accuracy. Periodic T^3 uses Ewald-corrected BH.
+#no BH - direct force
 #OPT += -DSAVE_ACCELERATIONS # Save accelerations to snapshots (HDF5 only).
 
 #------------------------------- Boundary conditions / topology
-OPT += -DPOINCARE_DODECAHEDRAL # Poincare Dodecahedral Space topology (S^3/I*). EXPERIMENTAL.
-EWALD_INTERPOLATION_ORDER=2# Not used in PDS mode; left at default.
+#R3 free boundary (no PERIODIC)
+EWALD_INTERPOLATION_ORDER=4# Ewald force-table interpolation order (4 = TSC).
 
 #------------------------------- Option for enabling HDF5 I/O
 OPT += -DHAVE_HDF5
@@ -73,7 +73,7 @@ COMPILERVERSION=$(shell $(CXX) --version | head -1)
 GITCOMMIT_ID=$(shell git rev-parse HEAD)
 GITBRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 DATE=$(shell date +'%Y-%m-%d %A %H:%M %Z')
-BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"' -DPROGRAMNAME='"StePS_BH"'
+BUILD_NUMBER_LDFLAGS  = -DBUILD_DATE='"$(DATE)"' -DPROGRAM_VERSION=$(VERSION) -DCOMPILER_VERSION='"$(COMPILERVERSION)"' -DGIT_COMMIT_ID='"$(GITCOMMIT_ID)"' -DGIT_BRANCH='"$(GITBRANCH)"' -DPROGRAMNAME='"StePS_R3"'
 CFLAGS = -Wno-long-long -Wno-unused-result -lm -Wall -ansi -pedantic -O3 -ffast-math -std=${CPPSTD} -fopenmp -lgomp -DOMPI_SKIP_MPICXX
 
 MPI_COMPILE_FLAGS = $(shell mpicxx --showme:compile)
@@ -83,12 +83,12 @@ MPI_LINK_FLAGS = $(shell mpicxx --showme:link)
 OPT += -DEWALD_INTERPOLATION_ORDER=$(EWALD_INTERPOLATION_ORDER)
 
 #------------------------------- Printing out some info
-$(info This is the StePS $(VERSION) PDS Barnes-Hut (CPU) Makefile.)
-$(info Compiling StePS with $(CXX) ($(COMPILERVERSION)), CPU only, Barnes-Hut PDS force.)
+$(info This is the StePS $(VERSION) T^3 periodic Barnes-Hut (CPU) Makefile.)
+$(info Compiling StePS with $(CXX) ($(COMPILERVERSION)), CPU only, flat T^3 periodic Barnes-Hut force.)
 $(info Build options: $(OPT))
 $(info )
 
-PROG = $(BUILD_DIR)/StePS_BH
+PROG = $(BUILD_DIR)/StePS_R3
 
 $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
