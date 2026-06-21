@@ -948,7 +948,7 @@ __global__ void ForceKernel_pds(
     for(int ii = tid; ii < n; ii += stride)
     {
         int i = ID_min + ii;
-        if(i > ID_max) return;
+        if(i > ID_max) break;
 
         double qi[4];
         for(int k=0;k<4;k++) qi[k] = (double)pds_q[4*i+k];
@@ -1132,7 +1132,7 @@ __global__ void ForceKernel_pds_bh(
     for(int ii = tid; ii < n; ii += stride)
     {
         int i = ID_min + ii;
-        if(i > ID_max) return;
+        if(i > ID_max) break;
 
         double qi[4]; for(int k=0;k<4;k++) qi[k]=(double)pds_q[4*i+k];
         double soft_i = (double)soft[i];
@@ -1295,8 +1295,12 @@ cudaError_t forces_pds_bh_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int 
         cudaMemcpy(g_dsoft[GPU_ID], SOFT_LENGTH,   (size_t)N*sizeof(REAL),         cudaMemcpyHostToDevice);
         cudaMemcpy(g_dtree[GPU_ID], g_htree,  (size_t)nnodes*sizeof(PDSNodeGPU),   cudaMemcpyHostToDevice);
 
+        /* Loop bound is the per-GPU PARTICLE count N_GPU (not nthreads): the grid-stride
+         * loop `for(ii=tid; ii<N_GPU; ii+=stride)` then covers ALL of this GPU's
+         * particles.  Passing nthreads froze the last (N_GPU - nthreads) particles per
+         * GPU whenever N_GPU > nthreads (~N > 4.3M on 4 GPUs). */
         ForceKernel_pds_bh<<<32*mprocessors, BLOCKSIZE>>>(
-            nthreads, g_dq[GPU_ID], g_dF[GPU_ID], g_dsoft[GPU_ID], g_dtree[GPU_ID], nnodes,
+            N_GPU, g_dq[GPU_ID], g_dF[GPU_ID], g_dsoft[GPU_ID], g_dtree[GPU_ID], nnodes,
             (double)PDS_R_CURV, theta2,
             GPU_index_min, GPU_index_min + N_GPU - 1);
         cudaDeviceSynchronize();
@@ -1357,8 +1361,9 @@ cudaError_t forces_pds_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int ID_
         cudaMemcpy(dev_soft, SOFT_LENGTH,  N*sizeof(REAL),     cudaMemcpyHostToDevice);
         cudaMemset(dev_F, 0, 3*N_GPU*sizeof(REAL));
 
+        /* Loop bound = per-GPU PARTICLE count N_GPU (not nthreads); see forces_pds_bh_cuda. */
         ForceKernel_pds<<<32*mprocessors, BLOCKSIZE>>>(
-            nthreads, N, dev_q, dev_F, IS_PERIODIC,
+            N_GPU, N, dev_q, dev_F, IS_PERIODIC,
             dev_M, dev_soft, (double)PDS_R_CURV,
             GPU_index_min, GPU_index_min + N_GPU - 1);
 
@@ -1571,7 +1576,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU
-		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(32 * mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, dev_SOFT_LENGTH, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, dev_SOFT_LENGTH, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
 		if (cudaStatus != cudaSuccess) {
@@ -2138,12 +2143,12 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         
         // Launch a kernel on the GPU
 		#ifdef PERIODIC_Z_NOLOOKUP
-        ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(32*mprocessors*BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, 
+        ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F,
                                                             IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
                                                             mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, DE, COSMOLOGY, COMOVING_INTEGRATION,
                                                             GPU_index_min, GPU_index_min+N_GPU-1);
         #else
-		ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(32*mprocessors*BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, 
+		ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F,
 															IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
 															mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, dev_S1R2_EwaldTable, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, DE, COSMOLOGY, COMOVING_INTEGRATION,
 															GPU_index_min, GPU_index_min+N_GPU-1);

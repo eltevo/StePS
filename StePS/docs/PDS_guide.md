@@ -410,6 +410,16 @@ Since v2.2.1.0 the PDS CUDA path is validated on real hardware (4× NVIDIA
 H200): multi-GPU snapshots are bit-identical to single-GPU, and agree with the
 CPU build to RMS ≈ 10⁻¹⁰ Mpc with identical adaptive-timestep output redshifts.
 
+> **Important (fixed in v2.2.4.0).** That validation was done below ~4.3×10⁶ particles
+> (on 4 GPUs).  Above that, **all** the CUDA force kernels had a coverage bug: the
+> grid-stride loop was bounded by the thread count `nthreads = 32·SMs·BLOCKSIZE` instead
+> of the per-GPU particle count `N_GPU`, so the last `N_GPU − nthreads` particles of each
+> GPU never received a force and stayed frozen at their IC positions (visible as smooth,
+> unevolved bands in z=0 renders).  Fixed in v2.2.4.0 (the kernels now use `N_GPU` as the
+> loop bound).  Runs at or below the threshold (e.g. the test7b validation, the
+> 7.8×10⁵-particle PDS runs, the v2.2.3.0 Gadget4 comparison) were fully covered and are
+> unaffected; larger multi-GPU runs made before v2.2.4.0 should be re-run.
+
 ### Build
 
 `PDS-Linux_CUDA-Makefile` builds against the **stepsic conda environment**
@@ -597,6 +607,34 @@ snapshots compared to a reference run.
 
 ---
 
+## Validation against Gadget4 (gold standard)
+
+The end-to-end growth/clustering test compares a PDS run to a **flat Gadget4 run built
+from the same IC realization**.  Gadget4 tracks linear growth to ~1% and is the reference;
+a **StePS-T³ run is not a safe reference** — `testCubic128` (`IS_PERIODIC=2` with a
+low-res 63³ Ewald table) was found to over-grow ~3× vs Gadget at z=10, tracking `D∝a^~1.5`.
+The PDS mode is immune (exact 120-image sum, no Ewald table), but this is why the
+reference is Gadget4.
+
+Tooling lives in `examples/pds_tests/`:
+- `GADGET4_REFERENCE.md` — reproducible Gadget4 build (conda SYSTYPE, FFTW3/zlib, the
+  `CPP=mpicxx` gotcha) and run setup.
+- `rescale_ic_to_gadget.py` — converts a stepsic h-independent (Mpc) IC to the Mpc/h
+  convention Gadget4 enforces (`Hubble=100`): coords/BoxSize ×h, masses ×10h, velocities
+  unchanged.
+- `validate_growth.py` — compares **median geodesic displacement** `R·χ` (the primary,
+  coordinate-invariant growth gate), **large-scale P(k)** in the matched central physical
+  region, and counts-in-cells σ² (resolution-confounded — see below).
+
+**Result (v2.2.3.0 conformal fix, test128 vs gadget128_flat):** the PDS displacement
+growth matches Gadget to **1–2%** at every output (`PDS/Gadget = 1.00–1.02`, z=15→0).  The
+σ² appears ~3–4× high, but this is a **sampling artifact, not over-growth**: it is already
+present at the IC (z=30, where there is no real structure — the power is below shot noise),
+it is constant through evolution, and it traces to the coarser PDS particle load (see the
+matched-resolution note under "Flat-spectrum initial conditions").
+
+---
+
 ## Known Limitations
 
 ### Approximate time integrator
@@ -635,15 +673,51 @@ The 4D geodesic tangent force is projected to 3D by discarding the e₀ componen
 (t₁, t₂, t₃).  The error is ∝ sin(|q₁:₄|) and is small for particles near the domain centre
 but can reach ~30% for particles at the domain boundary.
 
-### Flat-spectrum initial conditions (Phase 7A approximation)
+### Initial-condition spectrum: flat (7A) and discrete S³/I* (7B)
 
-The native stepsic PDS IC (see Quick Start) clips the particle load to the
-fundamental domain and weights masses with the conformal factor, but the LPT
-displacement field is still generated from the flat-space P(k) on a
-box-periodic FFT mesh.  The mode statistics of S³/I* (discrete spectrum
-k_n = √(n(n+2))/R_curv restricted to I*-invariant modes) are Phase 7B work.
+By default the native stepsic PDS IC clips the particle load to the fundamental
+domain, weights masses with the conformal factor, and generates the LPT
+displacement from the flat-space P(k) on a box-periodic FFT mesh (the **Phase 7A**
+approximation).  The large-scale *growth* is correct (the PDS matches Gadget4 to
+1–2%, see "Validation against Gadget4"); the flat spectrum only mis-states the
+largest-mode statistics that carry the topology signature.
+
+**Phase 7B — discrete S³/I* eigenmode spectrum (implemented).** stepsic can now add
+the true discrete eigenmodes of S³/I* on top of the flat small-scale LPT.  The
+Laplacian eigenvalues are k_n = √(n(n+2))/R_curv, and only the I*-invariant modes
+survive — the first non-trivial mode is at **n=12** (then 20, 24, 30, 32, 36…), the
+famous suppression of the largest fluctuations.  Enable it with `PDS_DISCRETE_NMAX`
+in the IC config (0 = off):
+
+```toml
+GEOMETRY = "pds"
+PDS_R_CURV = 3100.0
+PDS_DISCRETE_NMAX = 24      # add I*-invariant modes up to n=24 (12, 20, 24)
+```
+
+The flat field is high-passed above k(n_max) and the discrete invariant modes supply
+all larger scales (replacing the flat — and PDS-*forbidden* — power there).  Modes are
+synthesised with the cosmological P(k_n) (variance validated to ~6% of the analytic
+m_n P/(V k_n²)).  Implementation: `stepsic/s3harmonics.py` (eigenmodes, multiplicities,
+GRF), `stepsic/s3lpt.py` (S³ Zel'dovich displacement, hybrid splice), tests in
+`tests/test_s3harmonics.py`.  Cost grows with n_max (the per-point projection is
+O((n+1)²·120)); n_max ≲ 24–30 is the practical range and captures the topology-defining
+modes.
+
+> **Choosing `NGRID` — physical vs stereographic resolution.** The particle grid is
+> regular in *stereographic* coordinates with spacing `LBOX/NGRID`, but the conformal
+> factor Ω ≈ 2 makes the *physical* spacing ≈ `Ω·LBOX/NGRID` — about **2× coarser** than
+> the same NGRID in a flat box.  To match a flat reference of physical spacing `Δ`, use
+> `NGRID ≈ Ω·LBOX/Δ` (e.g. NGRID=256 for a 1200 Mpc box matches a flat 9.4 Mpc load).
+> Under-resolving relative to a flat comparison shows up as an apparent counts-in-cells
+> σ² excess that is pure sampling noise (present already at the IC), *not* over-growth —
+> matching the resolution closes it (σ² ratio vs Gadget 4.0×→1.3× going 128→256).
 
 ### Force methods on the GPU
+
+Both kernels (and the non-PDS CUDA kernels) had the large-N multi-GPU coverage bug
+fixed in **v2.2.4.0** — see "Running on GPUs (CUDA)" above; their loop bound is now the
+per-GPU particle count `N_GPU`.
 
 Two PDS force kernels run on the GPU:
 - `ForceKernel_pds` — direct O(N²) exact compensated 120-image sum. Validated

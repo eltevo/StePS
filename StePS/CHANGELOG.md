@@ -1,6 +1,33 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.2.4.0] - 2026-06-21
+
+### Fixed
+- **CRITICAL: multi-GPU force kernels left the last particles of each GPU frozen for
+  large N.** All five CUDA force kernels (`ForceKernel_pds_bh`, `ForceKernel_pds`,
+  `ForceKernel`, and the two `ForceKernel_periodic_z` launches in `forces_cuda.cu`) use a
+  grid-stride loop `for(ii=tid; ii<n; ii+=stride)` with `stride = blockDim.x*gridDim.x`,
+  but the launches passed **`n = nthreads = 32*mprocessors*BLOCKSIZE`** (the thread count)
+  as the loop bound instead of the **per-GPU particle count `N_GPU`**.  Because
+  `nthreads == stride`, the loop executes exactly once per thread and only the first
+  `nthreads` particles of each GPU's range receive a force; the remaining
+  `N_GPU - nthreads` particles get F = 0 (stale device buffer) and never evolve.
+  - **Trigger:** only when `N_GPU > nthreads`, i.e. (4× H200, BLOCKSIZE=256 →
+    nthreads ≈ 1.08x10^6) above ~**4.3x10^6 particles on 4 GPUs**.  Smaller runs were
+    fully covered and are unaffected (e.g. the 7.8x10^5-particle PDS validation and the
+    v2.2.3.0 Gadget4 comparison stand).
+  - **Symptom:** a strided/banded pattern where ~the last 1/n_GPU of *each* GPU's
+    (ID-ordered, hence spatial) range stays at its IC position — visible as smooth,
+    unevolved bands in z=0 renders of a 6.3x10^6-particle run.  Diagnosed from the
+    per-ID-block median displacement showing a clean period-`n_GPU` pattern, identical in
+    independent runs (so a code, not IC, bug).
+  - **Fix:** pass `N_GPU` (the GPU's particle count) as the kernel loop bound so the
+    grid-stride covers every particle; also changed the in-loop `if(i>ID_max) return;`
+    to `break;` (a `return` would be wrong mid-grid-stride).  Verified: re-running the
+    6.3x10^6-particle PDS IC now gives a *uniform* per-ID-block displacement (min/max = 1.0
+    across 32 blocks) with no frozen bands.
+
 ## [v2.2.3.0] - 2026-06-18
 
 ### Fixed
