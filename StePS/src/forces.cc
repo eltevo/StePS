@@ -52,38 +52,78 @@ void recalculate_softening()
 REAL force_softening(REAL r, REAL beta)
 {
 	//This function calculates the softened force coefficient between two particles
-	//Only cubic spline softening is implemented here. New softening types can be added later.
 	//Input:
 	//    * r - distance between the two particles
 	//    * beta - softening length
 	//Output:
 	//    * wij - softened force coefficient (1/r^3 for non-softened force)
-	REAL SOFT_CONST[5];
-	REAL betap2 = beta*0.5;
-	REAL wij;
-	wij = 0;
-	if(r >= beta)
-	{
-		wij = pow(r, -3);
-	}
-	else if(r > betap2 && r < beta)
-	{
-		SOFT_CONST[0] = -32.0/(3.0*pow(beta, 6));
-		SOFT_CONST[1] = 38.4/pow(beta, 5);
-		SOFT_CONST[2] = -48.0/pow(beta, 4);
-		SOFT_CONST[3] = 64.0/(3.0*pow(beta, 3));
-		SOFT_CONST[4] = -1.0/15.0;
-		wij = SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2]*r+SOFT_CONST[3]+SOFT_CONST[4]/pow(r, 3);
-	}
-	else
-	{
-		SOFT_CONST[0] = 32.0/pow(beta, 6);
-		SOFT_CONST[1] = -38.4/pow(beta, 5);
-		SOFT_CONST[2] = 32.0/(3.0*pow(beta, 3));
+	// Compile with -DGRAVITYSOFTENINGC2 to use the C2-Wendland force softening.
+    // Otherwise the usual cubic spline softening is used.
+	
+	const REAL r2 = r * r;
+    const REAL r3 = r2 * r;
 
-		wij = SOFT_CONST[0]*pow(r, 3)+SOFT_CONST[1]*pow(r, 2)+SOFT_CONST[2];
-	}
-	return wij;
+    if (r >= beta)
+    {
+        return (REAL)1.0 / r3;
+    }
+
+#ifdef GRAVITYSOFTENINGC2
+
+    // C2-Wendland gravitational softening.
+    // u = r / beta
+    // wij = [21 u^5 - 90 u^4 + 140 u^3 - 84 u^2 + 14] / beta^3
+
+    const REAL inv_beta = (REAL)1.0 / beta;
+    const REAL inv_beta2 = inv_beta * inv_beta;
+    const REAL inv_beta3 = inv_beta2 * inv_beta;
+
+    const REAL u = r * inv_beta;
+    const REAL u2 = u * u;
+
+    //Polynomial:
+    // 21 u^5 - 90 u^4 + 140 u^3 - 84 u^2 + 14
+    // Horner-like form:
+    //(((21 u - 90) u + 140) u - 84) u^2 + 14
+
+    const REAL poly = ((((REAL)21.0 * u - (REAL)90.0) * u + (REAL)140.0) * u - (REAL)84.0) * u2 + (REAL)14.0;
+
+    return poly * inv_beta3;
+
+#else
+
+    // Cubic spline gravitational softening.
+
+    const REAL half_beta = beta * (REAL)0.5;
+
+    const REAL beta2 = beta * beta;
+    const REAL beta3 = beta2 * beta;
+    const REAL beta4 = beta2 * beta2;
+    const REAL beta5 = beta4 * beta;
+    const REAL beta6 = beta3 * beta3;
+
+    if (r > half_beta)
+    {
+        const REAL inv_r3 = (REAL)1.0 / r3;
+
+        const REAL C0 = (REAL)(-32.0) / ((REAL)3.0 * beta6);
+        const REAL C1 = (REAL)(38.4)  / beta5;
+        const REAL C2 = (REAL)(-48.0) / beta4;
+        const REAL C3 = (REAL)(64.0)  / ((REAL)3.0 * beta3);
+        const REAL C4 = (REAL)(-1.0 / 15.0);
+
+        return C0 * r3 + C1 * r2 + C2 * r + C3 + C4 * inv_r3;
+    }
+    else
+    {
+        const REAL C0 = (REAL)(32.0) / beta6;
+        const REAL C1 = (REAL)(-38.4) / beta5;
+        const REAL C2 = (REAL)(32.0 / 3.0) / beta3;
+
+        return C0 * r3 + C1 * r2 + C2;
+    }
+
+#endif
 }
 
 #if defined(PERIODIC_Z) || defined(USE_BH)

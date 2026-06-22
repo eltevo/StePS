@@ -467,55 +467,75 @@ __device__ REAL force_softening_cuda(REAL r, REAL beta)
 {
 
     //This CUDA kernel calculates the softened force coefficient between two particles
-	//Only cubic spline softening is implemented here. New softening types can be added later.
 	//Input:
 	//    * r - distance between the two particles
 	//    * beta - softening length
 	//Output:
 	//    * wij - softened force coefficient (1/r^3 for non-softened force)
-
+	// Compile with -DGRAVITYSOFTENINGC2 to use C2-Wendland softening.
+    // Otherwise the usual cubic spline softening is used.
 	
-	// Precompute reused values
-	const REAL half_beta = beta * (REAL)0.5;
-	REAL wij;
-	// Precompute r powers
 	const REAL r2 = r * r;
-	const REAL r3 = r2 * r;
-	const REAL inv_r3 = (REAL)1.0 / (r3);
+    const REAL r3 = r2 * r;
 
-	if (r >= beta)
-	{
-		wij = inv_r3;
-	}
-	else if (r > half_beta)
-	{
-		//powers of beta only needed for r < beta, so we compute them here
-		const REAL beta2 = beta * beta;
-		const REAL beta3 = beta2 * beta;
-		const REAL beta4 = beta2 * beta2;
-		const REAL beta5 = beta4 * beta;
-		const REAL beta6 = beta3 * beta3;
-		const REAL C0 = (REAL)(-32.0) / ( (REAL)3.0 * beta6 );
-		const REAL C1 = (REAL)(38.4)  / ( beta5 );
-		const REAL C2 = (REAL)(-48.0) / ( beta4 );
-		const REAL C3 = (REAL)(64.0)  / ( (REAL)3.0 * beta3 );
-		const REAL C4 = (REAL)(-1.0 / 15.0);
-		wij = C0 * r3 + C1 * r2 + C2 * r + C3 + C4 * inv_r3;
-	}
-	else
-	{
-		//powers of beta only needed for r < beta, so we compute them here
-		const REAL beta2 = beta * beta;
-		const REAL beta3 = beta2 * beta;
-		const REAL beta4 = beta2 * beta2;
-		const REAL beta5 = beta4 * beta;
-		const REAL beta6 = beta3 * beta3;
-		const REAL C0 = (REAL)(32.0) / beta6;
-		const REAL C1 = (REAL)(-38.4) / beta5;
-		const REAL C2 = (REAL)(32.0 / 3.0) / beta3;
-        wij = C0 * r3 + C1 * r2 + C2;
-	}
-	return wij;
+    if (r >= beta)
+    {
+        return (REAL)1.0 / r3;
+    }
+
+#ifdef GRAVITYSOFTENINGC2
+
+    //C2-Wendland softening.
+    //wij = [21 u^5 - 90 u^4 + 140 u^3 - 84 u^2 + 14] / beta^3
+    //with u = r / beta.
+
+    const REAL inv_beta = (REAL)1.0 / beta;
+    const REAL inv_beta2 = inv_beta * inv_beta;
+    const REAL inv_beta3 = inv_beta2 * inv_beta;
+
+    const REAL u = r * inv_beta;
+    const REAL u2 = u * u;
+
+    const REAL poly =
+        ((((REAL)21.0 * u - (REAL)90.0) * u + (REAL)140.0) * u - (REAL)84.0) * u2
+        + (REAL)14.0;
+
+    return poly * inv_beta3;
+
+#else
+
+    //Cubic spline softening.
+
+    const REAL half_beta = beta * (REAL)0.5;
+
+    const REAL beta2 = beta * beta;
+    const REAL beta3 = beta2 * beta;
+    const REAL beta4 = beta2 * beta2;
+    const REAL beta5 = beta4 * beta;
+    const REAL beta6 = beta3 * beta3;
+
+    if (r > half_beta)
+    {
+        const REAL inv_r3 = (REAL)1.0 / r3;
+
+        const REAL C0 = (REAL)(-32.0) / ((REAL)3.0 * beta6);
+        const REAL C1 = (REAL)(38.4)  / beta5;
+        const REAL C2 = (REAL)(-48.0) / beta4;
+        const REAL C3 = (REAL)(64.0)  / ((REAL)3.0 * beta3);
+        const REAL C4 = (REAL)(-1.0 / 15.0);
+
+        return C0 * r3 + C1 * r2 + C2 * r + C3 + C4 * inv_r3;
+    }
+    else
+    {
+        const REAL C0 = (REAL)(32.0) / beta6;
+        const REAL C1 = (REAL)(-38.4) / beta5;
+        const REAL C2 = (REAL)(32.0 / 3.0) / beta3;
+
+        return C0 * r3 + C1 * r2 + C2;
+    }
+
+#endif
 }
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)

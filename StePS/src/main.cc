@@ -249,7 +249,8 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 	{
 		gethostname(HOSTNAME_BUF, sizeof(HOSTNAME_BUF));
-		printf("\tRunning on %s.\n", HOSTNAME_BUF);
+		printf("Running on %s.\n", HOSTNAME_BUF);
+		printf("\nCompile-time options:\n");
 	}
 	#ifdef USE_CUDA
 	if(rank == 0)
@@ -274,6 +275,13 @@ int main(int argc, char *argv[])
 	#else
 	if(rank == 0)
 		printf("\tDouble precision (64bit) force calculation.\n");
+	#endif
+	#ifdef GRAVITYSOFTENINGC2
+	if(rank == 0)
+		printf("\tC2-Wendland softening. (Wendland, 1995)\n");
+	#else
+	if(rank == 0)
+		printf("\tCubic spline softening. (Monaghan & Lattanzio, 1985)\n");
 	#endif
 	#if defined(PERIODIC)
 	if(rank == 0)

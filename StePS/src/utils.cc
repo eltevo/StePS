@@ -71,7 +71,7 @@ void calculate_softening_length(REAL *SOFT_LENGTH, REAL *M, int N)
     //Calculating the softening length for each particle:
     REAL const_beta = 3.0/rho_part/(4.0*pi);
     printf("Calculating the softening lengths...\n");
-    printf("\tMmin = %f * 10^11 Msol\tMinimal Particle Radius=%fMpc\tParticle density=%f * 10^11 Msol/Mpc^3\n", M_min, ParticleRadi, rho_part);
+    printf("\tMmin = %f * 10^11 Msol\tMinimal softening length=%fMpc\tParticle density=%f * 10^11 Msol/Mpc^3\n", M_min, ParticleRadi, rho_part);
     for(i=0;i<N;i++)
     {
         SOFT_LENGTH[i] = cbrt(M[i]*const_beta); //setting up the softening length for each particle
