@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [v2.0.1.2] - TBA
+
+### Added
+- Added C2-Wendland softening option (Wendland, 1995).
+
 ## [v2.0.1.1] - 2026-06-19
 
 ### Added

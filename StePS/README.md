@@ -229,6 +229,12 @@ StePS uses compile-time options to produce an executable optimized for one simul
 
 Barnes-Hut is CPU-only. Do not combine `USING_CUDA = YES` with `-DUSE_BH`.
 
+### Force Softening
+| Option | Description |
+| --- | --- |
+| No force-softening flag | Cubic-spline softening (Monaghan & Lattanzio, 1985). |
+| `OPT += -DGRAVITYSOFTENINGC2` | C2-Wendland softening (Wendland, 1995). |
+
 ### Boundary Conditions and Topology
 
 | Option | Description |
