@@ -3,6 +3,34 @@ All notable changes to the StePS simulation code is documented in this file.
 
 ## [v2.2.4.0] - 2026-06-21
 
+### Added
+- **Glass-making initial conditions for the PDS (S^3/I*) topology.** A grid-free,
+  isotropic particle load for the dodecahedral domain, as an alternative to the
+  rectangular stereographic grid (`test256disc`) whose lattice does not respect the
+  S^3/I* topology.  Workflow:
+  1. **Poisson load** (`stepsic`, new `TYPE = 'random'` for `GEOMETRY = 'pds'`): draws
+     `NPART` points uniformly on S^3 and folds them into the fundamental domain via the
+     I* group (`pds.wrap`) — equal-mass, no preferred directions.
+  2. **Reverse-gravity relaxation** with a new glass-making build
+     (`PDS-Linux_CUDA_BH-GlassMaking-Makefile`, and a direct-summation variant
+     `PDS-Linux_CUDA-GlassMaking-Makefile`; both add `-DGLASS_MAKING` → `G = -1` and a
+     separate `build_glass*/` dir).  Run with an **Einstein-de Sitter** background
+     (`.param` `Omega_m = 1, Omega_lambda = 0`; new `EdS` cosmology in `stepsic`) so
+     dark energy does not freeze the relaxation — per G. Racz's recommendation.  Use the
+     **Barnes-Hut** binary (theta=0.30): direct summation is O(N^2) and impractical at
+     N~6.3x10^6 (it stalls for hours per step), while BH relaxes the same load in ~18 min.
+  3. **Build the IC** from the relaxed glass (`stepsic` `TYPE = 'glass'`), with the same
+     Zel'dovich + discrete S^3/I* spectrum (n=12,20) as the grid run.
+- **Validation (grid load vs glass load, identical otherwise; `test256disc` vs
+  `test256glass`).** The glass is sub-Poisson (counts var/mean = 0.28 vs 1.0) with **no
+  lattice Bragg peaks**: peak high-k P/shot is ~5x for the glass vs ~3x10^4 in the raw grid
+  IC and ~2.5x10^3 at z=15.  The grid imprint washes out under non-linear growth by z~2, so
+  the two runs agree at z=0 (low-k P(k) within 3%); the glass mainly cleans the *early-time*
+  small-scale field.  The static **low-k pedestal is geometric** (curved-domain
+  counts-in-cells envelope + discrete modes) and is the *same* for both loads — it is not a
+  grid artifact and is unaffected by the glass.  See `docs/PDS_guide.md` and
+  `tools/Visualization/Gadget_vs_PDS_comparison.ipynb` (§5).
+
 ### Fixed
 - **CRITICAL: multi-GPU force kernels left the last particles of each GPU frozen for
   large N.** All five CUDA force kernels (`ForceKernel_pds_bh`, `ForceKernel_pds`,

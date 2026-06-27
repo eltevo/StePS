@@ -713,6 +713,63 @@ modes.
 > σ² excess that is pure sampling noise (present already at the IC), *not* over-growth —
 > matching the resolution closes it (σ² ratio vs Gadget 4.0×→1.3× going 128→256).
 
+### Particle load: grid vs glass
+
+Orthogonal to the *spectrum* (7A/7B) is the choice of the **unperturbed particle load**.
+The default is a regular Cartesian grid in stereographic coordinates clipped to the
+fundamental domain (`TYPE = "grid"`). That grid is convenient but its rectangular lattice
+does **not** respect the S³/I* topology, and it imprints sharp **Bragg peaks** at the
+lattice frequency: in the raw IC the peak high-k power is ~3×10⁴ × shot, and ~2.5×10³ × shot
+still at z=15. The imprint washes out under non-linear growth by z≈2, but it dominates the
+*early-time* small-scale field.
+
+A **glass** load removes this. The recipe (validated as `test256glass` vs the grid run
+`test256disc`, identical except the load):
+
+1. **Poisson load** — `stepsic` with `TYPE = "random"` for `GEOMETRY = "pds"` draws `NPART`
+   points uniformly on S³ and folds them into the fundamental domain via the I* group
+   (`pds.wrap`); equal masses, no preferred directions. Set `LPTORDER = 0` to write the
+   unperturbed load.
+2. **Reverse-gravity relaxation** — build a glass-making binary
+   (`PDS-Linux_CUDA_BH-GlassMaking-Makefile`; adds `-DGLASS_MAKING` → `G = -1`, separate
+   `build_glass_bh/`) and relax the Poisson load. **Use an Einstein-de Sitter background**
+   (`.param` `Omega_m = 1, Omega_lambda = 0`; the `EdS` cosmology in stepsic) — dark energy
+   would freeze the relaxation before it reaches a glass (per G. Racz). **Use the Barnes-Hut
+   build** (theta≈0.3): direct summation is O(N²) and impractical at N~6×10⁶ (stalls for
+   hours on the first force eval), whereas BH relaxes the same load in ~18 min on 4× H200.
+   Start from **Poisson, not a grid** — a grid is already a force equilibrium under repulsive
+   gravity and keeps its lattice anisotropy. The S³/I* topology has no domain boundary
+   (the wrap makes it periodic-like), so the glass fills the cell cleanly.
+3. **Build the IC** — `stepsic` with `TYPE = "glass"`, `INPUT_GLASS = <relaxed glass snapshot>`,
+   then the usual Zel'dovich + `PDS_DISCRETE_NMAX` spectrum on top.
+
+```toml
+# 1. unperturbed Poisson load (LPTORDER=0); run reverse-gravity glass making on its output
+TYPE = "random"
+GEOMETRY = "pds"
+NPART = 6275736        # match the grid run's in-domain count
+LPTORDER = 0
+COSMOLOGY = "EdS"      # masses self-consistent with the EdS glass-making run
+
+# 3. final IC from the relaxed glass (same spectrum as the grid run)
+TYPE = "glass"
+INPUT_GLASS = "/path/to/glass_run/snapshot_<last>.hdf5"
+LPTORDER = 1
+PDS_DISCRETE_NMAX = 20
+```
+
+Quality of the result: the glass is **sub-Poisson** (counts var/mean ≈ 0.28 vs 1.0 for a
+Poisson load) with essentially **no Bragg peaks** (peak high-k P/shot ≈ 5 vs the grid's
+~3×10⁴). The two production runs agree at z=0 (large-scale P(k) within ~3%) — the glass
+mainly cleans the early-time field. **Note:** the glass does *not* change the static low-k
+"pedestal" seen in a counts-in-cells P(k); that pedestal is **geometric** (the curved-domain
+Ω³ envelope + the discrete modes) and is identical for the grid and glass loads, so the
+first-snapshot pedestal subtraction in `Gadget_vs_PDS_comparison.ipynb` is still needed for
+both. (A dip near k≈0.03–0.05 /Mpc in those subtracted spectra is an artifact of that
+subtraction at the envelope's k-space falloff — not a PDS feature; the raw P(k) is smooth.)
+Implementation: `stepsic/geometry.py` (`create_pds_random_particles`), the `EdS` entry in
+`stepsic/config/cosmology.toml`, and the `pds` branch of `CosmoData.rescale_snapshot_size`.
+
 ### Force methods on the GPU
 
 Both kernels (and the non-PDS CUDA kernels) had the large-N multi-GPU coverage bug
