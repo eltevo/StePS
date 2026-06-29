@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import load_cosmic_web_hdf5
 
-_VERSION="v0.0.1.1"
+_VERSION="v0.0.1.2"
 _YEAR="2026"
 _AUTHOR="Gabor Racz"
 _DESCRIPTION="StePS Cosmic Web slice visualization tool for 2D cross-sections of the cosmic web classification."
@@ -82,7 +82,7 @@ def visualize_cosmic_web_slice(h5_path, slice_axis='z', slice_idx=None):
         raise ValueError("Unknown geometry type in attributes")
 
     # Plotting
-    fig, ax = plt.subplots(figsize=(8, 8), dpi=120)
+    fig, ax = plt.subplots(figsize=(9, 8), dpi=120)
     
     # origin='lower' ensures (0,0) is at the bottom left
     cax = ax.imshow(slice_2d.T, cmap=cmap, norm=norm, origin='lower', interpolation='nearest', extent=extent)

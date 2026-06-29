@@ -12,7 +12,7 @@ from inputoutput import load_density_hdf5
 
 
 _VERSION="v0.0.1.0"
-_AUTHOR="Gabor Gracz"
+_AUTHOR="Gabor Racz"
 _YEAR="2026"
 _DESCRIPTION="StePS Zoom-in Target Identifier: Find optimal zoom-in regions in complex geometries (T3, S1R2, R3) based on precomputed density fields and snapshot data."
 

@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import load_cosmic_web_hdf5
 
-_VERSION="v0.0.1.1"
+_VERSION="v0.0.2.0"
 _YEAR="2026"
 _AUTHOR="Gabor Racz"
 _DESCRIPTION="StePS 3D Volumetric Visualization of the Cosmic Web."
@@ -78,6 +78,24 @@ def visualize_cosmic_web_3d(h5_path, mode='clusters'):
     print("--- Generating Volumetric Render ---")
     pl = pv.Plotter()
 
+    structure_annotations = {
+        1.0: "Void",
+        2.0: "Sheet",
+        3.0: "Filament",
+        4.0: "Cluster"
+    }
+
+    # Defining the colorbar
+    colorbar_features = {
+        "title": "Structure Type",
+        "color": "white",     
+        "label_font_size": 12,
+        "title_font_size": 14,
+        "shadow": True,
+        "vertical": True,
+        "n_labels": 0
+    }
+
     # Add the volume rendering
     vol = pl.add_volume(
         grid,
@@ -86,7 +104,10 @@ def visualize_cosmic_web_3d(h5_path, mode='clusters'):
         opacity=opacity,
         clim=[1, 4],     # FORCE the color/opacity limits to explicitly map onto our 1-4 categories
         shade=True,      # Enables 3D lighting/shadows
-        mapper='smart'
+        mapper='smart',
+        annotations=structure_annotations,
+        scalar_bar_args=colorbar_features,
+        show_scalar_bar=True
     )
 
     # Scene aesthetics

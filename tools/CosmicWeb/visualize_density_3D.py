@@ -10,12 +10,12 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import load_density_hdf5, load_cosmic_web_hdf5
 
-_VERSION="v0.0.1.0"
+_VERSION="v0.0.2.0"
 _YEAR="2026"
 _AUTHOR="Gabor Racz"
 _DESCRIPTION="StePS 3D Volumetric Density Viewer"
 
-def visualize_density_3d(density_path, cw_path=None, mode='all', vmin=None, vmax=None):
+def visualize_density_3d(density_path, cw_path=None, mode='all', vmin=None, vmax=None, cmap='magma'):
     print(f"--- Loading Density Data from {density_path} ---")
     try:
         density_data, density_attrs = load_density_hdf5(density_path, verbose=True)
@@ -112,15 +112,28 @@ def visualize_density_3d(density_path, cw_path=None, mode='all', vmin=None, vmax
     print("--- Generating Volumetric Render ---")
     pl = pv.Plotter()
 
+    # Defining the colorbar
+    colorbar_features = {
+        "title": "log10(delta + 1)",
+        "color": "white",
+        "label_font_size": 12,
+        "title_font_size": 14,
+        "fmt": "%.2f",
+        "shadow": True,
+        "vertical": True,
+    }
+
     # Pass the grid configuration directly; NaNs will dynamically appear invisible
     vol = pl.add_volume(
         grid,
         scalars='LogDensity',
-        cmap='magma',
-        opacity='linear', # The environment mask handles transparency now!
+        cmap=cmap,
+        opacity='linear',
         clim=[vmin, vmax],
         shade=True,
-        mapper='smart'
+        mapper='smart',
+        scalar_bar_args=colorbar_features,  
+        show_scalar_bar=True
     )
 
     # Frame styles layout details
