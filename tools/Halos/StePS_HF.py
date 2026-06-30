@@ -493,7 +493,7 @@ class StePS_Particle_Catalog:
         return
 
     def set_HaloParentIDs(self, PartIDs, ParentID,SILENT=True):
-        idx = np.in1d(p.IDs,PartIDs)
+        idx = np.isin(p.IDs,PartIDs)
         self.HaloParentIDs[idx] = ParentID
         if SILENT==False:
             print("Halo parent IDs got updated for ", PartIDs, " to ", ParentID)
