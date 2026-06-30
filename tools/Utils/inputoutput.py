@@ -21,9 +21,6 @@
 import sys
 import time
 from pygadgetreader import *
-from past.translation import autotranslate
-autotranslate(['glio'])
-import glio
 import numpy as np
 import h5py
 from astropy.units import solMass,Mpc,m,s
@@ -229,17 +226,37 @@ def Load_params_from_gadget_snap(FILENAME):
         Lbox - box size in internal units
         Ntot - total number of particles in the simulation
     '''
-    snap = glio.GadgetSnapshot(FILENAME)
-    snap.load()
-    part_mass_table = np.double(snap.header.mass)
-    Ntot = int(snap.header.npartTotal[1])
-    z = 1.0/np.double(snap.header.time)-1.0
-    Om = np.double(snap.header.Omega0)
-    Ol = np.double(snap.header.OmegaLambda)
-    H0 = np.double(snap.header.HubbleParam*100.0)
-    Lbox = np.double(snap.header.BoxSize)
-    del(snap)
-    return {"Redshift": z, "OmegaM": Om, "OmegaL": Ol, "HubbleParam": H0, "Lbox": Lbox, "Ntot": Ntot, "PartMassTable": part_mass_table}
+    
+    # 'massTable' returns the mass array for all 6 particle types
+    part_mass_table = np.double(readheader(FILENAME, 'massTable'))
+    
+    # The old logic used npartTotal[1], which specifically targets Type 1 particles 
+    # (Dark Matter). pygadgetreader has a built-in shortcut 'dmcount' for this.
+    Ntot = int(readheader(FILENAME, 'dmcount'))
+    
+    # Read the scale factor 'time' and calculate redshift exactly as before
+    time = np.double(readheader(FILENAME, 'time'))
+    z = 1.0 / time - 1.0
+    
+    # Cosmological density parameters
+    Om = np.double(readheader(FILENAME, 'O0'))
+    Ol = np.double(readheader(FILENAME, 'Ol'))
+    
+    # The Hubble parameter is fetched via 'h'
+    H0 = np.double(readheader(FILENAME, 'h')) * 100.0
+    
+    # Box size
+    Lbox = np.double(readheader(FILENAME, 'boxsize'))
+    
+    return {
+        "Redshift": z, 
+        "OmegaM": Om, 
+        "OmegaL": Ol, 
+        "HubbleParam": H0, 
+        "Lbox": Lbox, 
+        "Ntot": Ntot, 
+        "PartMassTable": part_mass_table
+    }
 
 
 def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, OmegaL, HubbleParam, precision):
@@ -298,55 +315,6 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
     M[:] = dataarray[:,6]
     IDs[:] = np.arange(N, dtype=np.uint64)
     HDF5_snapshot.close()
-    return;
-
-def ascii2gadget(infile, outfile, Lbox, H0, UNITLENGTH_IN_CM):
-    '''
-    Function to convert a StePS ascii file to Gadget format.
-    infile: input StePS ascii file
-    outfile: output Gadget file
-    '''
-    #Setting up the units of distance and time
-    UNIT_T=47.14829951063323 #Unit time in Gy
-    UNIT_V=20.738652969925447 #Unit velocity in km/s
-    UNIT_D=3.0856775814671917e24#=1Mpc Unit distance in cm (in the StePS code)
-    #Reading the input data
-    particle_data = np.fromfile(infile, count=-1, sep='\t', dtype=np.float64)
-    particle_data = particle_data.reshape(int(len(particle_data)/7),7)
-    h = H0/100.0
-    #Creating array of X coordinates and V velocities
-    X = particle_data[:,0:3] * h * UNIT_D / UNITLENGTH_IN_CM
-    V = particle_data[:,3:6] #velocities
-    M = particle_data[:,6] # Masses
-    Npart = len(X)
-    del(particle_data)
-    #Creating the Gadget-snapshot
-    Gadget_snapshot = glio.GadgetSnapshot(outfile)
-    Gadget_snapshot.header.npart = np.array([0,Npart,0,0,0,0], dtype=np.int32)
-    Gadget_snapshot.header.mass = np.array([0.0,1.0,0.0,0.0,0.0,0.0], dtype=np.float64)
-    Gadget_snapshot.header.time= np.array([0.0078125], dtype=np.float64)
-    Gadget_snapshot.header.redshift= np.array([127.0], dtype=np.float64)
-    Gadget_snapshot.header.flag_sfr= np.array([0], dtype=np.int32)
-    Gadget_snapshot.header.flag_feedback= np.array([0], dtype=np.int32)
-    Gadget_snapshot.header.npartTotal =  np.array([0,Npart,0,0,0,0], dtype=np.int32)
-    Gadget_snapshot.header.flag_cooling = np.array([0], dtype=np.int32)
-    Gadget_snapshot.header.num_files = np.array([1], dtype=np.int32)
-    Gadget_snapshot.header.BoxSize = np.array([Lbox*h*UNIT_D/UNITLENGTH_IN_CM], dtype=np.float64)
-    Gadget_snapshot.header.Omega0 =  np.array([1.0], dtype=np.float64)
-    Gadget_snapshot.header.OmegaLambda =  np.array([0.0], dtype=np.float64)
-    Gadget_snapshot.header.HubbleParam = np.array([h], dtype=np.float64)
-    Gadget_snapshot.header.flag_stellarage = np.array([0], dtype=np.int32)
-    Gadget_snapshot.header.flag_metals = np.array([0], dtype=np.int32)
-    Gadget_snapshot.header.npartTotalHighWord = np.array([0,0,0,0,0,0], dtype=np.uint32)
-    Gadget_snapshot.header.flag_entropy_instead_u = np.array([0], dtype=np.int32)
-    Gadget_snapshot.header._padding = np.zeros(15,dtype=np.int32)
-    Gadget_snapshot.ID[1] = np.array(range(0,Npart), dtype=np.uint32)
-    Gadget_snapshot.pos[1] = np.array(X, dtype=np.float32)
-    Gadget_snapshot.vel[1] = np.array(V, dtype=np.float32)
-    Gadget_snapshot.save(outfile)
-    del(X)
-    del(V)
-    del(M)
     return;
 
 

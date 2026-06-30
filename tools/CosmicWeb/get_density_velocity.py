@@ -255,7 +255,7 @@ def calculate_density_field(snapshot_path, geometry, grid_res, scheme, L_arg=Non
     print("Done!")
 
 if __name__ == "__main__":
-    print(f"StePS Density Field Finder {_VERSION} by {_AUTHOR}, {_YEAR}")
+    print(f"StePS Density Field Calculator {_VERSION} by {_AUTHOR}, {_YEAR}")
     parser = argparse.ArgumentParser(description=_DESCRIPTION)
     parser.add_argument("-i", "--input", type=str, required=True, help="Path to HDF5 snapshot (or .0.hdf5 split link)")
     parser.add_argument("--geom", type=str, choices=['R3', 'S1R2', 'T3'], required=True, help="Geometry type")

@@ -149,7 +149,7 @@ def visualize_density_3d(density_path, cw_path=None, mode='all', vmin=None, vmax
     pl.show()
 
 if __name__ == "__main__":
-    print(f"StePS Density 3V Environment Viewer {_VERSION} by {_AUTHOR}, {_YEAR}\n")
+    print(f"StePS Density 3D Environment Viewer {_VERSION} by {_AUTHOR}, {_YEAR}\n")
 
     parser = argparse.ArgumentParser(description=_DESCRIPTION)
     parser.add_argument("-i", "--input", type=str, required=True, help="Path to the overdensity field .h5 file")
