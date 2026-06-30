@@ -10,12 +10,12 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import load_density_hdf5
 
-_VERSION="v0.0.1.0"
+_VERSION="v0.0.1.1"
 _YEAR="2026"
 _AUTHOR="Gabor Racz"
 _DESCRIPTION="StePS 2D visualization tool for log(overdensity) fields."
 
-def visualize_density_slice(h5_path, slice_axis='z', slice_idx=None, vmin=None, vmax=None):
+def visualize_density_slice(h5_path, slice_axis='z', slice_idx=None, vmin=None, vmax=None, title=None):
     print(f"Loading data from {h5_path}...")
     try:
         data, attrs = load_density_hdf5(h5_path)
@@ -76,8 +76,11 @@ def visualize_density_slice(h5_path, slice_axis='z', slice_idx=None, vmin=None, 
     # 'magma' is an excellent perceptually uniform colormap for density maps
     cax = ax.imshow(log_delta.T, cmap='magma', origin='lower', interpolation='nearest', 
                     extent=extent, vmin=vmin, vmax=vmax)
-    
-    ax.set_title(f"Dark Matter Overdensity Field\n(Slice {slice_axis.upper()} = {slice_coord:.2f} Mpc)", fontsize=13, pad=15)
+
+    if title==None:
+        ax.set_title(f"Dark Matter Overdensity Field\n(Slice {slice_axis.upper()} = {slice_coord:.2f} Mpc)", fontsize=13, pad=15)
+    else:
+        ax.set_title(title, fontsize=13, pad=15)
 
     cbar = fig.colorbar(cax, shrink=0.82, pad=0.04)
     cbar.set_label(r'$\log_{10}(\delta + 1)$', fontsize=13, rotation=270, labelpad=20)

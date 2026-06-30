@@ -10,8 +10,7 @@ from scipy.signal import fftconvolve
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Utils'))
 from inputoutput import load_density_hdf5
 
-
-_VERSION="v0.0.1.0"
+_VERSION="v0.0.2.0"
 _AUTHOR="Gabor Racz"
 _YEAR="2026"
 _DESCRIPTION="StePS Zoom-in Target Identifier: Find optimal zoom-in regions in complex geometries (T3, S1R2, R3) based on precomputed density fields and snapshot data."
@@ -66,7 +65,7 @@ def create_spherical_kernel(radius, dx, dy, dz):
     mask = (r2 <= radius**2).astype(np.float32)
     vol_cells = np.sum(mask)
     if vol_cells == 0:
-        raise ValueError("Grid resolution is too low to resolve the target radius.")
+        raise ValueError(f"Grid resolution is too low to resolve the target radius of {radius}.")
     
     return mask / vol_cells, mask
 
@@ -129,17 +128,16 @@ def calculate_topology_com(positions, masses, geom, L, Lz):
         com = np.average(positions, axis=0, weights=masses)
     return com
 
-def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.0, ncand=4, rmax_frac=0.75):
+def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.0, ncand=4, rmax_frac=0.75, stab_weight=1.0):
     # Loading the Density Field
     data, meta = load_density_hdf5(density_file)
-    print(data.keys())
     delta = data['overdensity']
     Nx, Ny, Nz = meta['grid_res_Nx'], meta['grid_res_Ny'], meta['grid_res_Nz']
     L = meta['L']
     Lz = meta.get('Lz', L)
     geom = meta['geometry']
 
-    # Reconstructing Grid Coordinates strictly based on Geometry
+    # Reconstructing Grid Coordinates
     dx = L / Nx
     dy = L / Ny
     dz = Lz / Nz if geom == 'S1R2' else L / Nz
@@ -163,18 +161,31 @@ def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.
     if geom in ['R3', 'S1R2']:
         print(f"--- Limiting search to {rmax_frac*100:.1f}% of the simulation boundary ---")
     
-    # Convolution
+    # 1. Primary Convolutions
     kernel_1x, _ = create_spherical_kernel(target_r, dx, dy, dz)
     kernel_1_5x, _ = create_spherical_kernel(target_r * 1.5, dx, dy, dz)
+    
+    # 2. Stability Kernel (Evaluate spatial jitter within 25% of target radius)
+    jitter_r = target_r * 0.25
+    kernel_jitter, _ = create_spherical_kernel(jitter_r, dx, dy, dz)
 
+    # Base Density Measurements
     delta_mean = apply_topology_convolution(delta, kernel_1x, geom)
     delta_mean_15 = apply_topology_convolution(delta, kernel_1_5x, geom)
+    
+    # Internal Clumpiness (Variance within the 1.0 R sphere)
     delta_sq_mean = apply_topology_convolution(delta**2, kernel_1x, geom)
-    variance = np.clip(delta_sq_mean - delta_mean**2, 0, None)
+    internal_var = np.clip(delta_sq_mean - delta_mean**2, 0, None)
+
+    # Spatial Stability (Variance of the mean density field itself over the jitter radius)
+    local_mean_of_delta_mean = apply_topology_convolution(delta_mean, kernel_jitter, geom)
+    local_sq_mean_of_delta_mean = apply_topology_convolution(delta_mean**2, kernel_jitter, geom)
+    stability_var = np.clip(local_sq_mean_of_delta_mean - local_mean_of_delta_mean**2, 0, None)
+    stability_std = np.sqrt(stability_var) # Standard deviation of density in local neighborhood
 
     # Filtering edges and exclusion zones
     valid_mask = np.ones_like(delta, dtype=bool)
-    pad_r = target_r * 1.5 # Safe padding against grid edges
+    pad_r = target_r * 1.5
     
     if geom == 'R3':
         dist_from_center = np.sqrt(X**2 + Y**2 + Z**2)
@@ -184,29 +195,31 @@ def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.
         valid_mask &= (dist_from_center <= (L / 2.0) * rmax_frac)
         
     elif geom == 'S1R2':
-        dist_from_center = np.sqrt(X**2 + Y**2) # Distance to Z-axis
+        dist_from_center = np.sqrt(X**2 + Y**2)
         valid_mask &= (X >= x_1d[0] + pad_r) & (X <= x_1d[-1] - pad_r)
         valid_mask &= (Y >= y_1d[0] + pad_r) & (Y <= y_1d[-1] - pad_r)
         valid_mask &= (dist_from_center <= (L / 2.0) * rmax_frac)
         
     elif geom == 'T3':
-        dist_from_center = np.sqrt((X - L/2)**2 + (Y - L/2)**2 + (Z - L/2)**2) # Reference only
+        dist_from_center = np.sqrt((X - L/2)**2 + (Y - L/2)**2 + (Z - L/2)**2)
 
-    # Finding top candidates
+    # Calculate combined score for ranking (lower is better)
     diff = np.abs(delta_mean - target_delta)
-    diff[~valid_mask] = np.inf
+    score = diff + (stab_weight * stability_std)
+    score[~valid_mask] = np.inf
     
-    flat_indices = np.argsort(diff.flatten())
+    # Finding top candidates based on the combined score
+    flat_indices = np.argsort(score.flatten())
     candidates = []
     
-    print("--- Searching for optimal isolated candidates ---")
+    print(f"--- Searching for optimal candidates (Ranking Weight: Stability x {stab_weight:.1f}) ---")
     for idx in flat_indices:
         if len(candidates) >= ncand:
             break
-        if diff.flatten()[idx] == np.inf:
+        if score.flatten()[idx] == np.inf:
             break
             
-        coord_idx = np.unravel_index(idx, diff.shape)
+        coord_idx = np.unravel_index(idx, score.shape)
         pos_cand = np.array([X[coord_idx], Y[coord_idx], Z[coord_idx]])
         
         separated = True
@@ -220,9 +233,12 @@ def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.
             candidates.append({
                 'pos': pos_cand,
                 'delta': delta_mean[coord_idx],
-                'var': variance[coord_idx],
+                'target_diff': diff[coord_idx],
+                'internal_var': internal_var[coord_idx],
                 'delta_15': delta_mean_15[coord_idx],
-                'dist': dist_from_center[coord_idx]
+                'dist': dist_from_center[coord_idx],
+                'stability': stability_std[coord_idx],
+                'score': score[coord_idx]
             })
 
     if not candidates:
@@ -230,12 +246,14 @@ def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.
         return
 
     # User selection
-    print(f"\n--- TOP {len(candidates)} CANDIDATES ---")
+    print(f"\n--- TOP {len(candidates)} CANDIDATES (Ranked by Combined Score) ---")
     for i, c in enumerate(candidates):
         print(f"[{i+1}] Center: ({c['pos'][0]:.2f}, {c['pos'][1]:.2f}, {c['pos'][2]:.2f}) Mpc")
-        print(f"    Overdensity (1.0 R): {c['delta']:.4e} | Target diff: {abs(c['delta'] - target_delta):.4e}")
+        print(f"    Combined Score     : {c['score']:>8.5f} | Lower is better")
+        print(f"    ---------------------------------------------")
+        print(f"    Target diff        : {c['target_diff']:>8.5f} (Actual Overdensity: {c['delta']:.4e})")
+        print(f"    Spatial Jitter     : {c['stability']:>8.5f} (Stability across 0.25 R)")
         print(f"    Overdensity (1.5 R): {c['delta_15']:>8.5f}")
-        print(f"    Variance    (1.0 R): {c['var']:>8.5f}")
         print(f"    Dist to Center/Axis: {c['dist']:.2f} Mpc\n")
 
     choice = -1
@@ -248,7 +266,7 @@ def identify_regions(density_file, snap_file, ic_file, target_r, target_delta=0.
 
     # Particle ID matching
     print(f"\n--- Loading Snapshot to find IDs at z=0 ---")
-    pos_snap, ids_snap, _, _ = load_snapshot_data(snap_file) # Masses not needed here
+    pos_snap, ids_snap, _, _ = load_snapshot_data(snap_file)
     
     dx_snap = np.abs(pos_snap[:, 0] - selected['pos'][0])
     dy_snap = np.abs(pos_snap[:, 1] - selected['pos'][1])
@@ -299,7 +317,11 @@ if __name__ == "__main__":
     parser.add_argument("--delta", type=float, default=0.0, help="Target overdensity (default=0.0)")
     parser.add_argument("--ncand", type=int, default=4, help="Number of candidate regions to output (default=4, max=50)")
     parser.add_argument("--rmax_frac", type=float, default=0.75, help="Max distance from center as fraction of sim radius (R3/S1R2 only)")
+    parser.add_argument("--weight", type=float, default=0.5, help="Weight given to stability penalty (default=0.50). Higher values heavily penalize noisy regions.")
 
     args = parser.parse_args()
     ncand = max(1, min(50, args.ncand))
-    identify_regions(args.density, args.snap, args.ic, args.radius, args.delta, ncand, args.rmax_frac)
+    identify_regions(
+        args.density, args.snap, args.ic, args.radius, args.delta, 
+        ncand, args.rmax_frac, stab_weight=args.weight
+    )
