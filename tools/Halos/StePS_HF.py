@@ -1261,6 +1261,6 @@ if rank == 0:
             halos_final.save_hdf5_catalog(Params["OUTFILE"],save_particles=save_particles, part_save_radius=part_save_radius, particle_catalog=p, kdtree=tree)
     end = time.time()
     if Params["BOUNDONLYMODE"]:
-        print("\nBO halo finding finished under %fs.\n" % (end-start))
+        print("\nBO halo finding finished under %fs = %f h. ( %f CPUh; %f CPUh / million particles)\n" % (end-start, (end-start)/3600.0, (end-start)/3600.0*size, (end-start)/3600.0*size/(p.Npart/1e6)))
     else:
-        print("\nSO halo finding finished under %fs.\n" % (end-start))
+        print("\nSO halo finding finished under %fs = %f h. ( %f CPUh; %f CPUh / million particles)\n" % (end-start, (end-start)/3600.0, (end-start)/3600.0*size, (end-start)/3600.0*size/(p.Npart/1e6)))
