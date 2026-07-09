@@ -761,12 +761,24 @@ PDS_DISCRETE_NMAX = 20
 Quality of the result: the glass is **sub-Poisson** (counts var/mean ≈ 0.28 vs 1.0 for a
 Poisson load) with essentially **no Bragg peaks** (peak high-k P/shot ≈ 5 vs the grid's
 ~3×10⁴). The two production runs agree at z=0 (large-scale P(k) within ~3%) — the glass
-mainly cleans the early-time field. **Note:** the glass does *not* change the static low-k
-"pedestal" seen in a counts-in-cells P(k); that pedestal is **geometric** (the curved-domain
-Ω³ envelope + the discrete modes) and is identical for the grid and glass loads, so the
-first-snapshot pedestal subtraction in `Gadget_vs_PDS_comparison.ipynb` is still needed for
-both. (A dip near k≈0.03–0.05 /Mpc in those subtracted spectra is an artifact of that
-subtraction at the envelope's k-space falloff — not a PDS feature; the raw P(k) is smooth.)
+mainly cleans the early-time field.
+
+> **Measuring the PDS P(k) — keep the FFT cube inside the domain.** A Cartesian P(k) cube
+> that pokes outside the fundamental domain includes hard vacuum in its corners (e.g. a
+> half=400 Mpc cube has corners at 400·√3≈693 Mpc, ~7% of its volume empty). FFT-ing that
+> bounded shape convolves the true clustering with the *shape's own* power spectrum (the
+> survey-window/mask effect), producing a huge, non-growing low-k "pedestal" that is **100%
+> geometry** — a uniform, unclustered point set in the same shape reproduces it to a few
+> percent, and it is identical for the grid and glass loads. Earlier notebook versions
+> subtracted the first snapshot to remove it (which also introduced a spurious dip near
+> k≈0.03–0.05 /Mpc at the envelope's k-space falloff). The clean fix is simply to **use a
+> cube that fits inside the domain** (`half ≤ ~350` Mpc for R_curv=3100 Mpc; the notebook
+> uses `HALF=300`, corner 520 Mpc, verified 100% inside): the window artifact and the dip
+> both vanish and the raw PDS P(k) is directly comparable to Gadget with no subtraction (low-k
+> ratio ~0.85–0.9×). Note this restricts the accessible k range — the discrete n=12,20 modes
+> (k~0.004–0.007 /Mpc) fall *below* the fitting cube's fundamental, so a Cartesian sub-cube
+> cannot probe the topology modes; use the intrinsic full-domain spectrum for those.
+
 Implementation: `stepsic/geometry.py` (`create_pds_random_particles`), the `EdS` entry in
 `stepsic/config/cosmology.toml`, and the `pds` branch of `CosmoData.rescale_snapshot_size`.
 

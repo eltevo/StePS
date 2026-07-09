@@ -26,10 +26,12 @@ All notable changes to the StePS simulation code is documented in this file.
   lattice Bragg peaks**: peak high-k P/shot is ~5x for the glass vs ~3x10^4 in the raw grid
   IC and ~2.5x10^3 at z=15.  The grid imprint washes out under non-linear growth by z~2, so
   the two runs agree at z=0 (low-k P(k) within 3%); the glass mainly cleans the *early-time*
-  small-scale field.  The static **low-k pedestal is geometric** (curved-domain
-  counts-in-cells envelope + discrete modes) and is the *same* for both loads — it is not a
-  grid artifact and is unaffected by the glass.  See `docs/PDS_guide.md` and
-  `tools/Visualization/Gadget_vs_PDS_comparison.ipynb` (§5).
+  small-scale field.  (Separately: the large static **low-k "pedestal"** once seen in the
+  PDS P(k) is a **survey-window/mask artifact** — an FFT analysis cube whose corners stick out
+  past the dodecahedral domain into vacuum — not a grid artifact and not physics; measuring in
+  a cube that fits inside the domain (`half ≤ ~350` Mpc) removes it entirely, so no
+  first-snapshot subtraction is needed.)  See `docs/PDS_guide.md` and
+  `tools/Visualization/Gadget_vs_PDS_comparison.ipynb`.
 
 ### Fixed
 - **CRITICAL: multi-GPU force kernels left the last particles of each GPU frozen for
