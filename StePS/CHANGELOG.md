@@ -1,6 +1,59 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [Unreleased] - tools, validation & analysis (2026-07)
+
+### Added
+- **Halo catalogs for the flagship runs** (pipeline in `/scratch/csabai/halo_catalogs{,50}/`,
+  representative analysis in `tools/Visualization/Halo_catalogs_analysis.ipynb`). StePS_HF
+  run on matched-frame cube cutouts of Gadget256/PDS-grid/PDS-glass (1200 Mpc) and the
+  50 Mpc glass pair. Key conventions established:
+  - **Matched frame**: PDS stereographic coords (Mpc, origin-centred); Gadget `x/h - L/2`
+    (FFT-phase-correlation verified for both box sizes). WARNING: `np.mod(x+L/2,L)-L/2`
+    looks like this shift but is a **no-op relabeling** that silently misaligns the frames.
+  - **PDS mass de-conformalization**: matched-frame particle mass = m_native/Omega(r)^3 at
+    the current position (grid load then equals Gadget's m_p to 0.06%; glass masses
+    quantized to 32 levels because StePS_HF scans `np.unique(Masses)`).
+  - **StePS_HF usage notes**: SO finder in PERIODIC mode on the cut box; SEARCH_RADIUS must
+    exceed the largest R200b (else IndexError); ParticleIDs must be 0..N-1 (used as array
+    indices); analysis cube must fit inside the dodecahedral domain.
+  - Validation: Gadget/PDS-grid mass functions overlap; **98% of the top-500 PDS grid-IC
+    halos match a Gadget halo within 5 Mpc** (median offset 2.4 Mpc, mass ratio 1.10).
+    Open issue: the 1200 Mpc PDS *glass* run shows ~1.7x halo abundance / ~2x matched
+    masses (consistent with its ~30% high-k P(k) excess) - not reproduced at 50 Mpc;
+    suspect residual glass-load noise.
+- **Small-domain (50 Mpc) experiment** with glass ICs: Gadget4 T^3 (`gadget50_glass`) vs
+  PDS with R_curv = 3100/24 = 129.17 Mpc (`test50glass`), where the discrete S^3/I* modes
+  (k_12 = 0.100, k_20 = 0.162 /Mpc) dominate the box - a deliberately topology-dominated
+  test. New `T3-Linux_CUDA-GlassMaking-Makefile` (PERIODIC + GLASS_MAKING + Ewald; order-2
+  interpolation only - order 4 hits a duplicate-symbol link error; run single-GPU) to relax
+  a 64^3 periodic glass tile (tiled 4^3 -> 256^3; tiling leaves only a ~1.5x median excess
+  at the tile harmonics at z=15, gone by z=0). The PDS glass was re-charted from the
+  flagship relaxed glass by exact scale invariance (stereo coords x 1/24). Findings: the
+  two runs share the IC fine structure (corr 0.9 at z=30) and physically decorrelate by
+  z=0; PDS50 develops ~1.6x more small-scale power (topology-driven collapse). Notebook:
+  `tools/Visualization/Gadget_vs_PDS_50Mpc_comparison.ipynb`.
+- **Halo-environment stacking / anisotropy analysis** (Racz, Szapudi, Csabai & Dobos 2021
+  octahedral-group method; notebook `tools/Visualization/Halo_stacking_anisotropy.ipynb`,
+  full scripts in `/scratch/csabai/stack3d/`):
+  - grid-IC lattice memory: real-space cross-hatch + >2.2x lattice-phase modulation at
+    z=15, erased near halos by z~2; but the 48-op octahedral fold reveals a **+7-9%
+    box-axis (face) density excess re-emerging at z=0** in both grid-IC runs - collapse
+    axes stay grid-aligned. Identical in T^3 and PDS => grid-IC artifact, not topology.
+  - glass loads: no lattice at any epoch; residual ~3% cubic imprint (suspect: cubic FFT
+    mesh + CIC interpolation of IC generation).
+  - PDS50 (topology-dominated box): genuine S^3/I* anisotropy - after the **I* wraparound
+    correction** (120-image augmentation; REQUIRED whenever cutouts reach past the domain
+    face inradius 0.1584 R_curv) the face/2-fold-axis cone density is 0.72x the isotropic
+    control (edge +9%): halo environments align with the icosahedral eigenmode pattern.
+    T^3 50 Mpc shows only few-% effects at r/L <~ 0.1.
+
+### Fixed
+- `tools/Utils/inputoutput.py`: made the legacy `pygadgetreader`/`glio` imports optional
+  and always uninstall the `past.translation` import hook afterwards - previously the hook
+  intercepted ALL later imports (h5py, astropy) and crashed on compiled modules, so
+  StePS_HF could not run in environments without the legacy readers.
+
 ## [v2.2.4.0] - 2026-06-21
 
 ### Added

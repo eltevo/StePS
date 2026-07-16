@@ -20,10 +20,26 @@
 
 import sys
 import time
-from pygadgetreader import *
-from past.translation import autotranslate
-autotranslate(['glio'])
-import glio
+# pygadgetreader and glio are only needed for legacy binary Gadget snapshots;
+# keep them optional so the HDF5 path works without these (unpackaged) modules.
+try:
+    from pygadgetreader import *
+except ImportError:
+    pass
+try:
+    from past.translation import autotranslate
+    autotranslate(['glio'])
+    import glio
+except ImportError:
+    pass
+finally:
+    # the autotranslate import hook intercepts ALL later imports (h5py, astropy, ...)
+    # and chokes on compiled modules -- always uninstall it after the glio attempt
+    try:
+        from past.translation import remove_hooks
+        remove_hooks()
+    except ImportError:
+        pass
 import numpy as np
 import h5py
 from astropy.units import solMass,Mpc,m,s

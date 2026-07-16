@@ -802,6 +802,77 @@ non-PDS topologies (R³, S¹×R², T³).
 
 ---
 
+## Halo catalogs, anisotropy stacking, and the small-domain experiment
+
+Post-processing analyses of the flagship runs (2026-07). Representative, executable
+versions live in `tools/Visualization/` (see its README); full pipelines and raw outputs
+in `/scratch/csabai/halo_catalogs{,50}/` and `/scratch/csabai/stack3d/`.
+
+### Halo catalogs (StePS_HF) in the matched frame
+
+To compare Gadget and PDS halo-by-halo, catalogs are built in the **matched frame**:
+PDS stereographic coordinates (Mpc, origin-centred) and Gadget `x/h − L/2` (Mpc/h → Mpc,
+then the −L/2 shift, verified by FFT phase correlation of the density fields; do NOT use
+`np.mod(x+L/2,L)−L/2`, which is a pure relabeling and silently misaligns the frames).
+Recipe:
+
+1. cut a cube that fits inside the dodecahedral domain (±300 Mpc for R_curv=3100;
+   ±11.5 Mpc for R_curv=129.17) plus a buffer ≥ the finder search radius;
+2. **de-conformalize the PDS masses**: matched mass = m_native/Ω(r)³ at the particle's
+   *current* position (grid load → uniform, equals Gadget's m_p to 0.06%; glass load →
+   quantize to ≤32 levels, StePS_HF scans `np.unique(Masses)` and cannot handle a
+   continuous mass distribution);
+3. run StePS_HF in PERIODIC mode on the cut box (the fake periodicity only touches the
+   discarded buffer). Gotchas: `SEARCH_RADIUS` must exceed the largest R200b (else
+   IndexError at line ~192); `ParticleIDs` must be 0..N−1 (used as array indices);
+4. post-filter halo centres to the inner cube; add Ω(center), M_phys = M·Ω³, R_phys = R·Ω
+   columns for the PDS.
+
+Validation: Gadget/PDS-grid mass functions overlap and **98% of the top-500 grid-IC PDS
+halos match a Gadget halo within 5 Mpc** (median offset 2.4 Mpc, mass ratio 1.10).
+Open issue: the 1200 Mpc PDS *glass* catalog shows ~1.7× abundance and ~2× matched-pair
+masses (mirrors its ~30% high-k P(k) excess); treat its halo masses with caution.
+
+### Anisotropy stacking (octahedral-group method of Racz+2021)
+
+Stacking particle cutouts around massive halos in fixed simulation axes, folding over the
+48 operations of the octahedral group, and binning directions in the fundamental triangle
+(face [001] / edge [011] / corner [111]) against a random-rotation control (see
+`tools/Visualization/Halo_stacking_anisotropy.ipynb`):
+
+- **Grid-IC lattice memory**: blatant at z=15 (cross-hatch; lattice-phase modulation
+  >2.2×), erased near halos by z≈2 — but the octahedral fold reveals a **+7–9%
+  box-axis (face) density excess re-emerging at z=0** in both grid-IC runs (T³ and PDS
+  alike ⇒ a grid-IC artifact, not topology): collapse axes stay grid-aligned.
+- **Glass loads**: no lattice at any epoch; only a ~3% residual cubic imprint
+  (suspect: the cubic FFT mesh + CIC interpolation shared by all ICs).
+- **PDS wraparound rule**: any cutout analysis needs **I\* image augmentation**
+  (all 120 images q → g⊗q) whenever |centre| + R√3 exceeds the face inradius
+  0.1584·R_curv — particles are stored only in the fundamental domain, and un-wrapped
+  cutouts contain artificial geometry-locked vacuum.
+
+### Small-domain (50 Mpc) experiment
+
+Two glass-IC runs at L=50 Mpc: Gadget4 T³ vs PDS with R_curv = 3100/24 = 129.17 Mpc —
+a deliberately **topology-dominated** box (k₁₂ = 0.100, k₂₀ = 0.162 /Mpc vs
+k_box = 0.126). Ingredients: the flat periodic glass from a 64³ tile relaxed with the new
+`T3-Linux_CUDA-GlassMaking-Makefile` (PERIODIC + GLASS_MAKING; Ewald interpolation order 2
+only; single GPU) tiled 4³; the PDS glass re-charted from the flagship relaxed glass by
+exact scale invariance (stereo coordinates × 1/24 — an S³/I* glass is a point set on the
+sphere, so it rescales with R_curv for free). Findings
+(`tools/Visualization/Gadget_vs_PDS_50Mpc_comparison.ipynb`):
+
+- the runs share the IC fine structure (corr ≈ 0.9 at z=30 in the matched frame) and
+  **physically decorrelate by z=0** — the different box-scale (topology) modes drive
+  divergent non-linear growth; halo cross-matching is impossible *by design*;
+- PDS50 develops ~1.6× more small-scale power by z=0 (topology-fed collapse) and, after
+  the I* wraparound correction, a strong topology-locked anisotropy: face/2-fold-axis cone
+  density 0.72× the isotropic control — halo environments align with the icosahedral
+  eigenmode pattern. The flat T³ 50 Mpc run shows only few-% direction effects at
+  r/L ≲ 0.1 (the torus force anisotropy of Racz+2021 lives at larger r/L);
+- the glass **tiling** leaves only a ~1.5× median excess at the tile reciprocal vectors at
+  z=15, gone by z=0 (three orders of magnitude weaker than grid Bragg peaks).
+
 ## File Reference
 
 | File | Changes |

@@ -1,5 +1,6 @@
-# Ignore the build directory
+# Ignore the build directories (incl. glass-making variants)
 StePS/build/
+StePS/build_glass*/
 
 # Ignore the Makefile since it is platform-dependent
 StePS/Makefile
