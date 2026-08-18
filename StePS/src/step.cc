@@ -50,17 +50,40 @@ void pds_wrap_ic()
 	int i,k;
 	double R  = (double)PDS_R_CURV;
 	double R2 = R * R;
+	if(PDS_Q_FROM_IC)
+		printf("\tUsing the quaternions supplied by the IC (/PartType1/Quaternions).\n");
 	for(i=0;i<N;i++)
 	{
-		double cx = (double)x[3*i];
-		double cy = (double)x[3*i+1];
-		double cz = (double)x[3*i+2];
-		double r2    = cx*cx + cy*cy + cz*cz;
-		double denom = R2 + r2;
-		double q_in[4] = { (R2 - r2)/denom,
-		                   2.0*R*cx/denom,
-		                   2.0*R*cy/denom,
-		                   2.0*R*cz/denom };
+		double q_in[4];
+		if(PDS_Q_FROM_IC)
+		{
+			// The IC supplied native S^3 coordinates: wrap THOSE.  Rebuilding q from
+			// x[] instead would round-trip through the stereographic chart and discard
+			// the precision the IC carried (and, for a particle near the antipode,
+			// the chart is badly conditioned).  x[] is re-derived from q below, so it
+			// stays exactly consistent with the quaternion we actually integrate.
+			double nrm = 0.0;
+			for(k=0;k<4;k++) { q_in[k] = (double)PDS_Q[4*i+k]; nrm += q_in[k]*q_in[k]; }
+			nrm = sqrt(nrm);
+			if(nrm > 0.0) for(k=0;k<4;k++) q_in[k] /= nrm;
+		}
+		else
+		{
+			double cx = (double)x[3*i];
+			double cy = (double)x[3*i+1];
+			double cz = (double)x[3*i+2];
+			double r2    = cx*cx + cy*cy + cz*cz;
+			double denom = R2 + r2;
+			q_in[0] = (R2 - r2)/denom;
+			q_in[1] = 2.0*R*cx/denom;
+			q_in[2] = 2.0*R*cy/denom;
+			q_in[3] = 2.0*R*cz/denom;
+		}
+		// stereographic image of q_in — the frame the IC velocity is expressed in
+		double inv_1pq0_in = 1.0 / (1.0 + q_in[0]);
+		double cx = R * q_in[1] * inv_1pq0_in;
+		double cy = R * q_in[2] * inv_1pq0_in;
+		double cz = R * q_in[3] * inv_1pq0_in;
 		double q_out[4];
 		pds_wrap(q_in, q_out);
 		for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
@@ -84,7 +107,46 @@ void pds_wrap_ic()
 		x[3*i+1] = (REAL)xo1;
 		x[3*i+2] = (REAL)xo2;
 	}
+#ifdef PDS_INTRINSIC
+	//Seed the canonical tangent velocities from the (already wrapped) stereographic
+	//state.  From here on (PDS_Q, PDS_U) is the state and x[]/v[] are derived.
+	for(i=0;i<N;i++)
+	{
+		double q[4]; for(k=0;k<4;k++) q[k] = (double)PDS_Q[4*i+k];
+		double xs[3] = {(double)x[3*i], (double)x[3*i+1], (double)x[3*i+2]};
+		double vs[3] = {(double)v[3*i], (double)v[3*i+1], (double)v[3*i+2]};
+		double U[4];
+		pds_tangent_from_stereo_vel(xs, vs, R, U);
+		pds_project_tangent(q, U);
+		#ifdef GLASS_MAKING
+			for(k=0;k<4;k++) U[k] = 0.0;   //glass runs start from rest
+		#endif
+		for(k=0;k<4;k++) PDS_U[4*i+k] = (REAL)U[k];
+	}
+	printf("\tIntrinsic S^3 integrator: seeded %i tangent velocities.\n", N);
+#endif
 }
+
+#ifdef PDS_INTRINSIC
+//Refresh the derived stereographic buffers x[] and v[] from the canonical (q, U).
+//Must run before every octree build, force call and snapshot write, because those
+//consumers all read x[] (and the output writes v[]).
+void pds_sync_stereo_for_output()
+{
+	int i,k;
+	double R = (double)PDS_R_CURV;
+	for(i=0;i<N;i++)
+	{
+		double q[4]; for(k=0;k<4;k++) q[k] = (double)PDS_Q[4*i+k];
+		double U[4]; for(k=0;k<4;k++) U[k] = (double)PDS_U[4*i+k];
+		double s = 1.0/(1.0 + q[0]);
+		double xs[3] = {R*q[1]*s, R*q[2]*s, R*q[3]*s};
+		double vs[3];
+		pds_stereo_vel_from_tangent(q, xs, U, R, vs);
+		for(k=0;k<3;k++) { x[3*i+k] = (REAL)xs[k]; v[3*i+k] = (REAL)vs[k]; }
+	}
+}
+#endif
 #endif
 
 double calculate_init_h()
@@ -130,11 +192,28 @@ double calculate_init_h()
 	REAL const_beta = 3.0/rho_part/(4.0*pi);
 	for(i=0; i<N; i++)
 	{
+#ifdef PDS_INTRINSIC
+		{
+			//Under PDS_INTRINSIC the force array holds the RAW 4D tangent, so it must be
+			//pushed into the chart before being compared with the chart velocity v[] --
+			//mixing the two would mis-scale the initial timestep by ~Omega.
+			double q[4]; for(k=0;k<4;k++) q[k] = (double)PDS_Q[4*i+k];
+			double t1 = (double)F[3*i], t2 = (double)F[3*i+1], t3 = (double)F[3*i+2];
+			double t0 = -(t1*q[1] + t2*q[2] + t3*q[3]) / q[0];
+			double s  = 1.0/(1.0 + q[0]);
+			double tv[3] = {t1, t2, t3};
+			double a3 = pow(a, -3.0);
+			for(k=0;k<3;k++)
+				ACCELERATION[k] = (REAL)((double)G*(tv[k] - q[k+1]*t0*s)*s*a3
+				                         - 2.0*(double)Hubble_param*(double)v[3*i+k]);
+		}
+#else
 		for(k=0;k<3;k++)
 		{
 			//calculating the maximal acceleration for the initial timestep
 			ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 		}
+#endif
                 err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
 		if(err>errmax)
 		{
@@ -189,6 +268,37 @@ void step(REAL* x, REAL* v, REAL* F)
 		printf("KDK Leapfrog integration...\n");
 		for(i=0; i<N; i++)
 		{
+#ifdef PDS_INTRINSIC
+			//──── Intrinsic S^3 KDK ─────────────────────────────────────────────
+			//Kick in the tangent space at q, drift along the exact geodesic.
+			//The force arrives as the raw 4D geodesic tangent with its e0 component
+			//omitted (see forces.cc); recover it from t.q = 0.
+			{
+				double R_c = (double)PDS_R_CURV;
+				double q[4]; for(k=0;k<4;k++) q[k] = (double)PDS_Q[4*i+k];
+				double U[4]; for(k=0;k<4;k++) U[k] = (double)PDS_U[4*i+k];
+				double Fs[4];
+				Fs[1] = (double)F[3*i]; Fs[2] = (double)F[3*i+1]; Fs[3] = (double)F[3*i+2];
+				Fs[0] = -(Fs[1]*q[1] + Fs[2]*q[2] + Fs[3]*q[3]) / q[0];
+
+				//'Kick' (h/2): dU/dt = G*F*a^-3 - 2H*U, entirely within T_q S^3
+				double a3 = pow(a, -3.0);
+				for(k=0;k<4;k++)
+					U[k] += ((double)G*Fs[k]*a3 - 2.0*(double)Hubble_param*U[k])*(h/2.0);
+				pds_project_tangent(q, U);
+
+				//'Drift' (h): exact geodesic flow with parallel transport of U
+				double q_new[4], U_new[4];
+				pds_exp_map(q, U, h, R_c, q_new, U_new);
+				for(k=0;k<4;k++) { PDS_Q[4*i+k] = (REAL)q_new[k]; PDS_U[4*i+k] = (REAL)U_new[k]; }
+
+				//keep the derived buffers usable by GLASS_MAKING diagnostics below
+				double s = 1.0/(1.0 + q_new[0]);
+				double xs[3] = {R_c*q_new[1]*s, R_c*q_new[2]*s, R_c*q_new[3]*s};
+				double vs[3]; pds_stereo_vel_from_tangent(q_new, xs, U_new, R_c, vs);
+				for(k=0;k<3;k++) { x[3*i+k] = (REAL)xs[k]; v[3*i+k] = (REAL)vs[k]; }
+			}
+#else
 			for(k=0; k<3; k++)
 			{
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
@@ -199,6 +309,7 @@ void step(REAL* x, REAL* v, REAL* F)
 				disp = v[3*i+k]*(REAL)(h);
 				x[3*i+k] = x[3*i+k] + v[3*i+k]*(REAL)(h);
 			}
+#endif
 			#ifdef GLASS_MAKING
 				disp = sqrt(pow(v[3*i]*(REAL)(h), 2) + pow(v[3*i+1]*(REAL)(h), 2) + pow(v[3*i+2]*(REAL)(h), 2));
 				dmean +=  disp;
@@ -244,6 +355,30 @@ void step(REAL* x, REAL* v, REAL* F)
 		{
 			double R  = (double)PDS_R_CURV;
 			double R2 = R * R;
+#ifdef PDS_INTRINSIC
+			//Intrinsic wrap: the state is already (q, U), so the face identification
+			//is a pure isometry.  Applying g = q_out (x) conj(q_in) to the tangent
+			//replaces the stereographic-Jacobian dance entirely -- and because
+			//isometries commute with the exp map, the trajectory is untouched.
+			for(i=0; i<N; i++)
+			{
+				double q_in[4]; for(k=0;k<4;k++) q_in[k] = (double)PDS_Q[4*i+k];
+				double q_out[4];
+				pds_wrap(q_in, q_out);
+				if(!pds_quat_same(q_in, q_out))
+				{
+					double qic[4]; pds_quat_conj(q_in, qic);
+					double gb[4];  pds_quat_mult(q_out, qic, gb);
+					double U[4];   for(k=0;k<4;k++) U[k] = (double)PDS_U[4*i+k];
+					double Ur[4];  pds_rotate_tangent(gb, U, Ur);
+					pds_project_tangent(q_out, Ur);
+					for(k=0;k<4;k++) PDS_U[4*i+k] = (REAL)Ur[k];
+				}
+				for(k=0;k<4;k++) PDS_Q[4*i+k] = (REAL)q_out[k];
+			}
+			//refresh the derived stereographic buffers for the force/tree/output path
+			pds_sync_stereo_for_output();
+#else
 			for(i=0; i<N; i++)
 			{
 				double cx = (double)x[3*i];
@@ -277,6 +412,7 @@ void step(REAL* x, REAL* v, REAL* F)
 				x[3*i+1] = (REAL)xo1;
 				x[3*i+2] = (REAL)xo2;
 			}
+#endif
 		}
 		#endif
 	}
@@ -417,12 +553,49 @@ void step(REAL* x, REAL* v, REAL* F)
 		REAL const_beta = 3.0/rho_part/(4.0*pi);
 		for(i=0; i<N; i++)
 		{
+#ifdef PDS_INTRINSIC
+			//Closing 'Kick' (h/2) of the KDK, in the tangent space at q.
+			//This MUST act on the canonical state U, not on v[]: under PDS_INTRINSIC
+			//v[] is a derived buffer that pds_sync_stereo_for_output() overwrites from
+			//U, so kicking v[] here would silently discard half of every step's
+			//acceleration (it did -- two-particle convergence came out exactly 2x low).
+			{
+				double R_c = (double)PDS_R_CURV;
+				double q[4]; for(k=0;k<4;k++) q[k] = (double)PDS_Q[4*i+k];
+				double U[4]; for(k=0;k<4;k++) U[k] = (double)PDS_U[4*i+k];
+				double Fs[4];
+				Fs[1] = (double)F[3*i]; Fs[2] = (double)F[3*i+1]; Fs[3] = (double)F[3*i+2];
+				Fs[0] = -(Fs[1]*q[1] + Fs[2]*q[2] + Fs[3]*q[3]) / q[0];
+				double a3 = pow(a, -3.0);
+				double A4[4];
+				for(k=0;k<4;k++)
+				{
+					A4[k] = (double)G*Fs[k]*a3 - 2.0*(double)Hubble_param*U[k];
+					U[k] += A4[k]*(h/2.0);
+				}
+				pds_project_tangent(q, U);
+				for(k=0;k<4;k++) PDS_U[4*i+k] = (REAL)U[k];
+				//refresh the derived buffers so the diagnostics below see the new state
+				double s = 1.0/(1.0 + q[0]);
+				double xs[3] = {R_c*q[1]*s, R_c*q[2]*s, R_c*q[3]*s};
+				double vs[3]; pds_stereo_vel_from_tangent(q, xs, U, R_c, vs);
+				for(k=0;k<3;k++) v[3*i+k] = (REAL)vs[k];
+				//error estimator uses the chart-frame acceleration, as in the flat branch
+				double Ac[3];
+				double t0R = Fs[0]*s;
+				for(k=0;k<3;k++)
+					Ac[k] = ((double)G*(Fs[k+1] - q[k+1]*t0R)*s*a3
+					         - 2.0*(double)Hubble_param*(double)v[3*i+k]);
+				for(k=0;k<3;k++) ACCELERATION[k] = (REAL)Ac[k];
+			}
+#else
 			for(k=0; k<3; k++)
 			{
 				ACCELERATION[k] = (G*F[3*i+k]*(REAL)(pow(a, -3.0)) - 2.0*(REAL)(Hubble_param)*v[3*i+k]);
 				//'Kick' operation (h/2)
 				v[3*i+k] += ACCELERATION[k]*(REAL)(h/2.0);
 			}
+#endif
 			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
 			if(err>errmax)
 			{

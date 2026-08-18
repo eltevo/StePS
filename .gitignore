@@ -1,6 +1,12 @@
-# Ignore the build directories (incl. glass-making variants)
-StePS/build/
-StePS/build_glass*/
+# Ignore ALL build directories - one glob so new variants (build_glass*, build_t3*,
+# build_<whatever>) are covered automatically instead of having to be added by hand.
+StePS/build*/
+
+# Compiled objects and binaries never belong in the repo, wherever they land
+*.o
+*.obj
+*.so
+*.a
 
 # Ignore the Makefile since it is platform-dependent
 StePS/Makefile
@@ -14,3 +20,18 @@ tools/*/*/__pycache__/
 
 #ignore the .vscode directory
 .vscode/
+
+# Compiled prototypes / build products checked in by accident
+StePS/examples/pds_tests/pds_bh_prototype
+
+# Machine-local IC symlink (see docs/PDS_guide.md); create your own:
+#   ln -s /path/to/your/ic/store StePS/examples/ic
+StePS/examples/ic
+
+# Python / Jupyter scratch
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Test scratch area (override with PDS_TEST_OUT_BASE)
+data/pds_tests/

@@ -116,6 +116,10 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 #if defined(POINCARE_DODECAHEDRAL)
 	//Variables only used in S^3/I* (Poincare Dodecahedral Space) simulations
 	REAL *PDS_Q;                 //4D quaternion positions (4*N REAL values)
+	int   PDS_Q_FROM_IC = 0;     //1 if PDS_Q came from /PartType1/Quaternions (authoritative)
+	#ifdef PDS_INTRINSIC
+	REAL *PDS_U;                 //4D tangent peculiar velocity (4*N), U _|_ q
+	#endif
 	REAL  PDS_R_CURV;            //curvature radius of S^3 in internal length units (Mpc)
 #endif
 #if defined(PERIODIC_Z)

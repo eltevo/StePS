@@ -55,6 +55,7 @@ Three tests:
 """
 
 import os
+import re
 import sys
 import shutil
 import subprocess
@@ -71,7 +72,10 @@ BINARY_SAVEACC = REPO / "build" / "StePS_saveacc"
 BINARY_R3      = REPO / "build" / "StePS_r3"
 STEPSIC_ROOT   = REPO.parent.parent / "stepsic"
 TEST_DIR = Path(__file__).resolve().parent
-OUT_BASE = Path("/v/csabai/GitHub/steps_dodeca/data/pds_tests")
+# Scratch area for the generated ICs / snapshots.  Defaults to <repo>/data/pds_tests;
+# override with PDS_TEST_OUT_BASE when the repo lives on a small/slow filesystem.
+OUT_BASE = Path(os.environ.get("PDS_TEST_OUT_BASE",
+                               REPO.parent.parent / "data" / "pds_tests"))
 
 sys.path.insert(0, str(STEPSIC_ROOT))  # for stepsic.pds (Test 6)
 
@@ -105,7 +109,7 @@ def check(ok, msg):
 
 
 # ── HDF5 IC writer ─────────────────────────────────────────────────────────────
-def write_ic(path, pos_mpc, vel_pec_kmps, mass_code, a_start):
+def write_ic(path, pos_mpc, vel_pec_kmps, mass_code, a_start, quaternions=None):
     """
     Write a minimal Gadget-2/StePS HDF5 IC file.
 
@@ -144,6 +148,8 @@ def write_ic(path, pos_mpc, vel_pec_kmps, mass_code, a_start):
         pt.create_dataset("Velocities",  data=v_stored.astype(np.float32))
         pt.create_dataset("Masses",      data=mass_code.astype(np.float32))
         pt.create_dataset("ParticleIDs", data=np.arange(1, N+1, dtype=np.uint64))
+        if quaternions is not None:
+            pt.create_dataset("Quaternions", data=quaternions.astype(np.float64))
 
 
 # ── Parameter file writer ──────────────────────────────────────────────────────
@@ -195,10 +201,15 @@ def write_redshift_list(path, z_values):
 
 
 # ── Simulation runner ──────────────────────────────────────────────────────────
-def run_sim(param_file, timeout=120, binary=BINARY):
+def run_sim(param_file, timeout=120, binary=None):
     # Write output to a file (not a pipe) to avoid kernel-buffer deadlocks.
     # OMP_NUM_THREADS=1 prevents OpenMPI from probing GPUs at MPI_Init,
     # which would otherwise stall for minutes on a machine with CUDA devices.
+    # Resolve the default at CALL time: `binary=BINARY` as a default argument would
+    # bind the module-level value at def time, so any later reassignment of BINARY is
+    # silently ignored and the wrong binary gets exercised.
+    if binary is None:
+        binary = BINARY
     out_path = Path(param_file).parent / "run.log"
     env = {**os.environ,
            "OMP_NUM_THREADS": "1",
@@ -217,13 +228,50 @@ def run_sim(param_file, timeout=120, binary=BINARY):
 
 
 # ── Build orchestration for the binary variants (Tests 6 and 8) ───────────────
+def _detect_cxx():
+    """Pick a C++ compiler: $CXX, else the conda toolchain, else plain g++."""
+    if os.environ.get("CXX"):
+        return os.environ["CXX"]
+    conda = os.environ.get("CONDA_PREFIX", "")
+    if conda:
+        for name in ("x86_64-conda-linux-gnu-c++", "x86_64-conda-linux-gnu-g++"):
+            if (Path(conda) / "bin" / name).exists():
+                return name
+    for name in ("mpicxx", "g++", "c++"):
+        if shutil.which(name):
+            return name
+    raise RuntimeError("No C++ compiler found; set CXX=... explicitly.")
+
+
+# Extra -D options appended to every build, e.g.
+#     PDS_TEST_EXTRA_OPT=-DPDS_INTRINSIC python3 run_tests.py
+# Lets the whole suite be run against a build variant.  It is part of the build stamp,
+# so switching it always forces a rebuild rather than silently reusing binaries.
+EXTRA_OPT = os.environ.get("PDS_TEST_EXTRA_OPT", "").strip()
+INTRINSIC_BUILD = "-DPDS_INTRINSIC" in EXTRA_OPT
+
+DEFAULT_PDS_OPT = "-DPOINCARE_DODECAHEDRAL -DHAVE_HDF5 -DCOSMOPARAM=0"
+
+
+def _with_extra(opt):
+    """Append EXTRA_OPT to an OPT string (None means the makefile's own default)."""
+    if not EXTRA_OPT:
+        return opt
+    return f"{opt} {EXTRA_OPT}" if opt is not None else f"{DEFAULT_PDS_OPT} {EXTRA_OPT}"
+
+
 def _make(opt=None, extra=()):
-    """Run make -f PDS-LinuxGCC-Makefile in REPO with the conda toolchain."""
+    """Run make -f PDS-LinuxGCC-Makefile in REPO.
+
+    Toolchain is auto-detected (override with CXX / CONDA_PREFIX) so the suite is
+    not tied to one machine's conda install.
+    """
     conda = os.environ.get("CONDA_PREFIX", "")
     args = ["make", "-f", "PDS-LinuxGCC-Makefile", "-j8",
-            "CXX=x86_64-conda-linux-gnu-c++",
+            f"CXX={_detect_cxx()}",
             f"MPI_INC=-I{conda}/include", f"MPI_LIBS=-L{conda}/lib -lmpi",
             f"HDF5_INC=-I{conda}/include", f"HDF5_LIBS=-L{conda}/lib -lhdf5"]
+    opt = _with_extra(opt)
     if opt is not None:
         args.append(f"OPT={opt}")
     args.extend(extra)
@@ -232,6 +280,26 @@ def _make(opt=None, extra=()):
     res = subprocess.run(args, cwd=REPO, capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"make failed:\n{res.stdout[-2000:]}\n{res.stderr[-2000:]}")
+    _write_stamp(BINARY, opt)
+
+
+# ── Build stamps ──────────────────────────────────────────────────────────────
+# A binary is only reusable if it was built with the SAME options.  Caching on
+# mtime alone silently reuses e.g. a -DPDS_INTRINSIC build as the production
+# binary, which produces wrong physics with no visible error.
+def _stamp_path(binary):
+    return Path(str(binary) + ".buildopt")
+
+
+def _write_stamp(binary, opt):
+    _stamp_path(binary).write_text(opt if opt is not None else "<default>")
+
+
+def _stamp_matches(binary, opt):
+    sp = _stamp_path(binary)
+    if not sp.exists():
+        return False
+    return sp.read_text() == (opt if opt is not None else "<default>")
 
 
 def ensure_binary_variants():
@@ -244,10 +312,19 @@ def ensure_binary_variants():
     already exist and are newer than every src/ file.
     """
     src_mtime = max(p.stat().st_mtime for p in (REPO / "src").glob("*"))
-    need_saveacc = not (BINARY_SAVEACC.exists()
-                        and BINARY_SAVEACC.stat().st_mtime > src_mtime)
-    need_r3 = not (BINARY_R3.exists() and BINARY_R3.stat().st_mtime > src_mtime)
-    need_main = not (BINARY.exists() and BINARY.stat().st_mtime > src_mtime)
+    OPT_SAVEACC = "-DPOINCARE_DODECAHEDRAL -DHAVE_HDF5 -DCOSMOPARAM=0 -DSAVE_ACCELERATIONS"
+    OPT_R3      = "-DHAVE_HDF5 -DCOSMOPARAM=0"
+
+    def stale(binary, opt):
+        return not (binary.exists()
+                    and binary.stat().st_mtime > src_mtime
+                    and _stamp_matches(binary, opt))
+
+    need_saveacc = stale(BINARY_SAVEACC, _with_extra(OPT_SAVEACC))
+    need_r3      = stale(BINARY_R3, _with_extra(OPT_R3))
+    need_main    = stale(BINARY, _with_extra(None))
+    if EXTRA_OPT:
+        print(f"(building all variants with extra options: {EXTRA_OPT})")
     if not (need_saveacc or need_r3):
         if need_main:
             print("Rebuilding the standard PDS binary...")
@@ -255,12 +332,14 @@ def ensure_binary_variants():
         return
     if need_saveacc:
         print("Building StePS_saveacc (PDS + SAVE_ACCELERATIONS)...")
-        _make(opt="-DPOINCARE_DODECAHEDRAL -DHAVE_HDF5 -DCOSMOPARAM=0 -DSAVE_ACCELERATIONS")
+        _make(opt=OPT_SAVEACC)
         shutil.copy2(BINARY, BINARY_SAVEACC)
+        _write_stamp(BINARY_SAVEACC, _with_extra(OPT_SAVEACC))
     if need_r3:
         print("Building StePS_r3 (default spherical R^3 topology)...")
-        _make(opt="-DHAVE_HDF5 -DCOSMOPARAM=0")
+        _make(opt=OPT_R3)
         shutil.copy2(BINARY, BINARY_R3)
+        _write_stamp(BINARY_R3, _with_extra(OPT_R3))
     print("Rebuilding the standard PDS binary...")
     _make()
 
@@ -369,7 +448,16 @@ def test2():
     # exercises pds_wrap + the velocity transformation (gluing).
     a_start = 0.5
     a_max   = 1.0
-    v_pec   = 50_000.0   # km/s — modest, ensures fast simulation
+    # Deliberately extreme: this is a pure numerical exercise of pds_wrap (the IC
+    # already starts the particle outside the domain at chi = 63 deg), and the wrap
+    # must be crossed unambiguously.  At 50,000 km/s the particle only traverses
+    # ~2.8 deg over the whole run, so it merely *grazes* the boundary and whether it
+    # crosses is decided by sub-degree integrator differences — the flat drift
+    # over-shoots the chart and crosses, the exact geodesic curves along the boundary
+    # and does not.  That made the test integrator-dependent.  At 1e6 km/s both the
+    # flat and the intrinsic integrator cross on every interval (jumps 500-800 Mpc vs
+    # the 200 Mpc threshold) and agree with each other to <1%.
+    v_pec   = 1_000_000.0   # km/s
 
     shutil.rmtree(outdir, ignore_errors=True)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -652,11 +740,25 @@ def test6():
     a_start = 0.5
     soft = 10.0
     rng = np.random.default_rng(7)
+    # 50 well-separated particles ...
     pos = rng.normal(size=(50, 3))
     pos = pos / np.linalg.norm(pos, axis=1, keepdims=True) \
         * rng.uniform(20, 480, size=(50, 1))
     mass = rng.uniform(500.0, 2000.0, size=50)
-    write_ic(ic, pos_mpc=pos, vel_pec_kmps=np.zeros((50, 3)),
+    # ... plus 14 deliberately CLOSE companions so the per-pair softening kernel is
+    # actually exercised.  Without these every separation exceeds beta and the whole
+    # softened branch is dead code as far as this test is concerned -- which is how a
+    # discontinuous softening floor survived here unnoticed.  Offsets straddle the
+    # spline's two regions and its joins (beta/2 and beta) as well as near-coincidence.
+    companions = np.array([1e-4, 0.05, 0.2, 0.5, 0.9, 1.0, 1.1, 1.5, 1.9,
+                           2.0, 2.1, 2.5, 3.0, 5.0])           # in units of `soft`
+    base = pos[:len(companions)]
+    d = rng.normal(size=(len(companions), 3))
+    d /= np.linalg.norm(d, axis=1, keepdims=True)
+    pos = np.vstack([pos, base + d * (companions[:, None] * soft)])
+    mass = np.concatenate([mass, rng.uniform(500.0, 2000.0, size=len(companions))])
+    n_part = len(pos)
+    write_ic(ic, pos_mpc=pos, vel_pec_kmps=np.zeros((n_part, 3)),
              mass_code=mass, a_start=a_start)
     # the run only needs to reach the SAVE_ACCELERATIONS dump (at startup)
     z_out = 1.0 / np.linspace(a_start, a_start + 0.02, 3) - 1.0
@@ -669,27 +771,90 @@ def test6():
     with h5py.File(outdir / "initial_conditions_0000.hdf5", "r") as f:
         F_cpp = f["PartType1/Accelerations"][:]
 
-    # independent NumPy reference: exact compensated 120-image sum with the
-    # same per-pair softening floor chi_eff = max(chi, (soft_i + soft_j)/R)
+    # Read the positions and masses BACK from the IC, not from the in-memory arrays:
+    # the file stores them as float32, so StePS integrates slightly different numbers.
+    # For the close pairs added above (down to 1e-3 Mpc at a radius of ~100 Mpc) that
+    # rounding shifts the separation by ~1%, which the steep softened force turns into
+    # a ~1e-4 disagreement -- an artefact of the harness, not of the force kernel.
+    with h5py.File(ic, "r") as f:
+        pos = f["PartType1/Coordinates"][:].astype(np.float64)
+        mass = f["PartType1/Masses"][:].astype(np.float64)
+
+    # Independent NumPy reference: exact compensated 120-image sum with the same
+    # per-pair softening floor chi_eff = max(chi, (soft_i + soft_j)/R), pushed
+    # forward into the stereographic chart with the FULL Jacobian of
+    # x = R q_{1:3}/(1+q0), derived here independently of forces.cc:
+    #
+    #     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,   Omega = 1 + q0 = 2R^2/(R^2+r^2)
+    #
+    # forces.cc absorbs the overall R into the kernel normalization, so the
+    # comparison is against ( t_{i+1} - (x_i/R)*t_0 ) / Omega, and x_i/R = q_{i+1}/Omega.
+    #
+    # Three ways to break this test, all historically real:
+    #   - drop the 1/Omega factor      -> fails by ~50% (Omega -> 2 at the centre)
+    #   - drop the t_0 term            -> fails by up to ~5% at the domain boundary
+    #   - mismatch the softening kernel-> fails only on the close pairs added above
     R = R_CURV
     quat = to_quaternion(pos.astype(np.float64))
     quat /= np.linalg.norm(quat, axis=1, keepdims=True)
-    chi_soft = 2.0 * soft / R
+
+    # Per-particle softening, exactly as utils.cc computes it:
+    #   SOFT_LENGTH[i] = cbrt(M[i]*const_beta),  const_beta = ParticleRadi^3 / M_min
+    #                  = ParticleRadi * (M[i]/M_min)^(1/3)
+    # The pair softening is beta_ij = SOFT_LENGTH[i] + SOFT_LENGTH[j].  Assuming a
+    # single uniform value here is wrong and silently hides disagreements on close pairs.
+    soft_len = soft * np.cbrt(mass / mass.min())
+
+    def green_softened(chi, beta):
+        '''Mirror of pds_green_softened() in src/pds_group.h (spline on the areal
+        radius A = R sin chi, so it is exactly the unsoftened kernel for A >= beta).'''
+        out = np.zeros_like(chi)
+        ok = (chi > 1e-12) & (chi < np.pi - 1e-12)
+        s = np.sin(np.where(ok, chi, 1.0))
+        A = R * s
+        frac = (2.0 * chi - np.sin(2.0 * chi)) / (2.0 * np.pi)
+        far = ok & ((chi >= 0.5 * np.pi) | (A >= beta))
+        out[far] = (1.0 - frac[far]) / (A[far] ** 2)
+        near = ok & ~far
+        if np.any(near):
+            An, bn = A[near], np.broadcast_to(beta, A.shape)[near]
+            b3, b4, b5, b6 = bn**3, bn**4, bn**5, bn**6
+            inner = An <= 0.5 * bn
+            spline = np.where(
+                inner,
+                32.0 / b6 * An**3 - 38.4 / b5 * An**2 + 32.0 / (3.0 * b3),
+                -32.0 / (3.0 * b6) * An**3 + 38.4 / b5 * An**2 - 48.0 / b4 * An
+                + 64.0 / (3.0 * b3) - (1.0 / 15.0) / np.where(An > 0, An**3, 1.0))
+            out[near] = (1.0 - frac[near]) * An * spline
+        return out
+
     imgs = pds.images(quat)                       # (N, 120, 4)
-    F_py = np.zeros((50, 3))
-    for i in range(50):
+    F_py = np.zeros((n_part, 3))
+    n_softened = 0
+    for i in range(n_part):
         chis = pds.chi(quat[i], imgs)             # (N, 120)
         dirs = pds.force_direction(quat[i], imgs)
-        valid = (chis > 1e-12) & (chis < np.pi - 1e-12)
-        mags = pds.green_compensated(np.maximum(chis, chi_soft), R) * valid
-        F_py[i] = np.sum(mass[:, None, None] * mags[..., None] * dirs,
-                         axis=(0, 1))[1:]
+        beta_ij = (soft_len[i] + soft_len)[:, None]           # (N, 1) -> broadcasts
+        mags = green_softened(chis, beta_ij)
+        n_softened += int(np.sum((R * np.sin(chis) < beta_ij) & (chis > 1e-12)))
+        t = np.sum(mass[:, None, None] * mags[..., None] * dirs, axis=(0, 1))  # 4D tangent
+        if INTRINSIC_BUILD:
+            # The intrinsic integrator drifts along geodesics, not in the chart, so the
+            # kernels hand back the RAW tangent and the pushforward is deliberately not
+            # applied (see docs/PDS_guide.md).  Compare against that convention.
+            F_py[i] = t[1:]
+        else:
+            inv_omega = 1.0 / (1.0 + quat[i, 0])
+            F_py[i] = (t[1:] - quat[i, 1:] * t[0] * inv_omega) * inv_omega
 
     rel = (np.linalg.norm(F_cpp - F_py, axis=1)
            / np.linalg.norm(F_py, axis=1))
+    conv = "raw 4D tangent" if INTRINSIC_BUILD else "chart pushforward"
     ok = check(rel.max() < 1e-6,
-               f"C++ vs NumPy exact compensated sum: max rel err = {rel.max():.2e} "
-               f"(median {np.median(rel):.2e})")
+               f"C++ vs NumPy exact compensated sum [{conv}]: max rel err = "
+               f"{rel.max():.2e} (median {np.median(rel):.2e})")
+    ok &= check(n_softened > 0,
+                f"softening kernel is exercised ({n_softened} sub-beta image pairs)")
     print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
     return ok
 
@@ -709,9 +874,14 @@ def test7():
     toml = (base_toml
             .replace('NGRID = 16', 'NGRID = 8')
             .replace('NMESH = 64', 'NMESH = 32')
-            .replace('IC_DIR = "/v/csabai/GitHub/steps_dodeca/data/ic"',
-                     f'IC_DIR = "{outdir}"')
             .replace('IC_PREFIX = "PDS_test"', 'IC_PREFIX = "t7"'))
+    # Redirect the IC output by rewriting the key, not by matching one literal path
+    # (a literal .replace() silently no-ops if the example's default ever changes,
+    # leaving the test writing into whatever directory the example names).
+    toml, n_sub = re.subn(r'^IC_DIR\s*=.*$', f'IC_DIR = "{outdir}"',
+                          toml, count=1, flags=re.MULTILINE)
+    if n_sub != 1:
+        raise RuntimeError("could not rewrite IC_DIR in PDS_test_ic.toml")
     toml_path = outdir / "t7.toml"
     toml_path.write_text(toml)
     res = subprocess.run([sys.executable, "stepsic.py", str(toml_path)],
@@ -817,6 +987,92 @@ def test8():
 # ══════════════════════════════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 9 — /PartType1/Quaternions actually govern the run
+# ══════════════════════════════════════════════════════════════════════════════
+def test9():
+    """The IC's quaternions must be the state that is integrated, not merely read.
+
+    Provenance is invisible in a consistent IC: q and inverse_stereo(stereo(q)) agree
+    analytically, so honouring the dataset or rebuilding it from Coordinates give the
+    same answer to within float precision.  We therefore write a *deliberately
+    inconsistent* IC — Coordinates describing one configuration, Quaternions another —
+    so the two code paths give unmistakably different positions.  This is a provenance
+    fixture, not a supported input.
+
+    Before the fix, pds_wrap_ic() rebuilt q from x[] unconditionally and the Quaternions
+    dataset was dead weight; the old assertion only grepped the log for the word
+    "Reading", which such a run still prints.
+    """
+    print("\n── Test 9: IC quaternions govern the run ────────────────────────────")
+    tag    = "test9"
+    outdir = OUT_BASE / tag
+    ic     = outdir / "ic.hdf5"
+    param  = outdir / f"{tag}.param"
+    outlst = outdir / "redshifts.txt"
+
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    a_start = 0.5
+    rng = np.random.default_rng(23)
+    n = 40
+    # positions the QUATERNIONS describe (the truth we expect to be integrated)
+    pos_q = rng.normal(size=(n, 3))
+    pos_q = pos_q / np.linalg.norm(pos_q, axis=1, keepdims=True) \
+        * rng.uniform(50.0, 400.0, size=(n, 1))
+    quat = to_quaternion(pos_q.astype(np.float64))
+    quat /= np.linalg.norm(quat, axis=1, keepdims=True)
+    # decoy Cartesian coordinates: a large, easily distinguishable displacement
+    pos_decoy = pos_q + 150.0
+
+    mass = rng.uniform(500.0, 2000.0, size=n)
+    write_ic(ic, pos_mpc=pos_decoy, vel_pec_kmps=np.zeros((n, 3)),
+             mass_code=mass, a_start=a_start, quaternions=quat)
+    write_redshift_list(outlst, 1.0 / np.linspace(a_start, a_start + 0.02, 3) - 1.0)
+    write_param(param, outdir, ic, outlst, a_start=a_start, a_max=a_start + 0.02,
+                acc_param=0.05, step_max=0.1, particle_radii=10.0, is_periodic=2)
+    run_sim(param, binary=BINARY_SAVEACC)
+
+    log_text = (param.parent / "run.log").read_text()
+    ok = check("Reading /PartType1/Quaternions" in log_text,
+               "IC quaternions were read")
+
+    with h5py.File(outdir / "initial_conditions_0000.hdf5", "r") as f:
+        pos_used = f["PartType1/Coordinates"][:].astype(np.float64)
+
+    # StePS wraps into the fundamental domain, so compare against the wrapped
+    # stereographic image of each candidate rather than the raw input.
+    from stepsic import pds
+    def wrapped_stereo(q):
+        best = None
+        for g in pds.istar():
+            img = pds.quat_mult(g, q)
+            keep = img[:, 0] >= 0
+            img = np.where(keep[:, None], img, -img)
+            if best is None:
+                best = img
+            else:
+                better = img[:, 0] > best[:, 0]
+                best = np.where(better[:, None], img, best)
+        return pds.stereo_project(best, R_CURV)
+
+    d_quat  = np.linalg.norm(pos_used - wrapped_stereo(quat), axis=1)
+    d_decoy = np.linalg.norm(
+        pos_used - wrapped_stereo(to_quaternion(pos_decoy.astype(np.float64))
+                                  / np.linalg.norm(to_quaternion(pos_decoy.astype(np.float64)),
+                                                   axis=1, keepdims=True)), axis=1)
+
+    ok &= check(np.median(d_quat) < 1e-3,
+                f"integrated state follows the IC quaternions "
+                f"(median offset {np.median(d_quat):.2e} Mpc)")
+    ok &= check(np.median(d_decoy) > 1.0,
+                f"integrated state does NOT follow the decoy Coordinates "
+                f"(median offset {np.median(d_decoy):.3g} Mpc)")
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("Checking/building the binary variants (StePS, StePS_saveacc, StePS_r3)...")
     ensure_binary_variants()
@@ -828,7 +1084,7 @@ if __name__ == "__main__":
     OUT_BASE.mkdir(parents=True, exist_ok=True)
 
     print("Running all 8 tests in parallel...")
-    test_fns = [test1, test2, test3, test4, test5, test6, test7, test8]
+    test_fns = [test1, test2, test3, test4, test5, test6, test7, test8, test9]
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(fn): fn for fn in test_fns}
         result_map = {}

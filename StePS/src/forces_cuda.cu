@@ -911,6 +911,28 @@ __device__ static inline void pds_force_dir_dev(const double p[4], const double 
     for(int k = 0; k < 4; k++) t[k] *= inv;
 }
 
+/* Softened compensated kernel -- device mirror of pds_green_softened() in pds_group.h.
+ * Keep the two in sync: Test 6 and the CPU/GPU cross-check compare them directly. */
+__device__ static inline double pds_spline_factor_dev(double A, double beta)
+{
+    if(A >= beta) return 1.0/(A*A*A);
+    double b2 = beta*beta, b3 = b2*beta, b4 = b3*beta, b5 = b4*beta, b6 = b5*beta;
+    double A2 = A*A, A3 = A2*A;
+    if(A > 0.5*beta)
+        return -32.0/(3.0*b6)*A3 + 38.4/b5*A2 - 48.0/b4*A + 64.0/(3.0*b3) - (1.0/15.0)/A3;
+    return 32.0/b6*A3 - 38.4/b5*A2 + 32.0/(3.0*b3);
+}
+
+__device__ static inline double pds_green_soft_dev(double chi, double R, double beta)
+{
+    if(chi < 1.0e-12 || chi > 3.14159265358979 - 1.0e-12) return 0.0;
+    double s = sin(chi);
+    double A = R * s;
+    double frac = (2.0*chi - sin(2.0*chi)) / (2.0*3.14159265358979);
+    if(chi >= 0.5*3.14159265358979 || A >= beta) return (1.0 - frac) / (A * A);
+    return (1.0 - frac) * A * pds_spline_factor_dev(A, beta);
+}
+
 __device__ static inline double pds_green_comp_dev(double chi, double R)
 {
     /* Background-compensated S^3 kernel: [1 - V(chi)/V_S3] / (R^2 sin^2 chi).
@@ -953,7 +975,7 @@ __global__ void ForceKernel_pds(
         double qi[4];
         for(int k=0;k<4;k++) qi[k] = (double)pds_q[4*i+k];
 
-        double Fx = 0.0, Fy = 0.0, Fz = 0.0;
+        double F0 = 0.0, Fx = 0.0, Fy = 0.0, Fz = 0.0;
 
         for(int j = 0; j < N; j++)
         {
@@ -961,7 +983,6 @@ __global__ void ForceKernel_pds(
             for(int k=0;k<4;k++) qj[k] = (double)pds_q[4*j+k];
 
             double soft = (double)(soft_dev[i] + soft_dev[j]);
-            double chi_soft = soft / R_curv;
 
             if(IS_PERIODIC >= 2)
             {
@@ -977,8 +998,8 @@ __global__ void ForceKernel_pds(
                     if(chi_g < 1.0e-12 || chi_g > 3.14159265358979 - 1.0e-12) continue;
                     double t4[4];
                     pds_force_dir_dev(qi, gq, t4);
-                    double chi_eff = (chi_g < chi_soft) ? chi_soft : chi_g;
-                    double fmag = (double)Mdev[j] * pds_green_comp_dev(chi_eff, R_curv);
+                    double fmag = (double)Mdev[j] * pds_green_soft_dev(chi_g, R_curv, soft);
+                    F0 += fmag * t4[0];
                     Fx += fmag * t4[1];
                     Fy += fmag * t4[2];
                     Fz += fmag * t4[3];
@@ -1002,21 +1023,30 @@ __global__ void ForceKernel_pds(
 
                 double t4[4];
                 pds_force_dir_dev(qi, qn, t4);
-                double chi_eff = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
-                double fmag = (double)Mdev[j] * pds_green_comp_dev(chi_eff, R_curv);
+                double fmag = (double)Mdev[j] * pds_green_soft_dev(chi_nearest, R_curv, soft);
 
+                F0 += fmag * t4[0];
                 Fx += fmag * t4[1];
                 Fy += fmag * t4[2];
                 Fz += fmag * t4[3];
             }
         }
 
-        /* Conformal Jacobian: divide physical geodesic accel by Omega=1+q0 so it
-         * becomes the coordinate accel for the stereographic drift (see forces.cc). */
+        /* Stereographic pushforward of the 4D geodesic tangent (see forces.cc):
+         *     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,  Omega = 2R^2/(R^2+r^2) = 1+q0,
+         * with the overall R absorbed into the kernel normalization and
+         * x_i/R = q_{i+1}/(1+q0). */
+#ifdef PDS_INTRINSIC
+        atomicAdd(&F[3*ii],   (REAL)Fx);      /* raw tangent: see forces.cc */
+        atomicAdd(&F[3*ii+1], (REAL)Fy);
+        atomicAdd(&F[3*ii+2], (REAL)Fz);
+#else
         double invOmega = 1.0/(1.0 + qi[0]);
-        atomicAdd(&F[3*ii],   (REAL)(Fx*invOmega));
-        atomicAdd(&F[3*ii+1], (REAL)(Fy*invOmega));
-        atomicAdd(&F[3*ii+2], (REAL)(Fz*invOmega));
+        double c0 = F0 * invOmega;
+        atomicAdd(&F[3*ii],   (REAL)((Fx - qi[1]*c0)*invOmega));
+        atomicAdd(&F[3*ii+1], (REAL)((Fy - qi[2]*c0)*invOmega));
+        atomicAdd(&F[3*ii+2], (REAL)((Fz - qi[3]*c0)*invOmega));
+#endif
     }
 }
 
@@ -1136,7 +1166,7 @@ __global__ void ForceKernel_pds_bh(
 
         double qi[4]; for(int k=0;k<4;k++) qi[k]=(double)pds_q[4*i+k];
         double soft_i = (double)soft[i];
-        double Fx=0.0, Fy=0.0, Fz=0.0;
+        double F0=0.0, Fx=0.0, Fy=0.0, Fz=0.0;
 
         for(int g=0; g<120; g++)
         {
@@ -1156,9 +1186,9 @@ __global__ void ForceKernel_pds_bh(
                 if(nd.is_leaf || ang*ang < theta2*chi*chi) {
                     if(chi > 1e-12 && chi < 3.14159265358979 - 1e-12) {
                         double t[4]; pds_force_dir_dev(qi, qg, t);
-                        double chi_soft = (soft_i + (double)nd.soft) / R_curv;
-                        double ce = (chi < chi_soft) ? chi_soft : chi;
-                        double fm = (double)nd.mass * pds_green_comp_dev(ce, R_curv);
+                        double beta_pair = soft_i + (double)nd.soft;
+                        double fm = (double)nd.mass * pds_green_soft_dev(chi, R_curv, beta_pair);
+                        F0 += fm*t[0];
                         Fx += fm*t[1]; Fy += fm*t[2]; Fz += fm*t[3];
                     }
                     idx = nd.escape;
@@ -1167,12 +1197,21 @@ __global__ void ForceKernel_pds_bh(
                 }
             }
         }
-        /* Conformal Jacobian: divide physical geodesic accel by Omega=1+q0 so it
-         * becomes the coordinate accel for the stereographic drift (see forces.cc). */
+        /* Stereographic pushforward of the 4D geodesic tangent (see forces.cc):
+         *     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,  Omega = 2R^2/(R^2+r^2) = 1+q0,
+         * with the overall R absorbed into the kernel normalization and
+         * x_i/R = q_{i+1}/(1+q0). */
+#ifdef PDS_INTRINSIC
+        F[3*ii]   = (REAL)Fx;                 /* raw tangent: see forces.cc */
+        F[3*ii+1] = (REAL)Fy;
+        F[3*ii+2] = (REAL)Fz;
+#else
         double invOmega = 1.0/(1.0 + qi[0]);
-        F[3*ii]   = (REAL)(Fx*invOmega);
-        F[3*ii+1] = (REAL)(Fy*invOmega);
-        F[3*ii+2] = (REAL)(Fz*invOmega);
+        double c0 = F0 * invOmega;
+        F[3*ii]   = (REAL)((Fx - qi[1]*c0)*invOmega);
+        F[3*ii+1] = (REAL)((Fy - qi[2]*c0)*invOmega);
+        F[3*ii+2] = (REAL)((Fz - qi[3]*c0)*invOmega);
+#endif
     }
 }
 

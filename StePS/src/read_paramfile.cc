@@ -759,6 +759,44 @@ if(PDS_R_CURV <= 0.0)
 	exit(-1);
 }
 printf("PDS curvature radius\t\t%.6g Mpc\n", (double)PDS_R_CURV);
+if(COSMOLOGY == 1)
+{
+	// The PDS is the quotient of a *closed* 3-sphere, so a self-consistent background
+	// must be positively curved: Omega_k < 0 with R_curv = (c/H0)/sqrt(|Omega_k|).
+	// Warn loudly (rather than exit) when the declared geometry and the declared
+	// background disagree -- the simulated topology is then decorative with respect
+	// to the expansion history, which is a legitimate numerical experiment but must
+	// be a deliberate choice, not an accident.
+	double omega_k_par = 1.0 - Omega_m - Omega_lambda - Omega_r;
+	double hubble_dist = 299792.458 / (H0 * UNIT_V);          // c/H0 in Mpc
+	if(omega_k_par >= -1e-9)
+	{
+		printf("\n*** WARNING: PDS geometry / background cosmology are inconsistent. ***\n");
+		printf("    Omega_m + Omega_lambda + Omega_r = %.6f  =>  Omega_k = %+.3e (flat or open),\n",
+		       Omega_m + Omega_lambda + Omega_r, omega_k_par);
+		printf("    but POINCARE_DODECAHEDRAL declares a finite curvature radius of %.6g Mpc,\n",
+		       (double)PDS_R_CURV);
+		printf("    which requires a CLOSED background: Omega_k = -(c/H0/R_curv)^2 = %+.4f\n",
+		       -(hubble_dist/(double)PDS_R_CURV)*(hubble_dist/(double)PDS_R_CURV));
+		printf("    (c/H0 = %.6g Mpc).  The expansion history will be integrated as if\n", hubble_dist);
+		printf("    Omega_k = %+.3e, so the topology does not back-react on the background.\n", omega_k_par);
+		printf("*** Continuing anyway. ***\n\n");
+	}
+	else
+	{
+		double r_curv_implied = hubble_dist / sqrt(-omega_k_par);
+		double rel = fabs(r_curv_implied - (double)PDS_R_CURV) / (double)PDS_R_CURV;
+		printf("Implied curvature radius\t%.6g Mpc  (from Omega_k = %+.6f)\n",
+		       r_curv_implied, omega_k_par);
+		if(rel > 0.01)
+		{
+			printf("\n*** WARNING: PDS_R_CURV disagrees with the background curvature. ***\n");
+			printf("    PDS_R_CURV = %.6g Mpc, but Omega_k = %+.6f implies %.6g Mpc (%.1f%% off).\n",
+			       (double)PDS_R_CURV, omega_k_par, r_curv_implied, 100.0*rel);
+			printf("*** Continuing anyway. ***\n\n");
+		}
+	}
+}
 #endif
 #if defined(USE_BH) && !defined(PERIODIC)
 	printf("Radial BH force correction\t%i\n",RADIAL_BH_FORCE_CORRECTION);

@@ -1314,6 +1314,15 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_Q.\n", rank);
 			exit(-2);
 		}
+		#ifdef PDS_INTRINSIC
+		//Tangent velocity state, allocated alongside PDS_Q.  Integration is serial on
+		//rank 0 and the force kernels never read U, so it is not MPI-broadcast.
+		if(!(PDS_U = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for PDS_U.\n", rank);
+			exit(-2);
+		}
+		#endif
 	}
 	// Load precomputed quaternions if present, otherwise convert from Cartesian
 	if(H5Lexists(IC, "/PartType1/Quaternions", H5P_DEFAULT) > 0)
@@ -1363,6 +1372,9 @@ void read_hdf5_ic(char *ic_file, bool allocate_memory)
 		H5Tclose(datatype);
 		H5Sclose(dataspace_in_file);
 		H5Dclose(dataset);
+		// The IC's own quaternions are authoritative: pds_wrap_ic() must wrap THESE
+		// rather than silently rebuilding q from the (float-rounded) Cartesian x[].
+		PDS_Q_FROM_IC = 1;
 	}
 	else
 	{
@@ -2644,6 +2656,13 @@ int load_IC(char *IC_FILE, int IC_FORMAT)
 			fprintf(stderr, "Failed to allocate memory for PDS_Q.\nExiting.\n");
 			return (-1);
 		}
+		#ifdef PDS_INTRINSIC
+		if(!(PDS_U = (REAL*)malloc(4*N*sizeof(REAL))))
+		{
+			fprintf(stderr, "Failed to allocate memory for PDS_U.\nExiting.\n");
+			exit(-2);
+		}
+		#endif
 		printf("Converting Cartesian IC to S^3 unit quaternions (inverse stereographic projection)...\n");
 		fflush(stdout);
 		double R = (double)PDS_R_CURV;

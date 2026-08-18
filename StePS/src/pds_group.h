@@ -289,6 +289,62 @@ static inline double pds_green_compensated(double chi, double R_curv)
     return (1.0 - frac) / (R_curv * R_curv * s * s);
 }
 
+/*  Softened compensated kernel.
+ *
+ *  The unsoftened kernel above is exactly  (1 - frac(chi)) / A^2  with
+ *
+ *      A = R sin(chi)          (areal radius: the proper radius of the geodesic
+ *                               2-sphere at separation chi, so A -> d = R*chi
+ *                               in the flat limit)
+ *
+ *  i.e. an inverse-square law in A times the background-compensation factor.  We
+ *  therefore soften by replacing 1/A^2 with the SAME cubic spline StePS uses on every
+ *  non-PDS path, A * force_softening(A, beta), leaving the compensation factor alone:
+ *
+ *      G_soft(chi) = (1 - frac(chi)) * A * S(A, beta)
+ *
+ *  S is spliced so that A*S(A) == 1/A^2 for A >= beta, hence this is *exactly* the
+ *  unsoftened kernel outside the softening radius (no transition mismatch), and
+ *  A*S(A) -> 0 linearly as A -> 0.
+ *
+ *  The previous behaviour -- chi_eff = max(chi, chi_soft) -- instead held the force at
+ *  its value at chi_soft all the way down to chi -> 0+, then dropped it discontinuously
+ *  to zero at coincidence.  That is a jump of the full softened force magnitude, which
+ *  drives integration error and two-body heating.
+ *
+ *  Guard: A = R sin(chi) is non-monotonic and vanishes again at the antipode, so the
+ *  spline is applied only on the near branch (chi < pi/2).  With beta ~ 10 Mpc and
+ *  R ~ 3100 Mpc the softening radius sits at chi ~ 3e-3, far from that branch cut.
+ *
+ *  beta is the pair softening length (SOFT_LENGTH[i] + SOFT_LENGTH[j]).
+ */
+static inline double pds_spline_factor(double A, double beta)
+{
+    /* Cubic spline kernel; returns S with F = m * r_vec * S(|r_vec|), matching
+     * force_softening() in forces.cc.  Coefficients evaluated inline (no cache) so
+     * the routine is reusable from device code. */
+    if(A >= beta) return 1.0/(A*A*A);
+    double b3 = beta*beta*beta;
+    double b5 = b3*beta*beta;
+    double b6 = b5*beta;
+    double A2 = A*A, A3 = A2*A;
+    if(A > 0.5*beta)
+        return -32.0/(3.0*b6)*A3 + 38.4/b5*A2 - 48.0/(beta*beta*beta*beta)*A
+               + 64.0/(3.0*b3) - (1.0/15.0)/(A3);
+    return 32.0/b6*A3 - 38.4/b5*A2 + 32.0/(3.0*b3);
+}
+
+static inline double pds_green_softened(double chi, double R_curv, double beta)
+{
+    if(chi < 1e-12 || chi > M_PI - 1e-12) return 0.0;
+    double s = sin(chi);
+    double A = R_curv * s;
+    double frac = (2.0*chi - sin(2.0*chi)) / (2.0*M_PI);
+    if(chi >= 0.5*M_PI || A >= beta)          /* far branch: unsoftened, exactly */
+        return (1.0 - frac) / (A * A);
+    return (1.0 - frac) * A * pds_spline_factor(A, beta);
+}
+
 /* ─── Fundamental domain test and boundary wrapping ────────────────────────── */
 
 /*  Test whether unit quaternion q lies in the fundamental domain of S³/I*.
@@ -388,6 +444,101 @@ static inline void pds_stereo_vel_transform(
     v[0] = s*(R*w[1] - x_out[0]*w[0]);
     v[1] = s*(R*w[2] - x_out[1]*w[0]);
     v[2] = s*(R*w[3] - x_out[2]*w[0]);
+}
+
+/* ─── Intrinsic S³ kinematics (Phase 1: geodesic integrator) ───────────────────
+ *
+ *  State convention.  A particle is (q, U) with |q| = 1 and U ⟂ q, where U is the
+ *  PHYSICAL peculiar velocity expressed as a 4D tangent vector at q.  The physical
+ *  position is R·q, so
+ *
+ *      dq/dt = U / R          and        |U| = physical peculiar speed.
+ *
+ *  Relation to the stereographic chart: the map is conformal with ds² = Ω²·dx², so a
+ *  coordinate velocity v corresponds to a physical speed Ω·|v| (Ω = 1+q₀ = 2 at the
+ *  origin).  pds_tangent_from_stereo_vel() / pds_stereo_vel_from_tangent() convert
+ *  between the two and are exactly Steps 1 and 3 of pds_stereo_vel_transform(),
+ *  factored out so the integrator and the wrap logic share one implementation.
+ */
+
+/*  Tangent from a stereographic coordinate velocity:  U = R · (∂q/∂x)|_x · v  */
+static inline void pds_tangent_from_stereo_vel(const double x[3], const double v[3],
+                                               double R, double U[4])
+{
+    double r2 = x[0]*x[0] + x[1]*x[1] + x[2]*x[2];
+    double D  = R*R + r2;
+    double D2 = D*D;
+    double xv = x[0]*v[0] + x[1]*v[1] + x[2]*v[2];
+    /* (∂q/∂x)·v, then scaled by R so |U| is a physical speed */
+    U[0] = R * (-4.0*R*R*xv / D2);
+    U[1] = R * ( 2.0*R*(D*v[0] - 2.0*x[0]*xv) / D2);
+    U[2] = R * ( 2.0*R*(D*v[1] - 2.0*x[1]*xv) / D2);
+    U[3] = R * ( 2.0*R*(D*v[2] - 2.0*x[2]*xv) / D2);
+}
+
+/*  Stereographic coordinate velocity from a tangent:  v = (∂x/∂q)|_q · (U/R)
+ *  x must be the stereographic image of q. */
+static inline void pds_stereo_vel_from_tangent(const double q[4], const double x[3],
+                                               const double U[4], double R, double v[3])
+{
+    double s = 1.0 / (1.0 + q[0]);
+    double w0 = U[0] / R;                       /* w = dq/dt */
+    v[0] = s*(U[1] - x[0]*w0);
+    v[1] = s*(U[2] - x[1]*w0);
+    v[2] = s*(U[3] - x[2]*w0);
+}
+
+/*  Re-project U onto the tangent space at q (kills numerical drift out of T_qS³). */
+static inline void pds_project_tangent(const double q[4], double U[4])
+{
+    double d = pds_dot4(q, U);
+    for(int k = 0; k < 4; k++) U[k] -= d*q[k];
+}
+
+/*  Apply an isometry g ∈ I* to a tangent vector.  The isometry acts on points as
+ *  q ↦ g⊗q; being linear, its differential acts on tangents the same way. */
+static inline void pds_rotate_tangent(const double g[4], const double U[4], double U_out[4])
+{
+    pds_quat_mult(g, U, U_out);
+}
+
+/*  Geodesic exponential map with parallel transport of the velocity.
+ *
+ *  Free motion on S³ for a time h starting from (q, U):
+ *
+ *      θ      = |U|·h / R                     (arc length |U|h over radius R)
+ *      q_new  =  cos θ · q + sin θ · û
+ *      U_new  = |U| · ( −sin θ · q + cos θ · û ),      û = U/|U|
+ *
+ *  q_new stays unit and U_new stays perpendicular to q_new **exactly**, and |U| is
+ *  conserved — this is the geodesic flow, so it replaces the flat `x += v·dt` drift
+ *  rather than approximating it.  Degenerate |U| → 0 returns the input unchanged.
+ *
+ *  Aliasing q_new/U_new onto q/U is safe (inputs are copied first).
+ */
+static inline void pds_exp_map(const double q[4], const double U[4], double h, double R,
+                               double q_new[4], double U_new[4])
+{
+    double speed2 = pds_dot4(U, U);
+    if(speed2 < 1e-300 || h == 0.0)
+    {
+        for(int k = 0; k < 4; k++) { q_new[k] = q[k]; U_new[k] = U[k]; }
+        return;
+    }
+    double speed = sqrt(speed2);
+    double theta = speed * h / R;
+    double c = cos(theta), s = sin(theta);
+    double qi[4], ui[4];
+    for(int k = 0; k < 4; k++) { qi[k] = q[k]; ui[k] = U[k]/speed; }
+    for(int k = 0; k < 4; k++)
+    {
+        q_new[k] =        c*qi[k] + s*ui[k];
+        U_new[k] = speed*(-s*qi[k] + c*ui[k]);
+    }
+    /* renormalize q against accumulated round-off */
+    double n = sqrt(pds_dot4(q_new, q_new));
+    if(n > 0.0) for(int k = 0; k < 4; k++) q_new[k] /= n;
+    pds_project_tangent(q_new, U_new);
 }
 
 /* ─── Force direction on S³ ────────────────────────────────────────────────── */

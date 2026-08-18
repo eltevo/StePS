@@ -88,7 +88,7 @@ NMESHSAMPLES = 7       # (unused; only for adaptive multiscale with NMESH=0)
 #  Large IC files belong under the workspace data/ folder, not in the git
 #  repositories.
 
-IC_DIR = "/v/csabai/GitHub/steps_dodeca/data/ic"
+IC_DIR = "../data/ic"          # relative to the stepsic/ working directory
 IC_PREFIX = "PDS_test"
 IC_FORMAT = "hdf5"
 USE_DOUBLE = false     # Single precision is fine for a test run

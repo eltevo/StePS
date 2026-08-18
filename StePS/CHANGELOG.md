@@ -1,6 +1,377 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [Unreleased] - code review follow-up (2026-07)
+
+Findings from an independent code review (`Code_reviews.md`), verified and addressed.
+
+### Changed
+- **PDS force now uses the full stereographic Jacobian.** The kernels return the physical
+  geodesic acceleration as a 4D tangent `t` at `q`; the exact pushforward into the
+  conformally-flat chart the drift integrates in is
+
+      dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,   Omega = 1 + q0 = 2R^2/(R^2+r^2)
+
+  The `t_0` term was previously discarded (only `t_{i+1}/Omega` was kept), while the same
+  full Jacobian was already implemented correctly for velocities in
+  `pds_stereo_vel_transform()`. Fixed at **all four sites**: `forces.cc` (direct + BH) and
+  `forces_cuda.cu` (direct + BH). Implemented as `x_i/R = q_{i+1}/Omega` so the correction
+  depends only on `PDS_Q`, never on `x[]` being in sync.
+  - **Effect on results:** forces change by ~1% median, **4.4% max** at the domain
+    boundary (direction by <=1.3 deg); the error scales as `(r/R)^2`. Runs made before
+    this change are not bit-comparable with runs made after.
+  - Verified: C++ matches an independently derived NumPy formula to `1.15e-13`;
+    **CPU and CUDA agree to `5.6e-12`** (0 of 2000 particles above `1e-5`).
+  - This supersedes part of the planned Phase-1 work: the e0-drop is now gone, though the
+    flat drift itself remains (see docs/PDS_guide.md "Known Limitations").
+
+### Fixed
+- **Test 6 (Python/C++ force cross-validation) was silently broken.** Its NumPy reference
+  was never updated when the `1/Omega` conformal factor was introduced, so the test had
+  been failing by **~50%** (measured 48.9-50.0%) and no independent check validated the
+  PDS force scaling. Reference corrected and extended to the full pushforward; it now
+  passes at `4.76e-07` against a `1e-6` gate.
+  - Known coverage gap: Test 6's 50 particles are far enough apart that the per-pair
+    softening floor is never exercised, and its reference assumes a uniform softening
+    whereas StePS uses mass-dependent `SOFT_LENGTH[i] = cbrt(M[i]*const_beta)`.
+- **`stepsic` could not run on current SciPy/NumPy.** `scipy.special.sph_harm` was removed
+  in SciPy 1.17 and `np.trapz` in NumPy 2.4, breaking the discrete-spectrum (Phase 7B) IC
+  path advertised in `pyproject.toml` (`scipy>=1.8`, no ceiling): 4 test failures. Added a
+  version-portable shim (`sph_harm_y` when available, legacy argument order otherwise —
+  verified bit-identical) rather than pinning. Suite goes 27 -> **31/31** on both
+  SciPy 1.15/NumPy 2.2 and SciPy 1.17/NumPy 2.4.
+- **`s3lpt.tangent_basis` returned a rank-2 frame at coordinate-axis quaternions**,
+  including `q = (1,0,0,0)` — the stereographic origin, i.e. a particle at the box centre.
+  A vanishing Gram-Schmidt candidate consumed an output row, so one physical gradient
+  direction was silently dropped from the Zel'dovich displacement. Rebuilt to discard the
+  axis most nearly parallel to `q` (guaranteeing every retained candidate has norm
+  `>= 1/sqrt(2)`) plus a re-orthogonalization pass; this also removes catastrophic
+  cancellation *near* the axes, which degraded orthogonality to ~1e-5. Now machine
+  precision everywhere, with `sum_a e_a e_a^T = I - qq^T` to `4.8e-16`. Bit-identical to
+  the old frame at generic points (checked over 50k quaternions).
+
+- **PDS softening is now the standard StePS cubic spline** instead of a distance floor
+  (P2-2). The old `chi_eff = max(chi, chi_soft)` held the force at its value at `chi_soft`
+  down to `chi -> 0+` and then dropped it discontinuously to zero at coincidence. The
+  spline is applied to the areal radius `A = R sin(chi)` and spliced so that
+  `A*S(A) == 1/A^2` for `A >= beta`, hence the far field is unchanged to `4.4e-16` while
+  the force now goes smoothly to zero. Host (`pds_green_softened`, `pds_group.h`) and
+  device (`pds_green_soft_dev`, `forces_cuda.cu`) versions agree to `7e-15`; CPU vs GPU
+  end-to-end `4.06e-11`.
+  - **Effect on results:** close-pair forces change substantially — the softened force
+    peaks inside `beta` (at `A ~ 0.4 beta`) rather than being clamped at `1/beta^2`.
+    Only pairs closer than `beta` are affected.
+- **IC quaternions are now the integrated state** (P2-3). When `/PartType1/Quaternions` is
+  present, `pds_wrap_ic()` wraps those values and re-derives `x[]` from the result, instead
+  of rebuilding `q` from the (float32) Cartesian array and discarding what the IC supplied.
+  New global `PDS_Q_FROM_IC` records provenance.
+
+### Added
+- **Intrinsic S^3 geodesic integrator, opt-in via `-DPDS_INTRINSIC`** (P1-1; roadmap
+  Phase 1). Default **off** — the validated stopgap remains the production path until this
+  has been exercised on full-size runs.
+  - State becomes `(PDS_Q, PDS_U)` with `U` the physical peculiar velocity as a 4D tangent
+    (`U _|_ q`, `dq/dt = U/R`). `x[]`/`v[]` become derived buffers refreshed by
+    `pds_sync_stereo_for_output()`. `PDS_U` lives on rank 0 only and is never broadcast.
+  - Drift is `pds_exp_map()` — the exact geodesic flow with parallel transport — replacing
+    `x += v*h`. Wrapping becomes a pure isometry on `(q, U)` instead of a 3x3 stereographic
+    Jacobian on `v`.
+  - New header-only helpers in `pds_group.h`: `pds_exp_map`, `pds_rotate_tangent`,
+    `pds_project_tangent`, and `pds_tangent_from_stereo_vel` /
+    `pds_stereo_vel_from_tangent` (factored out of `pds_stereo_vel_transform`, which they
+    reproduce bit-identically).
+  - **No force buffer was widened.** The roadmap called for a 4-wide `PDS_FDIM` through
+    every MPI and CUDA buffer; that turned out to be unnecessary, because the summed force
+    is a tangent and so `t0 = -(t1 q1 + t2 q2 + t3 q3)/q0` is recoverable exactly from what
+    is already transmitted. `q0 >= 0.95` throughout the fundamental domain, and the
+    reconstruction is accurate to `1.8e-11`.
+  - Under the flag the force routines return the *raw* tangent: the stereographic
+    pushforward is deliberately skipped, since the drift no longer happens in the chart.
+    This supersedes the P1-2a correction *for that build only*.
+  - Validation: `examples/pds_tests/test_intrinsic_kinematics.cc`, 9/9 checks at machine
+    precision (exp map preserves `|q|`, `U.q`, `|U|`; matches the analytic great circle;
+    `exp(h1) o exp(h2) == exp(h1+h2)`; closed-loop transport is the identity; isometries
+    commute with the exp map, so wrapping cannot bend a trajectory). Free-particle
+    great-circle deviation improves from `3.5e-04` to `2.3e-09` rad on a ~100 Mpc
+    trajectory (5 orders of magnitude), while the two integrators agree on the final
+    position to 0.1% (375.84 vs 376.24 Mpc).
+  - **Fixed during review: the closing half-kick was being lost.** KDK applies kick(h/2),
+    drift(h), kick(h/2); the *second* kick (`step.cc`, the `errmax` loop) acted on `v[]`,
+    which under `PDS_INTRINSIC` is a derived buffer that
+    `pds_sync_stereo_for_output()` overwrites from `U` — so half of every step's
+    acceleration was silently discarded. Two-particle convergence came out exactly 2x low
+    (`dd = 0.015` vs `0.027 Mpc`). The closing kick now acts on `U`; `calculate_init_h()`
+    likewise now pushes the raw tangent into the chart before comparing it with `v[]`,
+    which it previously mixed. Both fixes are `#ifdef`-guarded, so the default path is
+    byte-identical.
+  - **The suite now passes 9/9 against the intrinsic build too**
+    (`PDS_TEST_EXTRA_OPT=-DPDS_INTRINSIC python3 run_tests.py`), including Test 6's force
+    cross-validation against the raw-tangent convention (`5.99e-11`).
+  - **Validated against Gadget4 at production size (2026-08) - and it buys nothing here.**
+    A full 1200 Mpc / 256^3 grid-IC run to z=0 with `-DPDS_INTRINSIC` (5.22 h, +5.2%
+    runtime) was compared with the stopgap v2 run and the untouched `gadget256_flat`.
+    Because the (r/R)^2 error is ~0 at the domain centre and largest at the boundary, a
+    global P(k) averages it away; the discriminating statistic is the **radial slope of
+    counts-in-cells sigma^2(PDS)/sigma^2(Gadget)** (15 Mpc cells, shells kept inside the
+    491 Mpc face inradius, errors from 8 independent octants):
+
+    | run | slope per 1000 Mpc |
+    |---|---|
+    | v1 (pre-review) | -0.177 +- 0.062 |
+    | v2 (t0 force fix, stopgap) | -0.063 +- 0.062 |
+    | intrinsic | -0.057 +- 0.061 |
+
+    The intrinsic integrator changes the residual radial bias by `-0.007 +- 0.087`, i.e.
+    **0.1 sigma - nothing**. Particle-level: intrinsic vs stopgap differ by a median
+    **0.0054 Mpc = 0.1% of the interparticle spacing**, against **0.387 Mpc (8.2%)** for
+    the t0 force fix - a factor 70.
+  - **Conclusion: the roadmap's premise for Phase 1 was wrong.** The residual `(r/R)^2`
+    error was attributed to the flat drift, but it actually lived in the **force->chart
+    mapping** - the `Omega` factor (v2.2.3.0) and the `t0` term (P1-2a). Those are already
+    in the default build and did the real work (v1->v2 flattened the slope by -0.113, ~17x
+    anything the drift contributes). This is physically sensible: the drift error per step
+    is `O((v*h/R)^3)` and StePS's adaptive timestep keeps `v*h/R` tiny, so curvature bites
+    in how the force is mapped into the chart, not in how the step is taken along it.
+  - **Keep the flag, keep it off.** The implementation is correct and passes 9/9; it is
+    simply not the bottleneck at `R_curv = 3100 Mpc`. It is the right foundation if the
+    code is ever pushed to large `r/R` (smaller `R_curv`, or a survey-scale box where
+    `r/R -> 0.3+`), where the drift error grows as `(r/R)^3`.
+  - Tier B (re-running all three production sims intrinsically, ~15 h / ~26 GPU-h) was
+    **not** done: on this evidence it would reproduce the existing results to ~0.1% of a
+    particle spacing.
+  - Open, and larger than anything above: PDS **over-clusters Gadget4 by 1.4-2.9%** at
+    z=0, radius-independent and therefore not an integrator effect. Traced below.
+- `PDS_R_CURV` vs background-cosmology consistency check (`read_paramfile.cc`). A PDS is
+  the quotient of a **closed** S^3, so a self-consistent background needs `Omega_k < 0`
+  with `R_curv = (c/H0)/sqrt(|Omega_k|)`. The shipped `PDS_test.param` has
+  `Omega_m + Omega_lambda + Omega_r = 1` exactly (`Omega_k = 0`) alongside
+  `PDS_R_CURV = 3100 Mpc`, which would require `Omega_k = -2.04`. Now warns loudly (and
+  reports the implied value) but continues — running the topology on a flat background is
+  a legitimate numerical experiment, it just must be deliberate.
+- **Test 9 — "IC quaternions govern the run"** (`examples/pds_tests/run_tests.py`). The old
+  check only grepped the log for `Reading /PartType1/Quaternions`, which a run that then
+  discarded them still prints. Test 9 writes a deliberately inconsistent IC (Coordinates
+  and Quaternions describing configurations 260 Mpc apart) and asserts which one the
+  integrated state follows: post-fix it tracks the quaternions to `5.3e-15 Mpc`; against
+  the pre-fix code it tracks the decoy Coordinates to `4.8e-06 Mpc` and fails.
+- **Test 6 now exercises the softening kernel.** Its 50 particles were spread widely enough
+  that no pair was ever closer than `beta`, so the entire softened branch was dead code as
+  far as the test was concerned — which is how a discontinuous kernel survived there. It
+  now adds 14 close companions straddling the spline's two regions and both joins, uses the
+  real mass-dependent per-pair `beta`, and reads positions/masses back from the written IC
+  (they are stored float32; using the in-memory float64 arrays made close pairs disagree at
+  `1e-4` for reasons that had nothing to do with the force kernel). Max rel err went from
+  `4.76e-07` to **`5.98e-11`** while covering 94 sub-beta image pairs.
+- `tests/test_s3lpt.py` (5 tests) and `tests/test_stereo_pushforward.py` (3 tests). All 8
+  fail against the pre-fix code. The pushforward tests pin the Jacobian without running a
+  simulation — the check that would have caught the dropped `t_0` term, and which also
+  guards the documented error magnitude from drifting again.
+
+### Removed / infrastructure
+- Untracked four accidentally-committed artifacts: a compiled `pds_bh_prototype` (ELF),
+  a `.pyc`, a Jupyter checkpoint (1.8 MB), and a broken absolute `examples/ic` symlink
+  (`/v/scratch/astro/...`). `.gitignore` extended accordingly; `examples/ic` is now a
+  machine-local symlink users create themselves.
+- De-hardcoded the validation workflow: `OUT_BASE` defaulted to a nonexistent
+  `/v/csabai/...` path (so `run_tests.py` could not run at all outside one machine) — now
+  repo-relative and overridable via `PDS_TEST_OUT_BASE`. Compiler is auto-detected
+  (`CXX` / conda / `g++`) instead of hardcoded to `x86_64-conda-linux-gnu-c++`, and
+  Test 7 rewrites the example's `IC_DIR` key by regex rather than matching one literal
+  path that would silently no-op if the example changed.
+- Corrected the error magnitude documented for the force projection in
+  `docs/PDS_guide.md`: it claimed ~30% (from an incorrect `sin(|q_1:4|)` scaling), and the
+  review estimated ~7%; the measured worst case is **4.9%**.
+
+### Note on build directories
+`build/` is shared by every makefile variant, and objects are **not** rebuilt when the
+`-D` options change. Building e.g. `PDS-LinuxGCC-Makefile` and then
+`PDS-Linux_CUDA-Makefile` links a `main.o` compiled without `-DUSE_CUDA`, leaving
+`n_GPU = 0` and crashing with an integer divide-by-zero in `forces_pds_cuda`, or failing
+to link with `undefined reference to THETA`. Always `make -f <makefile> clean` when
+switching variants.
+
+## [Unreleased] - PDS/Gadget softening-convention mismatch (2026-08)
+
+Chasing the residual PDS-vs-Gadget offset left over after the code review.
+
+### Where it is NOT
+
+- **Not the ICs.** Counts-in-cells sigma^2 measured in the domain-fitting cube (half-width
+  280 Mpc, so the cube *corners* at 485 Mpc stay inside the 491 Mpc face inradius) gives a
+  PDS/Gadget ratio of **1.0009 at z=30**, with the particle counts matching to one particle
+  (1728000 vs 1727999). The offset develops dynamically from z~5 onward, reaching ~1.03 at
+  z=0.
+  - Measurement trap worth recording: a first attempt used a half-width 450 Mpc cube, whose
+    corners reach 779 Mpc - far outside the domain - and the vacuum corners inflated the
+    PDS variance to a spurious **7.7x**. Any cube used for PDS statistics must satisfy
+    `half*sqrt(3) < 0.1584*R_curv`.
+- **Not the integrator** (see the intrinsic-integrator validation above: 0.1 sigma).
+
+### What it is
+
+The two codes parameterise gravitational softening differently and the numbers are **not
+interchangeable**:
+
+| | parameter | force Newtonian beyond |
+|---|---|---|
+| StePS | `PARTICLE_RADII`; pair `beta = SOFT_LENGTH[i]+SOFT_LENGTH[j]` is the **full spline support** | `beta` = 2*`PARTICLE_RADII` |
+| Gadget-2/3/4 | `SofteningComoving` = the **Plummer-equivalent** `eps`; spline support is `2.8*eps` | `2.8*eps` |
+
+Matching prescription: **`PARTICLE_RADII = 1.4 * eps_gadget`**.
+
+For the 1200 Mpc / 256^3 flagship pair, Gadget4 used `eps = 0.101555` Mpc/h = 0.15 Mpc
+(support **0.42 Mpc**) while StePS used `PARTICLE_RADII = 0.1` (support **0.20 Mpc**) -
+StePS was resolving pairs **2.1x closer**. The matched value is `PARTICLE_RADII = 0.21`.
+
+Measured z=0 sigma^2 ratio to Gadget4 (mean +- s.e.m. over 8 octants, shot noise
+subtracted, cube half-width 280 Mpc):
+
+| cell | v1 (floor softening) | v2 (spline softening, current) |
+|---|---|---|
+| 40 Mpc | 0.9944 +- 0.0047 | 1.0141 +- 0.0044 |
+| 25 Mpc | 0.9997 +- 0.0052 | 1.0187 +- 0.0061 |
+| 15 Mpc | 1.0073 +- 0.0078 | 1.0291 +- 0.0084 |
+
+### Tested directly - and the softening is NOT the cause
+
+A matched-softening run (`PARTICLE_RADII = 0.21`, i.e. support 0.42 Mpc = Gadget's, same
+IC, default build, 1.97 h / 1966 steps - notably faster than the 5.22 h / 4996 steps at
+`PR = 0.1`, since the larger softening permits larger timesteps) gives results
+**indistinguishable** from `PR = 0.1`:
+
+| cell | `PR=0.1` (support 0.20 Mpc) | `PR=0.21` (support 0.42 Mpc) |
+|---|---|---|
+| 40 Mpc | 1.0141 +- 0.0044 | 1.0133 +- 0.0044 |
+| 25 Mpc | 1.0187 +- 0.0061 | 1.0189 +- 0.0060 |
+| 15 Mpc | 1.0291 +- 0.0084 | 1.0289 +- 0.0087 |
+
+**Doubling the softening changed nothing**, so the convention mismatch - though real, and
+worth documenting - does not explain the offset. In hindsight the reasoning that pointed at
+it was wrong: the measurable cells (15-40 Mpc) are 35-200x larger than the softening scale,
+so softening cannot affect them, and the apparent "grows toward smaller cells" trend is not
+a softening signature at these scales.
+
+### Remaining candidates (unresolved)
+
+With the ICs, the integrator, and the softening all excluded, the residual **~1.4-2.9%
+over-clustering of PDS relative to flat Gadget4 at z=0** is most likely one of:
+
+1. **A genuine S^3 effect.** The background-compensated kernel on S^3 departs from flat
+   `1/r^2` at `O((r/R)^2)`, which over the 500 Mpc analysis region at `R_curv = 3100 Mpc`
+   is ~2.6% - the right order of magnitude. If so this is physics, not a defect.
+2. **Force-scheme difference.** StePS uses pure Barnes-Hut (`theta = 0.3`); Gadget4 uses
+   TreePM with `PMGRID = 256` (mesh cell 4.7 Mpc). Different accuracy at intermediate
+   scales.
+
+**Flat control: run, and it could not settle the question - because StePS's own T^3 path
+is far less accurate than its PDS path.** A fresh StePS T^3 run (128^3, 1200 Mpc, CPU
+Barnes-Hut + Ewald, softening matched to Gadget at `PARTICLE_RADII = 0.42`, 7 h) was
+started from the *same* IC as `gadget128_flat`. Measured with CIC on a deliberately
+non-commensurate mesh, shot noise subtracted:
+
+| epoch | P(k) ratio, k < 0.05 | median ID-matched abs(dx) |
+|---|---|---|
+| z ~ 30 | **0.995** | 0.014 Mpc |
+| z = 5 | 0.673 | 4.47 Mpc |
+| z = 1 | 0.774 | 7.98 Mpc |
+| z = 0 | 0.741 | 9.00 Mpc |
+
+The two runs start identical (0.995 at z~30, 0.1% of the interparticle spacing), which
+validates the pipeline, and then **StePS-T^3 loses ~26-33% of its large-scale power by
+z=5**. An independent, older run at the same resolution (`testCubic128`) reproduces this
+to within ~1%, so it is reproducible and not a one-off. It is also consistent with the
+roadmap's own note that `testCubic128` is "too slow and not accurate enough" to be a
+reference.
+
+Reproduce with the makefile already in the repo (no new makefile is needed - and note
+CUDA+Barnes-Hut is rejected at runtime for non-PDS topologies, so the T^3 control must run
+on CPU):
+
+```bash
+make -f Cubic-Linux_BH-Makefile BUILD_DIR=./build_t3 -j8      # CPU Barnes-Hut + Ewald
+# IC: gadget128_flat/ic_mpch.hdf5 converted to StePS units (Mpc, 1e11 Msol)
+# param: L_BOX 1200, IS_PERIODIC 2, PARTICLE_RADII 0.42, OUT_DIR must end in '/'
+```
+
+**Scope: this does NOT touch the PDS results.** The PDS force path (compensated S^3
+kernel, exact 120-image sum) shares no code with the T^3 Ewald path, and PDS agrees with
+Gadget4 to ~2% where T^3 is off by ~30%. Cause of the T^3 discrepancy not established;
+candidates are `EWALD_INTERPOLATION_ORDER=2` (order 4 hits a duplicate-symbol link error,
+see below), the BH opening angle, and `ACC_PARAM`. **Worth its own investigation, but it
+is a pre-existing issue in a different code path and is not a regression from this work.**
+
+### Net status of the ~2% offset
+
+Excluded: **ICs** (identical at z=30), **integrator** (0.1 sigma), **softening** (direct
+test, no effect). Not excluded, and not distinguishable with the tools to hand: a genuine
+S^3 effect vs a StePS-vs-Gadget force-scheme difference. One piece of evidence leans
+toward the latter - the excess is radius-independent (radial slope -0.063 +- 0.062,
+consistent with zero), whereas a curvature effect should scale as (r/R)^2 and vanish at
+the domain centre. **Recorded as an open question**; it does not affect any conclusion in
+this changelog, all of which concern PDS-vs-PDS comparisons or survive a 2% shift.
+
+Note the awkward corollary either way: the P2-2 spline fix, correct in itself, moved StePS
+from *accidentally* agreeing with Gadget (v1: 0.994-1.007) to visibly over-clustering it
+(v2). Two compensating errors, not one good agreement.
+
+**No source change is implied** - the softening length is a run *setting*, and the
+convention is now documented in `docs/PDS_guide.md`.
+
+## [Unreleased] - re-run & verification after the code review (2026-08)
+
+All three affected PDS simulations were re-run from their **original ICs** with the
+corrected code (P1-2a force projection + P2-2 spline softening; `PDS_INTRINSIC` off), so
+the comparison isolates the code changes. Gadget4 runs were not affected and were not
+re-run. Restart-from-checkpoint fidelity was verified independently (restarting the
+completed run from its own z=0.2 snapshot reproduced the continuous integration to
+**0.001% of the interparticle spacing**).
+
+### Result: every scientific conclusion survives
+
+| quantity | v1 (pre-review) | v2 (corrected) |
+|---|---|---|
+| P(k), all three runs | - | **+2-3%**, shape unchanged |
+| PDS/Gadget, 1200 grid, 0.02<k<0.2 | 0.995 +- 0.017 | **1.017 +- 0.018** |
+| PDS/Gadget, 1200 glass, k>0.2 | 1.391 | 1.422 |
+| halos, PDS grid (N / top-500 match) | 13614 / 0.98 | **13719 / 0.98** |
+| halos, PDS glass (N / mass ratio) | 25460 / 2.18 | **25242 / 2.194** |
+| PDS50 face cone (paired controls) | 0.768 | **0.810** |
+
+- **"PDS matches Gadget4 to 1-2%" holds** - the ratio moves from 0.5% low to 1.7% high.
+- **The PDS50 topology-locked face deficit holds** (~0.77-0.81 vs a face *excess* of 1.11
+  in the flat T^3 control).
+- **The 1200 Mpc glass anomaly is NOT a force bug.** Its ~1.8x halo abundance, ~2.2x
+  matched masses and high-k excess are all unchanged by the corrections, which supports the
+  "residual glass-load noise" hypothesis rather than a force-projection artifact.
+- Attribution: the entire P(k) shift comes from the **t_0 force fix**, not the softening.
+  Production runs use `ParticleRadi = 0.1 Mpc` so `beta ~ 0.2 Mpc` - only 4% of the
+  interparticle spacing, affecting `k >~ 30 /Mpc`, far beyond the measured range. This is
+  independently confirmed by the radial gradient in particle displacements
+  (0.047 Mpc at the centre -> 0.469 Mpc at 500 Mpc, the `(r/R)^2` signature).
+
+### Corrected: the I* wraparound "correction" was control noise
+
+An earlier entry reported that augmenting PDS50 cutouts with all 120 I* images
+strengthened the anisotropy from 0.801 to 0.849. **That was wrong**, on two counts:
+
+1. **Wrong radius.** The stated trigger - cutouts reaching past the *face inradius*
+   (0.1584 R_curv = 20.5 Mpc) - is not the right test. The fundamental domain extends to
+   its **circumradius** (~25.3 Mpc, ~1.26x the inradius) and particles fill it out to
+   there. The 50 Mpc cutouts reach 24.7 Mpc, i.e. still inside. Measured directly, I*
+   images contribute **1 865 of 49.3 M cutout points (0.004%)** even with a deliberately
+   generous 40 Mpc image mask, and the cone ratios are unchanged to three decimals for
+   both v1 and v2.
+2. **The 0.048 "improvement" was realization noise.** Absolute cone ratios carry a
+   **+-0.05** systematic from control-rotation realization: the control is ~240 heavily
+   overlapping cutouts of essentially one structure, converging to isotropy only as
+   1/sqrt(N_rot). The same v1 data yielded 0.801, 0.741 and 0.768 in three runs that
+   differed only in RNG ordering.
+
+**Methodological rule going forward:** quote run-to-run *differences* only from **paired**
+controls (identical rotation sequences for both members) and prefer NCTRL >= 6. Absolute
+ratios should be quoted with the +-0.05 systematic. The face deficit itself is robust and
+was never in doubt - only the claim about the wraparound correction's effect was wrong.
+
 ## [Unreleased] - tools, validation & analysis (2026-07)
 
 ### Added
@@ -42,11 +413,14 @@ All notable changes to the StePS simulation code is documented in this file.
     axes stay grid-aligned. Identical in T^3 and PDS => grid-IC artifact, not topology.
   - glass loads: no lattice at any epoch; residual ~3% cubic imprint (suspect: cubic FFT
     mesh + CIC interpolation of IC generation).
-  - PDS50 (topology-dominated box): genuine S^3/I* anisotropy - after the **I* wraparound
-    correction** (120-image augmentation; REQUIRED whenever cutouts reach past the domain
-    face inradius 0.1584 R_curv) the face/2-fold-axis cone density is 0.72x the isotropic
-    control (edge +9%): halo environments align with the icosahedral eigenmode pattern.
+  - PDS50 (topology-dominated box): genuine S^3/I* anisotropy - the face/2-fold-axis cone
+    density is **0.77-0.81x** the isotropic control against a face *excess* of 1.11 in the
+    flat T^3 run: halo environments align with the icosahedral eigenmode pattern.
     T^3 50 Mpc shows only few-% effects at r/L <~ 0.1.
+    (Superseded numbers: this entry previously read "0.72x after the I* wraparound
+    correction". See the 2026-08 correction below - the wraparound augmentation is a no-op
+    for these cutouts, and absolute cone ratios carry a +-0.05 control-realization
+    systematic.)
 
 ### Fixed
 - `tools/Utils/inputoutput.py`: made the legacy `pygadgetreader`/`glio` imports optional

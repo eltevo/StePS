@@ -24,6 +24,14 @@
 #define G 1.0 //Normal gravity
 #endif
 
+/* PDS_INTRINSIC selects the intrinsic S^3 geodesic integrator.  It is meaningless
+ * without the PDS topology, so make it inert rather than a compile error when the two
+ * are combined (e.g. a test harness that appends -DPDS_INTRINSIC to every variant,
+ * including the R^3 regression build). */
+#if defined(PDS_INTRINSIC) && !defined(POINCARE_DODECAHEDRAL)
+#undef PDS_INTRINSIC
+#endif
+
 #ifdef USE_SINGLE_PRECISION
 typedef float REAL;
 #define PRECISION_STR  "float32"
@@ -91,6 +99,14 @@ extern int BUFFER_start_ID;
     // Particle positions are stored as 4D unit quaternions in the separate q[] array.
     // Forces use exact 120-image summation (no Ewald lookup table on the compact S^3).
     extern REAL *PDS_Q;                 // 4D quaternion positions for PDS mode (4*N REAL values)
+    extern int PDS_Q_FROM_IC;           // 1 if PDS_Q was read from /PartType1/Quaternions
+                                        // (authoritative), 0 if reconstructed from x[]
+    #ifdef PDS_INTRINSIC
+    extern REAL *PDS_U;                 // 4D tangent peculiar velocity (4*N), U _|_ q.
+                                        // Canonical state with PDS_Q; x[] and v[] become
+                                        // derived output buffers.  Rank 0 only -- never
+                                        // MPI-broadcast (integration happens on rank 0).
+    #endif
     extern REAL  PDS_R_CURV;           // curvature radius of S^3 in internal length units (Mpc)
 #endif
 

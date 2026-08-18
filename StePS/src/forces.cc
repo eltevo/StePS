@@ -1460,7 +1460,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
  *  imaged node has the same angular size.                                      */
 static void compute_BH_pds_force_image(OctreeNode *node, const double qi[4],
         double soft_i, int g, double theta2, double R_curv,
-        double *Fx, double *Fy, double *Fz)
+        double *F0, double *Fx, double *Fy, double *Fz)
 {
     if(node == NULL || node->mass == 0.0) return;
 
@@ -1482,14 +1482,13 @@ static void compute_BH_pds_force_image(OctreeNode *node, const double qi[4],
     {
         if(chi < 1e-12 || chi > M_PI - 1e-12) return; /* identity self / antipode */
         double t[4]; pds_force_direction(qi, qg, t);
-        double chi_soft = (soft_i + (double)node->soft) / R_curv;
-        double chi_eff = (chi < chi_soft) ? chi_soft : chi;
-        double fm = (double)node->mass * pds_green_compensated(chi_eff, R_curv);
-        *Fx += fm*t[1]; *Fy += fm*t[2]; *Fz += fm*t[3];
+        double beta = soft_i + (double)node->soft;   /* pair softening length */
+        double fm = (double)node->mass * pds_green_softened(chi, R_curv, beta);
+        *F0 += fm*t[0]; *Fx += fm*t[1]; *Fy += fm*t[2]; *Fz += fm*t[3];
         return;
     }
     for(int c = 0; c < 8; c++)
-        compute_BH_pds_force_image(node->children[c], qi, soft_i, g, theta2, R_curv, Fx, Fy, Fz);
+        compute_BH_pds_force_image(node->children[c], qi, soft_i, g, theta2, R_curv, F0, Fx, Fy, Fz);
 }
 
 void forces_pds_bh(REAL* pds_q, REAL* F, int ID_min, int ID_max)
@@ -1517,18 +1516,40 @@ void forces_pds_bh(REAL* pds_q, REAL* F, int ID_min, int ID_max)
         double qi[4] = {(double)pds_q[4*i], (double)pds_q[4*i+1],
                         (double)pds_q[4*i+2], (double)pds_q[4*i+3]};
         double soft_i = (double)SOFT_LENGTH[i];
-        double Fx = 0.0, Fy = 0.0, Fz = 0.0;
+        double F0 = 0.0, Fx = 0.0, Fy = 0.0, Fz = 0.0;
         for(int g = 0; g < PDS_N_ISTAR; g++)
-            compute_BH_pds_force_image(root, qi, soft_i, g, theta2, R_curv, &Fx, &Fy, &Fz);
-        /* Conformal Jacobian: the kernel returns the PHYSICAL geodesic acceleration
-         * (magnitude M/d_geodesic^2), but the drift integrates the position in the
-         * conformally-flat stereographic chart ds^2 = Omega^2 dx^2.  The Newtonian
-         * coordinate acceleration is a_phys/Omega, with Omega = 2R^2/(R^2+r^2) = 1+q0.
-         * Omitting this makes gravity ~Omega(~2)x too strong -> structure over-grows. */
+            compute_BH_pds_force_image(root, qi, soft_i, g, theta2, R_curv, &F0, &Fx, &Fy, &Fz);
+        /* Stereographic pushforward of the 4D geodesic tangent force.  The kernel
+         * returns the PHYSICAL geodesic acceleration as a tangent t at q (t _|_ q),
+         * but the drift integrates the position in the conformally-flat stereographic
+         * chart ds^2 = Omega^2 dx^2.  The exact Jacobian of x = R q_{1:3}/(1+q0) is
+         *
+         *     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,   Omega = 2R^2/(R^2+r^2) = 1+q0,
+         *
+         * i.e. the same full Jacobian used for velocities in pds_stereo_vel_transform().
+         * Written below in units where the overall R is absorbed into the kernel
+         * normalization (as before), so only the -x_i*t_0/R term is new.
+         * Omitting 1/Omega makes gravity ~Omega(~2)x too strong -> structure over-grows;
+         * omitting the t_0 term costs up to ~4.9% at the domain boundary (~(r/R)^2). */
+#ifdef PDS_INTRINSIC
+        /* Intrinsic integrator: hand back the RAW 4D geodesic tangent (spatial part).
+         * No stereographic pushforward — the drift is a geodesic on S^3, not a flat
+         * step in the chart, so the chart Jacobian must not be applied here.  The e0
+         * component is not transmitted: it is recovered exactly from t.q = 0 as
+         * t0 = -(t_spatial . q_spatial)/q0  (q0 >= 0.95 inside the fundamental
+         * domain, so this is far better conditioned than widening every MPI/CUDA
+         * force buffer to 4 components). */
+        (void)F0;
+        F[3*(i - ID_min)]   = (REAL)Fx;
+        F[3*(i - ID_min)+1] = (REAL)Fy;
+        F[3*(i - ID_min)+2] = (REAL)Fz;
+#else
         double invOmega = 1.0/(1.0 + qi[0]);
-        F[3*(i - ID_min)]   = (REAL)(Fx*invOmega);
-        F[3*(i - ID_min)+1] = (REAL)(Fy*invOmega);
-        F[3*(i - ID_min)+2] = (REAL)(Fz*invOmega);
+        double c0 = F0 * invOmega;   /* x_i*t0/R = q_{i+1}*t0/(1+q0) */
+        F[3*(i - ID_min)]   = (REAL)((Fx - qi[1]*c0)*invOmega);
+        F[3*(i - ID_min)+1] = (REAL)((Fy - qi[2]*c0)*invOmega);
+        F[3*(i - ID_min)+2] = (REAL)((Fz - qi[3]*c0)*invOmega);
+#endif
     }
 
     free_node(root);
@@ -1562,15 +1583,15 @@ void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
     {
         double qi[4];
         for(k = 0; k < 4; k++) qi[k] = (double)pds_q[4*i+k];
+        double t0_sum = 0.0;   /* e0 component of the summed tangent force at i */
 
         for(j = 0; j < N; j++)
         {
             double qj[4];
             for(k = 0; k < 4; k++) qj[k] = (double)pds_q[4*j+k];
 
-            double soft = (double)(SOFT_LENGTH[i] + SOFT_LENGTH[j]);
-            double chi_soft = soft / R_curv;
-            double f_acc[3] = {0.0, 0.0, 0.0};
+            double soft = (double)(SOFT_LENGTH[i] + SOFT_LENGTH[j]);  /* pair softening length */
+            double f_acc[4] = {0.0, 0.0, 0.0, 0.0};   /* [0] = e0 component of the tangent */
 
             if(IS_PERIODIC >= 2)
             {
@@ -1584,9 +1605,8 @@ void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
                     if(chi_g < 1e-12 || chi_g > M_PI - 1e-12) continue;
                     double t_4d[4];
                     pds_force_direction(qi, q_img, t_4d);
-                    double chi_eff = (chi_g < chi_soft) ? chi_soft : chi_g;
-                    double f_mag = (double)M[j] * pds_green_compensated(chi_eff, R_curv);
-                    for(k = 0; k < 3; k++) f_acc[k] += f_mag * t_4d[k+1];
+                    double f_mag = (double)M[j] * pds_green_softened(chi_g, R_curv, soft);
+                    for(k = 0; k < 4; k++) f_acc[k] += f_mag * t_4d[k];
                 }
             }
             else
@@ -1607,22 +1627,30 @@ void forces_pds(REAL* pds_q, REAL* F, int ID_min, int ID_max)
                 if(chi_nearest >= M_PI - 1e-10) continue; /* antipodal — force is zero */
                 double t_4d[4];
                 pds_force_direction(qi, q_nearest, t_4d);
-                double chi_eff = (chi_nearest < chi_soft) ? chi_soft : chi_nearest;
-                double f_mag = (double)M[j] * pds_green_compensated(chi_eff, R_curv);
-                for(k = 0; k < 3; k++) f_acc[k] += f_mag * t_4d[k+1];
+                double f_mag = (double)M[j] * pds_green_softened(chi_nearest, R_curv, soft);
+                for(k = 0; k < 4; k++) f_acc[k] += f_mag * t_4d[k];
             }
 
-            /* Accumulate: use last 3 components of the 4D tangent as 3D force */
+            /* Accumulate the spatial part; the e0 part is carried separately and
+             * folded in by the stereographic pushforward once the j-sum is done. */
             for(k = 0; k < 3; k++) {
                 #pragma omp atomic
-                F[3*(i - ID_min) + k] += (REAL)f_acc[k];
+                F[3*(i - ID_min) + k] += (REAL)f_acc[k+1];
             }
+            t0_sum += f_acc[0];
         }
-        /* Conformal Jacobian (see forces_pds_bh): the kernel returns the physical
-         * geodesic acceleration; the drift integrates in the conformally-flat
-         * stereographic chart, so divide by Omega = 2R^2/(R^2+r^2) = 1+q0. */
+        /* Stereographic pushforward of the 4D geodesic tangent (see forces_pds_bh):
+         *     dx_i = ( R*t_{i+1} - x_i*t_0 ) / Omega,  Omega = 2R^2/(R^2+r^2) = 1+q0,
+         * with the overall R absorbed into the kernel normalization. */
+#ifdef PDS_INTRINSIC
+        (void)t0_sum;   /* raw tangent: see forces_pds_bh */
+#else
         double invOmega = 1.0/(1.0 + qi[0]);
-        for(k = 0; k < 3; k++) F[3*(i - ID_min) + k] *= (REAL)invOmega;
+        double c0 = t0_sum * invOmega;   /* x_i*t0/R = q_{i+1}*t0/(1+q0) */
+        for(k = 0; k < 3; k++)
+            F[3*(i - ID_min) + k] = (REAL)(((double)F[3*(i - ID_min) + k]
+                                            - qi[k+1]*c0)*invOmega);
+#endif
     }
     double omp_end_time = omp_get_wtime();
     printf("PDS force calculation finished on MPI task %i. Wall-clock time = %fs.\n", rank, omp_end_time - omp_start_time);
