@@ -1,5 +1,19 @@
 # Perf note: host-side octree build in the PDS GPU Barnes-Hut force
 
+> **STATUS: implemented (2026-09).** The task-parallel subtree flatten proposed below is
+> now `pds_morton_build_par()` in `src/forces_cuda.cu`, validated bit-identical against the
+> serial build (`PDS_TREE_SERIAL=1` restores the old path). The flatten went 0.36 -> 0.14
+> s/step at 16.8M particles (measured at a fixed-h working point), and a second cause
+> found while implementing it -- the
+> multi-GPU loops leave `omp_set_num_threads(n_GPU)` in force, so the key fill and the
+> `__gnu_parallel::sort` had also been running on `n_GPU` threads from the second step
+> onward -- took key+sort from 0.21 to 0.03 s/step. The host tree build is now ~8% of the
+> force evaluation rather than ~30%. Split level is 4 (<=4096 independent subtrees).
+>
+> The subsequent GPU-kernel work (group-rotation lifting, cosine identities, Morton thread
+> order, warp-cooperative traversal) is recorded in `../../CHANGELOG.md`. Kept below as the
+> original analysis.
+
 Observed on the 6.3M-particle matched-resolution run (`test256`, 4× H200) at z=31:
 
 ```

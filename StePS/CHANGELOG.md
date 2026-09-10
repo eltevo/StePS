@@ -1,6 +1,207 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [Unreleased] - 1024^3 run, IC reproducibility, and the glass anomaly (2026-09)
+
+The first 1024^3 PDS run, plus the analysis work it forced. Three long-standing low-k
+puzzles turned out to have three different causes, and two earlier conclusions were wrong
+and are retracted below.
+
+### Added
+- **First 1024^3 PDS glass run** (`test1024glass_run`): 402M particles in the fundamental
+  domain, z = 31 -> 0 in **67.9 h** on 4x H200 (7066 steps at 34.5 s/step), against a 2.8-day
+  projection. Pipeline: Poisson preglass load (67 min) -> glass making (6.6 h) -> 2LPT IC
+  (72 min) -> production run. The adaptive timestep was set by `errmax` at every one of the
+  7066 steps.
+- **`tools/Visualization/Gadget_vs_PDS_1024_comparison.ipynb`** — the 2x2 comparison with the
+  1024^3 run and its phase-matched 256^3 partner, so resolution separates from load and
+  topology. Snapshots are read in chunks and cut to the analysis cube.
+- **`tools/Visualization/PDS_glass_variance_study.ipynb`** — the diagnostic notebook behind
+  the findings below.
+
+### Changed
+- **`power_spectrum()` weights PDS particles by m/Omega^3** (`clustering_pk(deconf=True)`,
+  the default), the de-conformalization `delta_slice()` already used for density slices.
+  The weighted Poisson floor is `L^3 sum(w^2)/sum(w)^2`, which reduces to `L^3/N` for unit
+  weights. z = 0 clustering is unchanged (ratios 0.99-1.01); what changes is the load-noise
+  floor and high-z low-k.
+
+### Fixed / retracted
+- **The "static load-noise floor" of ~2000 Mpc^3 in the fundamental bin of PDS glass runs is
+  a coordinate artifact, not glass noise.** The glass load is uniform on S^3, so its *count*
+  density in the stereographic chart carries the radial Omega^3 volume factor, and a
+  count-weighted P(k) reads that as large-scale power. De-conformalized it is 7.4 (256^3),
+  4.1 (256^3 phase-matched) and -0.6 (1024^3), against 2018/2231/2177 with raw counts. It is
+  present at full strength in an *unrelaxed Poisson* load (2257) and untouched by a 16x
+  longer relaxation (2091 -> 2076).
+  - *Retracted:* this residual was previously read as "the glass's largest-scale modes never
+    relax, and only a longer glass-making run will fix it". Both halves were wrong.
+- **The residual +3-4% face excess on glass loads in the anisotropy stacking is not
+  supported.** With four glass runs instead of one they give 0.992, 1.013, 1.027, 1.042
+  (mean 1.016) against 1.061 and 1.073 for the grid loads, with a +-0.05 control systematic.
+  The face excess is consistent with the grid lattice alone (~+0.06).
+  - *Retracted:* the residual had been attributed to the cubic FFT/CIC displacement mesh.
+    With one glass run per topology that attribution was untestable.
+
+### Results
+- **The glass anomaly is an under-relaxed glass load, and it is curable.** Extending the
+  reverse-gravity relaxation from a = 1.01 to a = 16 (43 min at 256^3) takes glass/grid from
+  **1.208 to 0.979** in P(k) at k > 0.18, and halo abundance from **25,141 to 14,329**
+  (glass/grid 1.83 -> 1.04, against the grid's 13,719). It is **not PDS-specific**: Gadget4
+  on a flat T^3 torus shows the same excess (1.90-1.92). **Relax to a >= 4 for production
+  glass ICs**; catalogs built on a = 1.01 glasses should not be used for halo statistics.
+- **The k ~ 0.021 low-k feature is sample variance**, not a property of S^3/I*. Each
+  realization was also run in Gadget4 (flat T^3, FMM/TreePM, its own flat glass load) from a
+  cubical IC sharing the same `delta_k`:
+
+  | realization | runs | mean P(0.0209)/P(0.0314) | spread |
+  |---|---|---|---|
+  | A | StePS PDS, Gadget T^3 glass, Gadget T^3 grid | 1.249 | 0.102 |
+  | C | StePS PDS, Gadget T^3 glass | 1.549 | 0.097 |
+  | B | StePS PDS 256^3, **Gadget T^3 glass**, StePS PDS 1024^3 | 1.916 | 0.165 |
+
+  Realization B is the decisive one: it carries the strong peak, and until its Gadget
+  counterpart existed every strong-peak run was a PDS run. Gadget reproduces it (1.833
+  against 1.916/1.998; raw P at k = 0.0209 is 71816 against 73440 Mpc^3).
+- **Resolution at fixed load** (phase-matched pair, k > 0.18): the 1024^3 glass has 0.83x
+  (z = 0) and 0.78x (z = 1) the power of the 256^3 glass, the small-scale load noise being
+  ~64x smaller.
+
+### Notes
+- New data on scratch: `test1024glass{,_pm}`, `test1024glass_run`, `glass1024{,_run}`,
+  `test256glass_{pm,comp,seed2,longrelax}{,_run}`, `glass256_long_run`,
+  `gadget256_glass{B,C}`, `cubic256glass_seed{B,C}`, and the matching halo catalogs.
+- **stepsic** gained two options this campaign, and the ICs above cannot be regenerated
+  without them: `PHASE_REF_NMESH` (draw the white noise on a reference mesh and crop in
+  k-space, so runs at different `NMESH` share one realization) and `COMPLEMENTARY`
+  (Racz, Kiessling, Csabai & Szapudi 2022, arXiv:2210.15077). Both default to the legacy
+  behaviour when absent.
+
+## [Unreleased] - PDS GPU Barnes-Hut performance (2026-09)
+
+Optimization pass on the PDS CUDA Barnes-Hut force and the rank-0 integrator loops,
+plus one integrator bug found while benchmarking.
+
+Measured on `test256disc` (16.8M particles, 1200 Mpc, R_curv=3100) on H200 NVL, comparing
+at equal step number (both builds follow the same trajectory):
+
+| | 1 GPU | 4 GPU |
+|---|---|---|
+| before | 4.291 s/step | 2.513 s/step |
+| after  | **1.400 s/step** | **0.494 s/step** |
+| speedup | **3.07x** | **5.09x** |
+
+4 GPUs gain more because the serial host work did not scale with GPU count before.
+
+### Reproducibility against the pre-2026-09 code
+
+Verified by advancing the z=0 snapshot of `test256disc` (6.28M particles, the most
+clustered state) by one step with each build and comparing velocities:
+
+- **83.6% of particles are bit-identical.**
+- Velocity differences relative to the particle's own speed: median **0**, p99 `5.3e-14`,
+  worst single particle `6.0e-7`.
+- Maximum position difference `3.4e-13` Mpc — no particle's face-wrap decision flipped.
+
+The residual is dominated by the **OpenMP parallelisation of the rank-0 KDK/wrap loops**,
+not by the GPU kernel: rebuilt with `forces_cuda.cu` left entirely at its old state and
+only `step.cc` parallelised, the difference is *identical* to three decimal places
+(`max|dv| = 1.607e-4` km/s, same particle). Those loops are per-particle independent, so
+this is the compiler contracting multiply-adds differently in the parallel loop, not a
+change of logic. The baseline itself is bit-reproducible run-to-run and across thread
+counts, so the comparison is meaningful.
+
+The largest deviations sit on the closest pairs (median nearest-neighbour distance 73 kpc
+versus 1171 kpc for a random sample), where `chi = acos(dot4(qi,qg))` is intrinsically
+ill-conditioned — relative error ~`eps/chi^2` — so any reassociation reshuffles the answer
+within the existing formulation's own uncertainty.
+
+### Added
+- **Test 10: adaptive timestep control is live.** Asserts `h` is set by `errmax` rather
+  than clamped to `STEP_MAX`, and that it tracks `errmax` step to step. Closes a real
+  coverage gap: **all nine existing tests happen to run with `h` pinned at `STEP_MAX`**, so
+  the whole suite passed while adaptive timestepping was dead. Verified red-then-green.
+
+### Fixed
+- **Adaptive timestepping was silently disabled** by the OpenMP parallelisation of the
+  closing KDK kick (introduced earlier in this same unreleased block, never committed): the
+  loop accumulated into a `reduction(max:)` local `errmax_loc` that was never written back
+  to the global `errmax`. `errmax` stayed 0, `calculate_h()` returned `sqrt(2*ACC_PARAM/0)`
+  = inf, and **every step clamped to `STEP_MAX`** — 200 My instead of the adaptive ~0.15 My
+  on `test256disc`. The run completes and stays finite, which is why nothing caught it.
+  - Scope: working tree only. Committed results (479b5bf and earlier) are unaffected —
+    `HEAD` still carries the original serial `if(err>errmax) errmax = err;`.
+
+### Changed
+- **Barnes-Hut host tree flatten is now parallel** (`pds_morton_build_par`). The DFS is
+  inherently sequential (a node's index and its escape pointer both depend on how many
+  nodes precede it), so it is split into a small serial "top" skeleton plus independent
+  subtrees rooted at Morton level 4 (<=4096), flattened in parallel into reusable
+  per-subtree buffers and spliced with rebased escape pointers. Every top node still
+  accumulates its child aggregates left-to-right, so the sums associate exactly as before:
+  **bit-identical** (verified on full snapshots, `max|dx| = 0`). `PDS_TREE_SERIAL=1`
+  restores the serial path.
+  - Cost: the per-subtree buffers hold a second copy of the flattened tree on the host
+    (0.42 GB at 16.8M particles, scaling linearly with node count).
+- **The tree build now uses all host cores.** The multi-GPU force loops call
+  `omp_set_num_threads(n_GPU)`, which persists, so from the second step onward the key
+  fill, the `__gnu_parallel::sort` and the flatten had all been running on `n_GPU` threads
+  (single-threaded on one GPU). The build now borrows `HOST_OMP_THREADS` and hands the
+  setting back. Key fill + sort got ~7x faster.
+- **The node quaternion and opening angle are precomputed once per node**, into a
+  `PDSNodeDev` built by `PDSTreeConvertKernel`. The host-layout nodes are **streamed to the
+  device through a small double-buffered stage** (4M nodes per chunk, two CUDA streams so
+  the next chunk's H2D overlaps the current chunk's conversion) rather than mirroring the
+  whole raw array in device memory: at 1024^3 that mirror would cost ~50 GB per GPU, taking
+  a projected run from 83.6 GB to 133.6 GB of the 143.8 GB available. Verified
+  bit-identical to the full-mirror version on 1 and 4 GPUs, at no measurable cost
+  (+0.2%/-0.2%, within run-to-run noise). The kernel had been recomputing the
+  inverse-stereographic image of each node's COM (a divide plus ~10 flops) once per
+  (particle, image, node visit), although it depends on none of those.
+  - Done **on the device on purpose.** Computing it on the host instead lets gcc and nvcc
+    contract `cx*cx + cy*cy + cz*cz` into FMAs differently, which perturbs `r2` in the last
+    bit and flips the acceptance test for nodes sitting exactly on the opening-angle
+    threshold. On the device the expressions are compiled by the same compiler for the same
+    target as the original in-kernel code, and the bulk of particles stay bit-identical.
+- **One of the two `sin()` calls per accepted interaction is gone.** `sin(2 chi) =
+  2 cos(chi) sin(chi)`, and `cos(chi)` is the 4-dot the traversal already computed.
+  `sin(chi)` itself is **kept**: `A = R sin(chi)` is what the softened kernel evaluates, and
+  the alternative `sqrt((1-d)(1+d))` is no better conditioned as `d -> 1`, so for the
+  closest pairs the two forms disagree at the level of the code's own uncertainty. Keeping
+  `sin(chi)` makes `A` bit-identical; the residual difference in `frac` is harmless because
+  `frac << 1` and only `(1-frac)` is used.
+- **Threads are assigned particles in Morton order.** The tree is built on Morton-sorted
+  keys, but threads took particles in array order, so neighbouring threads in a warp walked
+  unrelated paths. The kernel now maps thread `ii` to the `ii`-th particle in Z-order and
+  the forces are un-permuted on the host. **Bit-identical** (only the thread assignment
+  changes; verified on 1 and 4 GPUs, `max|dx| = 0`).
+  - Only valid when the rank owns the whole particle array, since the Z-order does not
+    respect an MPI decomposition; multi-rank runs fall back to the direct mapping.
+    Multi-GPU within a rank is fine — the GPUs take contiguous slices of the sorted order.
+    `PDS_NO_MORTON_THREADS=1` disables it.
+- **The tree walk is warp-cooperative.** Each warp advances through the *union* of its
+  threads' traversals, so `tree[idx]` is a single broadcast load rather than 32 scattered
+  ones and the loop never diverges; a thread that has accepted a node parks at that node's
+  escape pointer and idles until the warp reaches it. Each thread therefore sums exactly
+  the same nodes in the same increasing-index order: **bit-identical**.
+
+### Considered and rejected
+- **Lifting the group rotation out of the tree walk.** Left multiplication by a unit
+  quaternion is an isometry, so `chi(qi, g (x) qc) = chi(gbar (x) qi, qc)` and the tangents
+  can be summed in the image frame and rotated back once per image, instead of transforming
+  every node. Implemented and measured: **~4% faster, exact algebraically** — but the
+  reassociation perturbs the dot product for *every* interaction, moving every particle by
+  ~`2.5e-13` and dropping the bit-identical fraction from 84% to ~0%. Not worth 4%. The
+  derivation is kept in the kernel comment.
+
+### Notes
+- Traversal cost is ~12,200 node visits per particle at z~2, of which **55% come from the
+  119 non-identity images** of I* (~56 visits each) and **85% end in acceptance**. Skipping
+  `acos` on rejected nodes is therefore worth little; the remaining cost is one `acos` per
+  accepted interaction. The next real lever would be treating the far-image sum on a mesh,
+  which is an accuracy change and has not been attempted.
+- The CPU force path (`forces.cc`) was not touched by this pass.
+
 ## [Unreleased] - code review follow-up (2026-07)
 
 Findings from an independent code review (`Code_reviews.md`), verified and addressed.

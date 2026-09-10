@@ -260,6 +260,37 @@ Key settings in [examples/PDS_test_ic.toml](../examples/PDS_test_ic.toml):
 | `COSMOLOGY` | `"Planck2018EE+BAO"` | Matches `PDS_test.param` ("best" values) |
 | `HINDEPENDENT` | `false` | Distances in Mpc, not Mpc/h |
 
+> **TODO — IC generation is largely single-threaded.** Generating the 1024^3 glass IC
+> (402M particles, `NMESH = 1024`, `LPTORDER = 2`) took **72 min**, most of it on a single
+> core while the other 127 sat idle. Observed phases: ~40 min for the 2LPT displacement and
+> velocity fields, then the discrete S^3/I* modes, then `pds.wrap()` and the 26 GB write.
+>
+> The FFTs are already parallel — `scipy.fft.rfftn/irfftn(..., workers=-1)` throughout
+> `stepsic/lpt.py` and `stepsic/field.py`. What is single-threaded, in rough order of cost:
+> 1. the **CIC gather** of the displacement/velocity fields onto the particle positions
+>    (`lpt1`/`lpt2` in `stepsic/lpt.py`) — embarrassingly parallel over particles, so it
+>    can be chunked across threads and stay *numerically identical* (the RNG and the FFTs
+>    are untouched; only the read-out is split);
+> 2. the elementwise passes over the 1024x1024x513 complex grid in `generate_delta_k()`
+>    and `s3lpt.highpass_delta_k()` — 8.6 GB per pass, memory-bound;
+> 3. `rng.normal(size=NMESH^3)` in `white_noise()` — 1.07e9 draws from one PCG64 stream
+>    (parallelising this changes the field unless the stream is split deterministically, so
+>    leave it alone if bit-reproducibility against existing ICs matters).
+>
+> Not urgent: 72 min of IC generation against ~3 days of integration. It becomes worth
+> doing if ICs at this resolution are generated repeatedly, or for anything beyond 1024^3.
+>
+> **Do not extrapolate small-N timings.** The identical code path at 256^3 takes 309 s, and
+> scaling that by the 64x in particles and mesh cells predicts ~5.5 h — 4.6x more than the
+> 72 min actually observed. Fixed costs (CAMB spectrum, startup, glass read) dominate the
+> small case and the FFT share is multithreaded, so the naive extrapolation is badly
+> pessimistic. Measure at the target size.
+>
+> **Memory is the harder ceiling.** `pds.wrap()` materialises a dense `(N, 120)` float64
+> array of quaternion dot products — **386 GB at N = 402M**; peak RSS was 427 GB in the
+> preglass stage and 444 GB here, against 766 GB of RAM. Chunking `wrap()` over particles
+> would remove this and is a prerequisite for going beyond 1024^3.
+
 For legacy flat-approximation ICs (`GEOMETRY = "cubical"`), StePS still converts
 Cartesian coordinates to quaternions at load time whenever
 `PartType1/Quaternions` is absent — but the cubical box tiles into 120 copies
@@ -340,6 +371,268 @@ make -f PDS-Linux_CUDA_BH-Makefile     # builds build/StePS_CUDA_BH (theta = 0.3
 OMP_NUM_THREADS=32 mpirun --bind-to none -x OMP_NUM_THREADS -np 1 \
     ./build/StePS_CUDA_BH <paramfile> 4
 ```
+
+### Performance and tuning knobs
+
+On H200 NVL with 16.8M particles (`test256disc`, 1200 Mpc) the GPU Barnes-Hut force runs
+at **1.40 s/step on 1 GPU** and **0.49 s/step on 4 GPUs** (2026-09; **3.1x** and **5.1x**
+faster than the 2026-07 code). See the CHANGELOG entry for what changed, what is
+bit-identical, and how the residual difference against older runs was measured — briefly:
+84% of particles are bit-identical on a z=0 field and the worst single particle moves by
+6e-7 of its own speed, dominated by the OpenMP parallelisation of the integrator loops
+rather than by the GPU kernel.
+
+Traversal cost is ~12,200 node visits per particle, of which **55% come from the 119
+non-identity images** of I* (~56 visits each) and **85% end in acceptance**. The host-side
+tree build is ~8% of the force; the rest is the GPU walk, dominated by one `acos` per
+accepted interaction.
+
+Give the run all the host cores you can — the tree build (Morton keys, parallel sort,
+parallel flatten) and the rank-0 KDK loops are all OpenMP-parallel, which is why
+`--bind-to none` matters above.
+
+### Full-run validation (256^3 PDS glass, 2026-09)
+
+The whole `test256glass` configuration (z=31 -> 0) was re-run end to end with the optimized
+code (`/scratch/csabai/test256glass_v3`) and compared with the previous run of the *same*
+configuration (`test256glass_v2`, commit d1d644d):
+
+- **0.611 h vs 2.74 h**, 4837 steps at 0.454 s/step on 4x H200.
+- The two runs take the **same adaptive timestep path** — both reach z=14 at step 374.
+- **P(k) in the domain-fitting cube agrees to 0.06% (median), 0.3% worst bin** at z=3, 1
+  and 0, and to 5 decimal places at z=10. For scale, the same comparison against the
+  *pre-code-review* June run differs by 2.5-3.5% — the optimization changes the spectrum
+  ~40x less than the code review itself did.
+- Particle positions diverge chaotically as expected: round-off at z=30, median 0.14 Mpc
+  by z=0 (against a 4.7 Mpc mean interparticle separation), i.e. the same structures with
+  particles reshuffled inside haloes.
+
+### The 1024^3 PDS glass run (2026-09)
+
+Completed on 4x H200: **67.85 h (2.83 days), 7066 steps at 34.54 s/step**, 402M particles
+in the domain, z = 31 -> 0, 11 snapshots. Against the projection below that is 2.83 days
+versus a 2.8-day central estimate, and 34.5 versus 32 s/step.
+
+Pipeline and cost:
+
+| stage | cost |
+|---|---|
+| preglass Poisson load (stepsic, `TYPE="random"`, `LPTORDER=0`) | 67 min, peak RSS 427 GB |
+| glass making (EdS reverse gravity, `PARTICLE_RADII` 0.1 -> 0.025) | 6.59 h, 555 steps |
+| PDS glass IC (`LPTORDER=2`, `NMESH=1024`) | 72 min, peak RSS 444 GB |
+| **production run** | **67.85 h** |
+
+Health: the adaptive timestep was set by `errmax` at **every one of the 7066 steps** (never
+clamped to `STEP_MAX`), the tree grew 1.354 -> 1.746 nodes/particle, and device memory
+peaked well inside the 143.8 GB card. The relaxed glass matched the 256^3 reference
+exactly (NN spacing sd/mean 0.1075 vs 0.1070, spacing ratio 4.02x).
+
+> **Phase-matched initial conditions (fixed 2026-09).** `stepsic.field.white_noise()`
+> originally drew the phases in *configuration space* on the `NMESH^3` grid
+> (`rng.normal(size=nvox, seed=seed)`), so the same `SEED = 137` produced a **different
+> realization** at every mesh size. The 1024^3 run therefore shared nothing with the 256^3
+> set: measured z = 0 cross-correlation **r ~ 0**, against r ~ 0.95 within the 256^3 set.
+>
+> `white_noise()` now takes `ref_nvox` (toml: **`PHASE_REF_NMESH`**): the field is drawn
+> once on a `ref_nvox^3` mesh and cropped in k-space, with a `(M/N)^{3/2}` rescaling to
+> restore the per-mode variance of a native draw and a re-symmetrisation because cropping
+> breaks Hermitian consistency on the Nyquist planes. Every mesh <= the reference is then a
+> strict subset of one realization. Absent or 0 keeps the legacy behaviour, so existing ICs
+> stay reproducible.
+>
+> **The 1024^3 run did not need redoing.** At `NMESH == PHASE_REF_NMESH` the crop is a
+> no-op, so the phase-matched IC came out *bit-identical* to the original. Only the 256^3
+> side was rebuilt (`test256glass_pm{,_run}`, ~1 h). Verified z = 0 cross-correlation with
+> the 1024^3 run: **r = 0.984 -> 0.898**, against r ~ 0 before.
+>
+> Note this leaves **two realizations** in the campaign: the four original 256^3 runs
+> (fine for the load-vs-topology decomposition, which never involves the 1024^3) and the
+> phase-matched pair used for everything about resolution. The Gadget runs do **not** need
+> repeating -- they only enter the 256^3-internal comparison.
+
+#### The low-k features, and what the glass relaxation really controls
+
+Three separate things were conflated in earlier versions of this section. They have
+different causes and different cures.
+
+**1. The fundamental-bin "load noise" (F ~ 2000-2200 Mpc^3) is a COORDINATE ARTIFACT, not
+glass noise.** The glass load is uniform on S^3, so its *count* density in the
+stereographic chart carries the smooth radial Omega^3 = (2R^2/(R^2+r^2))^3 volume factor.
+`power_spectrum()` weights by raw counts, and picks that gradient up as large-scale power.
+Measured on the load itself:
+
+| load | raw counts | de-conformalized (1/Omega^3 weights) |
+|---|---|---|
+| Poisson preglass (*unrelaxed*) | 2256.7 | 145.1 |
+| glass, relaxed to a=1.01 | 2090.9 | **18.0** |
+| glass, relaxed to a=16 | 2076.3 | **9.1** |
+
+99% of it disappears under the de-conformalized weighting that `delta_slice()` already
+applies to the density slices but that `power_spectrum()` never received. It is present at
+full strength in the *unrelaxed Poisson* load, is identical at 256^3 and 1024^3 (2231 vs
+2178 -- a coordinate effect does not care about N), and a 16x longer relaxation leaves it
+untouched (2091 -> 2076). The PDS **grid** run does not show it (F = -13.9) because that
+load is a uniform *chart* lattice carrying Omega^3-weighted masses: uniform counts, no
+gradient.
+
+> Earlier text here claimed this residual was "the glass's largest-scale modes, which relax
+> slowest" and that only a longer glass-making run would fix it. That was wrong on both
+> counts. **Fixed:** `power_spectrum()` now takes per-particle weights and
+> `clustering_pk()` passes m/Omega^3 for PDS runs by default (`deconf=True`).
+
+**2. The local maximum at k = 0.0209 is set by the realization, not by the topology.**
+It is unchanged by de-conformalization (1.209 -> 1.207, 1.916 -> 1.936), by 1LPT vs 2LPT,
+by the discrete S^3/I* modes, and by a 16x longer glass relaxation (1.916 -> 2.035) --
+every knob except the initial realization.
+
+The decisive check is that each realization was also run in **Gadget4** (flat T^3,
+FMM/TreePM, its own flat glass load) from a cubical IC with the same `SEED` and
+`PHASE_REF_NMESH`, so it samples the same modes and shares nothing else:
+
+| realization | runs | mean P(0.0209)/P(0.0314) | spread |
+|---|---|---|---|
+| A | StePS PDS, Gadget T^3 glass, Gadget T^3 grid | 1.249 | 0.102 |
+| C | StePS PDS, Gadget T^3 glass | 1.549 | 0.097 |
+| B | StePS PDS 256^3 1.916, **Gadget T^3 glass 1.833**, StePS PDS 1024^3 1.998 | 1.916 | 0.165 |
+
+Realization B is the one that matters: it carries the strong peak, and before its Gadget
+counterpart existed every strong-peak run was a PDS run, so "realization" and "PDS-specific"
+were indistinguishable. Gadget reproduces it (1.833 vs 1.916/1.998; raw P at k=0.0209 is
+71816 vs 73440 Mpc^3). Separations between realizations (B-A = 0.667) are several times the
+spread within one (<= 0.165), and consistent with the ~23% sample variance of a 62-mode bin.
+See `tools/Visualization/PDS_glass_variance_study.ipynb`.
+
+**3. The glass anomaly IS insufficient relaxation -- and a longer run cures it.**
+Extending the reverse-gravity relaxation from a = 1.01 to a = 16 (43 min at 256^3) improves
+the load (nearest-neighbour sd/mean 0.107 -> 0.064, most of it by a = 4) and removes the
+excess small-scale power almost entirely. Controlled test: same realization, same 2LPT,
+only the glass differs.
+
+| z = 0, k > 0.18 | ratio |
+|---|---|
+| glass(a=16) / glass(a=1.01) | 0.811 |
+| glass(a=1.01) / grid | **1.208**  (the anomaly) |
+| glass(a=16) / grid | **0.979**  (cured) |
+
+So the ~21% high-k excess of the glass-IC run over the grid-IC run -- the same effect that
+shows up as ~1.7x halo abundance and ~2x matched-pair masses in `halo_catalogs/README` --
+is a glass-relaxation artifact, not a property of the glass load per se. **Relax to a >= 4
+for production glass ICs.** The runs relaxed only to a = 1 should not be used for glass-IC
+halo statistics.
+
+Data: `glass256_long_run/` (the extended relaxation), `test256glass_longrelax{,_run}`.
+
+#### What it says about the glass anomaly
+
+The `halo_catalogs` README flags an open issue: the glass-IC run shows ~1.7x halo
+abundance and ~2x matched-pair masses, "likely residual glass-load noise seeding extra
+small-scale growth". The 1024^3 run separates that into two components with opposite
+behaviour under resolution.
+
+Static load-noise floor `F(k)` (zA=30, zB=5, raw spectra), in Mpc^3:
+
+| k [1/Mpc] | PDS glass 1024 | PDS glass 256 | PDS grid 256 | Gadget glass |
+|---|---|---|---|---|
+| 0.0105 | **2178** | **2231** | -14 | -4 |
+| 0.0209 | 4.2 | 13.6 | -6 | -2 |
+| 0.0314 | 4.9 | 12.6 | 20 | 10 |
+| 0.0524 | 0.6 | 8.8 | 41 | 2.5 |
+| 0.0942 | 0.1 | 9.0 | 102 | 7.3 |
+
+- **The fundamental-bin residual is resolution-independent**: 2178 vs 2231, a ratio of
+  **0.98**, with **64x more particles**. This is the Omega^3 chart gradient described
+  above, *not* a physical residual -- see point 1. It is listed here only because the
+  count-weighted estimator produces it. It is therefore *not* discreteness — it is the glass's
+  largest-scale modes, which relax slowest and which the reverse-gravity run does not erase.
+  More resolution will never fix it; only a longer glass-making run will.
+- **Everything above the fundamental bin is discreteness** and falls by 10-40x, consistent
+  with 1/N.
+
+Consequently the small-scale half of the anomaly largely cures itself at higher resolution.
+P(k) ratios in the fitting cube at z=0, k > 0.18:
+
+| comparison | ratio | meaning |
+|---|---|---|
+| 1024 glass / 256 glass (phase-matched) | **0.83** | resolution at fixed load |
+| 256 glass / 256 grid | **1.22** | load at fixed resolution |
+
+The 256^3 glass carried excess small-scale power seeded by its own small-scale load noise;
+at 1024^3 that noise is ~64x smaller and the excess drops by ~17%. Robust to discreteness
+handling: the same ratio is 0.826 with Poisson subtraction and 0.799 with none at all, so
+it is not a subtraction artifact.
+
+#### Halo-level confirmation (2026-09)
+
+Halo catalogs were built for the realization-B pair and for the a=16 glass with the same
+StePS_HF pipeline as the flagship set (`halo_catalogs/prep_cut_new.py`,
+`postprocess_new.py`; 600 Mpc matched-frame cube, SO finder, NPARTMIN=10):
+
+| catalog | halos | glass / grid |
+|---|---|---|
+| PDS grid (real. A) | 13,719 | - |
+| PDS glass (real. A) | 25,242 | 1.84 |
+| PDS glass (real. B) | 25,141 | 1.83 |
+| **PDS glass, a=16 relaxation** | **14,329** | **1.04** |
+| Gadget T^3 glass (real. A) | 26,736 | 1.92 |
+| Gadget T^3 glass (real. B) | 26,493 | 1.90 |
+
+Two things follow. First, **the glass anomaly is not PDS-specific**: Gadget4 on a flat T^3
+torus, with its own flat glass load, shows it just as strongly (1.90-1.92 against the PDS
+runs' 1.83-1.84). It is a property of an under-relaxed glass, not of S^3/I*. Second,
+**relaxing the glass to a=16 removes it**: 25,141 -> 14,329 halos, i.e. glass/grid 1.83 ->
+1.04, matching the grid-IC abundance. N(>1e14) goes 5,836 -> 3,586 against the grid's
+3,898. This closes the follow-up that `halo_catalogs/README.md` asked for.
+
+The anisotropy stacking was re-run with all nine simulations
+(`tools/Visualization/Halo_stacking_anisotropy.ipynb`). The topology term is still
+consistent with zero, and the grid-lattice term (~+0.06 in the face cone) still stands.
+But the previously reported **residual +3-4% face excess on glass loads does not survive
+more than one glass run**: four of them now give 0.992, 1.013, 1.027 and 1.042 (mean 1.016)
+against 1.061 and 1.073 for the two grid loads, and the a=16 relaxation does not shift them
+systematically. That residual had been attributed to the cubic FFT/CIC displacement mesh;
+with a single glass run per topology the attribution was not testable, and it is not
+supported now.
+
+**Practical guidance.** Glass-IC halo masses remain unsafe for the large-scale modes at any
+resolution until the glass-making run is extended; small-scale statistics improve with
+resolution as expected. Figure: `data/pk_1024_vs_256.png`.
+
+### Projected 1024^3 run
+
+A 1024^3 cube leaves ~402M particles inside the fundamental domain (37.4% occupancy).
+Scaling from the measured run, with the exponent bracketed by the measured 128^3 -> 256^3
+value and O(N log N), and the step count by the measured resolution trend:
+
+| | s/step | steps | wall (4x H200) |
+|---|---|---|---|
+| optimistic | 26 | 6,000 | 1.8 d |
+| central | 32 | 7,700 | **2.8 d** |
+| conservative | 44 | 12,100 | 6.2 d |
+
+About **3 days** centrally (~270 GPU-hours), against ~14 days with the 2026-07 code.
+
+> **Device memory is the tightest resource.** Every GPU holds the whole tree: at
+> 1.85 nodes/particle (the z=0 value) that is **83.6 GB of the 143.8 GB** on an H200 NVL,
+> leaving ~60 GB of headroom. The host-layout nodes are streamed through a small
+> double-buffered stage (0.4 GB) and converted on the GPU by `PDSTreeConvertKernel`;
+> mirroring the whole raw array in device memory instead would add ~50 GB and cut the
+> headroom to ~10 GB. Host memory (~170 GB of 766 GB) and disk (~21 GB per snapshot) are
+> not a concern.
+
+Two environment variables exist for A/B checks; both should be left unset in production,
+and both are expected to reproduce the default results **bit-identically**:
+
+| variable | effect |
+|---|---|
+| `PDS_TREE_SERIAL=1` | flatten the octree with the original serial DFS instead of `pds_morton_build_par()` |
+| `PDS_NO_MORTON_THREADS=1` | assign particles to GPU threads in array order instead of Z-order |
+
+`PDS_TREE_PROF=1` and `PDS_GPU_PROF=1` print a per-step breakdown of the host build and
+the GPU section respectively.
+
+> The Morton thread assignment needs the rank to own the whole particle array (the Z-order
+> does not respect an MPI decomposition), so it switches itself off for multi-rank runs.
+> Multi-GPU inside one rank is fine.
 
 > **Build dir note:** all PDS makefiles share `build/` with the same object
 > names but different macros (`USE_BH`, `USE_CUDA`). Run `rm -f build/*.o` (or
@@ -508,7 +801,7 @@ The exact mode costs ≈ 2.3× a nearest-image force evaluation.
 
 ## Validation Tests
 
-The automated suite covers most of these checks (8 tests, ~2 min, builds the
+The automated suite covers most of these checks (10 tests, builds the
 needed binary variants itself):
 
 ```bash
@@ -520,8 +813,10 @@ python examples/pds_tests/run_tests.py
 Tests: free flight / Hubble drag, boundary wrapping, two-particle Newtonian
 limit, homogeneity (zero self-image force, IS_PERIODIC = 2), multi-particle
 stability, Python/C++ exact-force cross-validation (< 10⁻⁶), end-to-end
-stepsic-PDS-IC run with growing density contrast, and an R³ regression of the
-shared sources.  The force-law study `examples/pds_tests/pds_anisotropy_study.py`
+stepsic-PDS-IC run with growing density contrast, an R³ regression of the
+shared sources, IC quaternions governing the run, and adaptive timestep control
+being live (Test 10 — the other nine all happen to run with `h` pinned at
+`STEP_MAX`, so none of them would notice a dead `errmax`).  The force-law study `examples/pds_tests/pds_anisotropy_study.py`
 regenerates `data/pds_anisotropy/REPORT.md`.
 
 The manual sanity checks below remain useful for debugging by hand.
@@ -723,7 +1018,7 @@ the CPU direct/Barnes–Hut paths and CUDA kernels all carry the `PDS_INTRINSIC`
 the whole test suite passes against it:
 
 ```bash
-PDS_TEST_EXTRA_OPT=-DPDS_INTRINSIC python3 examples/pds_tests/run_tests.py   # 9/9
+PDS_TEST_EXTRA_OPT=-DPDS_INTRINSIC python3 examples/pds_tests/run_tests.py   # 10/10
 ```
 
 > **Bug found and fixed during review — worth knowing if you touch this code.** KDK is

@@ -111,6 +111,10 @@ extern int BUFFER_start_ID;
 #endif
 
 extern REAL x4, err, errmax, ACC_PARAM; //variables used for error calculations
+extern int HOST_OMP_THREADS; //OpenMP threads available on the host for the rank-0 serial
+                             //loops (KDK, wrap). Captured at startup BEFORE the CUDA code
+                             //calls omp_set_num_threads(n_GPU), which would otherwise pin
+                             //those loops to n_GPU (=1 on a single-GPU run).
 extern double h, h_min, h_max,  t_next; //actual stepsize, minimal and maximal stepsize, next time for output
 extern double a_max,t_bigbang; //maximal scalefactor; Age of Big Bang
 

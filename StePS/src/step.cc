@@ -266,6 +266,13 @@ void step(REAL* x, REAL* v, REAL* F)
 	if(rank == 0)
 	{
 		printf("KDK Leapfrog integration...\n");
+		double t_kdk0 = omp_get_wtime();
+		// Per-particle and independent: the only cross-iteration state is the
+		// GLASS_MAKING displacement accumulator, so that build stays serial.
+		#ifndef GLASS_MAKING
+		#pragma omp parallel for schedule(static) num_threads(HOST_OMP_THREADS) \
+		                 default(shared) private(i, k, disp, ACCELERATION)
+		#endif
 		for(i=0; i<N; i++)
 		{
 #ifdef PDS_INTRINSIC
@@ -379,6 +386,9 @@ void step(REAL* x, REAL* v, REAL* F)
 			//refresh the derived stereographic buffers for the force/tree/output path
 			pds_sync_stereo_for_output();
 #else
+			// pds_wrap() is a pure function of q_in; every particle is independent.
+			#pragma omp parallel for schedule(static) num_threads(HOST_OMP_THREADS) \
+			                 default(shared) private(i, k)
 			for(i=0; i<N; i++)
 			{
 				double cx = (double)x[3*i];
@@ -551,6 +561,13 @@ void step(REAL* x, REAL* v, REAL* F)
 	if(rank == 0)
 	{
 		REAL const_beta = 3.0/rho_part/(4.0*pi);
+		double t_kdk2 = omp_get_wtime();
+		// errmax is a global; accumulate into a local so the reduction is well-defined.
+		REAL errmax_loc = 0.0;
+		#ifndef GLASS_MAKING
+		#pragma omp parallel for schedule(static) num_threads(HOST_OMP_THREADS) \
+		        default(shared) private(i, k, ACCELERATION) reduction(max: errmax_loc)
+		#endif
 		for(i=0; i<N; i++)
 		{
 #ifdef PDS_INTRINSIC
@@ -596,10 +613,9 @@ void step(REAL* x, REAL* v, REAL* F)
 				v[3*i+k] += ACCELERATION[k]*(REAL)(h/2.0);
 			}
 #endif
-			err = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
-			if(err>errmax)
 			{
-				errmax = err;
+				REAL e = sqrt(ACCELERATION[0]*ACCELERATION[0] + ACCELERATION[1]*ACCELERATION[1] + ACCELERATION[2]*ACCELERATION[2])/cbrt(M[i]*const_beta);
+				if(e > errmax_loc) errmax_loc = e;
 			}
 			#ifdef GLASS_MAKING
 			Force_abs = sqrt(pow(F[3*i],2) + pow(F[3*i+1],2) + pow(F[3*i+2],2));
@@ -622,6 +638,10 @@ void step(REAL* x, REAL* v, REAL* F)
 			}
 			#endif
 		}
+		/*  Publish the reduction result: `errmax` is the global that
+		 *  calculate_h() turns into the next timestep.  Leaving it at 0 silently
+		 *  pins h to h_max and disables adaptive timestepping altogether.       */
+		errmax = errmax_loc;
 		printf("KDK Leapfrog integration...done.\n");
 		#ifdef GLASS_MAKING
 		dmean /= ((REAL) N);

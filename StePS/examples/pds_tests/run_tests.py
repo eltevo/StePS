@@ -1072,6 +1072,78 @@ def test9():
     return ok
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 10 — adaptive timestep control is live
+# ══════════════════════════════════════════════════════════════════════════════
+def test10():
+    """
+    The KDK closing kick accumulates the worst-case acceleration error into the
+    global `errmax`, and calculate_h() turns that into the next timestep.  If
+    `errmax` is left at 0 -- e.g. by accumulating into a local that is never
+    published, which is easy to do when parallelising that loop -- then
+    h = sqrt(2*ACC_PARAM/errmax) is infinite and every step silently clamps to
+    STEP_MAX.  The run still completes and stays finite, so every other test in
+    this suite passes while the integrator is no longer adaptive.  Guard it.
+    """
+    print("\n── Test 10: adaptive timestep control is live ───────────────────────")
+    tag    = "test10"
+    outdir = OUT_BASE / tag
+    ic     = outdir / "ic.hdf5"
+    param  = outdir / f"{tag}.param"
+    outlst = outdir / "redshifts.txt"
+
+    shutil.rmtree(outdir, ignore_errors=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Every other test in this suite happens to run with h pinned at STEP_MAX, so
+    # none of them would notice a dead controller.  A very small ACC_PARAM puts
+    # the adaptive timestep an order of magnitude below the ceiling, so h is set
+    # by errmax alone and visibly tracks it.
+    a_start, a_max = 0.5, 1.0
+    STEP_MAX  = 1.0        # Gy -- deliberately far above the adaptive value
+    ACC_PARAM = 1.0e-5
+    rng = np.random.default_rng(11)
+    pos = rng.normal(size=(8, 3))
+    pos = pos / np.linalg.norm(pos, axis=1, keepdims=True) \
+        * rng.uniform(50, 480, size=(8, 1))
+    write_ic(ic,
+             pos_mpc      = pos,
+             vel_pec_kmps = rng.normal(scale=100.0, size=(8, 3)),
+             mass_code    = np.full(8, 1.0e4),
+             a_start      = a_start)
+    write_redshift_list(outlst, 1.0 / np.linspace(a_start, a_max, 6) - 1.0)
+    write_param(param, outdir, ic, outlst, a_start=a_start, a_max=a_max,
+                acc_param=ACC_PARAM, step_max=STEP_MAX, particle_radii=5.0,
+                is_periodic=2)
+    run_sim(param, timeout=600)
+
+    # h is reported per step as "h=<value>My" or "h=<value>Gy"
+    log = (outdir / "run.log").read_text()
+    hs  = [float(v) * (1.0e-3 if u == "My" else 1.0)
+           for v, u in re.findall(r"h=([0-9.eE+-]+)(My|Gy)", log)]
+    hs  = hs[1:]                  # step 0 comes from calculate_init_h(), not errmax
+
+    ok = True
+    ok &= check(len(hs) >= 20, f"Got {len(hs)} adaptive timesteps from the log")
+    if not hs:
+        print("  Result: SOME FAILED")
+        return False
+
+    n_pinned = sum(1 for h in hs if h >= 0.999 * STEP_MAX)
+    ok &= check(n_pinned == 0,
+                f"h is set by errmax, not clamped: {n_pinned}/{len(hs)} steps at "
+                f"the {STEP_MAX} Gy ceiling")
+    spread = (max(hs) - min(hs)) / max(hs)
+    ok &= check(spread > 0.05,
+                f"h tracks errmax across steps: spread = {spread:.3g} "
+                f"(min {min(hs):.4g}, max {max(hs):.4g} Gy)")
+    ok &= check(all(np.isfinite(h) and h > 0 for h in hs),
+                "All timesteps finite and positive")
+    print(f"  Result: {'ALL PASS' if ok else 'SOME FAILED'}")
+    return ok
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("Checking/building the binary variants (StePS, StePS_saveacc, StePS_r3)...")
@@ -1083,8 +1155,8 @@ if __name__ == "__main__":
 
     OUT_BASE.mkdir(parents=True, exist_ok=True)
 
-    print("Running all 8 tests in parallel...")
-    test_fns = [test1, test2, test3, test4, test5, test6, test7, test8, test9]
+    print("Running all 10 tests in parallel...")
+    test_fns = [test1, test2, test3, test4, test5, test6, test7, test8, test9, test10]
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(fn): fn for fn in test_fns}
         result_map = {}

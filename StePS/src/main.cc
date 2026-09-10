@@ -54,6 +54,7 @@ bool ForceError = false;
 int N_saved_ics = 0; //number of saved ICs, only used for naming the output files when testing the force accuracy.
 
 int n_GPU; //number of cuda capable GPUs
+int HOST_OMP_THREADS = 1; //see global_variables.h
 int numtasks, rank; //Variables for MPI
 
 MPI_Status Stat;
@@ -1398,7 +1399,8 @@ int main(int argc, char *argv[])
 			mpi_particle_range[i][2] = N/numtasks;
 		}
 	}
-	#ifdef USE_CUDA
+		HOST_OMP_THREADS = omp_get_max_threads();  //capture BEFORE any omp_set_num_threads(n_GPU)
+#ifdef USE_CUDA
 	if(argc == 3)
 	{
 		n_GPU = atoi( argv[2] );
