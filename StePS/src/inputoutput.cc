@@ -40,18 +40,20 @@ int load_snapshot(char *fname, int files);
 int allocate_memory(void);
 int reordering(void);
 
+static bool path_has_type(const char *path, mode_t type)
+{
+	struct stat path_stat;
+	return stat(path, &path_stat) == 0 && (path_stat.st_mode & S_IFMT) == type;
+}
+
 int file_exist(char *file_name)
 {
-	struct stat file_stat;
-	stat(file_name, &file_stat);
-	return S_ISREG(file_stat.st_mode);
+	return path_has_type(file_name, S_IFREG);
 }
 
 int dir_exist(char *dir_name)
 {
-	struct stat dir_stat;
-	stat(dir_name, &dir_stat);
-	return S_ISDIR(dir_stat.st_mode);
+	return path_has_type(dir_name, S_IFDIR);
 }
 
 int measure_N_part_from_ascii_snapshot(char * filename)

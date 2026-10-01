@@ -16,10 +16,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <cstring>
 #ifdef PERIODIC_Z
 #include <cmath>
 #include <algorithm>
-#include <cstring>
 #define sqrtpi 1.7724538509055160272981674833411 //sqrt(pi)
 #endif
 
