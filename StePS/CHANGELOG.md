@@ -1,6 +1,56 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
+## [Unreleased] - realization A at 1024^3 (2026-10)
+
+A second 1024^3 run, built so that the only difference from the first is the large-scale
+realization. This turns the k = 0.0209 peak result from a cross-code argument into a
+controlled experiment, and supersedes the realization table in the 2026-09 entry below.
+
+### Added
+- **`test1024glassA_run`** -- realization A at 1024^3. 402M particles, z = 31 -> 0 in
+  **61.88 h** / 247.5 GPU-h on 4x H200, same `glass1024_run` load, same 2LPT, same binary
+  and parameter file as `test1024glass_run`. (It beat the realization-B run's 67.9 h by 9%,
+  plausibly because B's stronger large-scale power deepens the potential wells and shortens
+  the adaptive timestep.)
+- **stepsic: the embed direction of `PHASE_REF_NMESH`** (`white_noise(ref_nvox=...)`).
+  Previously the phase matching only worked downwards -- `NMESH > PHASE_REF_NMESH` raised
+  `ValueError` -- so a realization first drawn at low resolution could never be re-run at
+  high resolution. It now transplants the reference's modes into the finer mesh and draws
+  the scales above its Nyquist fresh at `NMESH`. The reference's own Nyquist planes are
+  excluded, because those modes are self-conjugate on the coarse mesh and the constraint
+  does not carry to the fine one; the transplanted block is then closed under conjugation
+  and Hermitian-consistent by construction. Costs ~`3/N` of the reference band (1.2% at
+  `N = 256`), all at the edge. The crop path is bit-identical to before.
+- **`stepsic/tests/test_white_noise.py`** -- 6 tests over crop, embed and passthrough.
+
+### Changed
+- **The k = 0.0209 peak result is now a controlled experiment.** Because the embed starts
+  from the native 1024^3 draw and overwrites only what the 256^3 reference resolves, the two
+  1024^3 runs share their small-scale modes *exactly* and differ only in the large-scale
+  realization. The peak goes **1.998 (B) -> 1.273 (A)** and raw P(k=0.0209) from 68725 to
+  42957 Mpc^3. The new run falls inside realization A's existing range (1.209-1.311):
+
+  | realization | runs | mean P(0.0209)/P(0.0314) | spread |
+  |---|---|---|---|
+  | A | StePS PDS 256^3 1.209, Gadget T^3 glass 1.227, Gadget T^3 grid 1.311, **StePS PDS 1024^3 1.273** | 1.255 | 0.102 |
+  | C | StePS PDS 1.597, Gadget T^3 glass 1.500 | 1.549 | 0.097 |
+  | B | StePS PDS 256^3 1.916, Gadget T^3 glass 1.833, StePS PDS 1024^3 1.998 | 1.916 | 0.165 |
+
+  Realization A also holds a 1LPT run (256^3) and a 2LPT run (1024^3), so LPT order is no
+  longer confounded with the realization anywhere. It is worth ~0.06.
+- **`Gadget_vs_PDS_1024_comparison.ipynb`** -- `PDS glass 1024^3` is split into
+  `1024^3 A` and `1024^3 B`. Sections 1-2 use the A run, whose structures are the *same*
+  as the 256^3 columns' rather than merely a statistically equivalent universe; section 7
+  keeps the B/256^PM pair for resolution, since both are 2LPT.
+- **`PDS_glass_variance_study.ipynb`** -- section 5 gains the matched 1024^3 pair.
+
+### Notes
+- New data on scratch: `test1024glassA{,_run}` (IC 26 GB, run 260 GB), plus
+  `realizationA_check/` with the z = 30 slice comparison and the P(k) measurement.
+- The 2026-09 entry's realization table predates the A 1024^3 run and reads 1.249 / 3 runs
+  for realization A; the table above supersedes it.
+
 ## [Unreleased] - 1024^3 run, IC reproducibility, and the glass anomaly (2026-09)
 
 The first 1024^3 PDS run, plus the analysis work it forced. Three long-standing low-k

@@ -434,21 +434,51 @@ exactly (NN spacing sd/mean 0.1075 vs 0.1070, spacing ratio 4.02x).
 > set: measured z = 0 cross-correlation **r ~ 0**, against r ~ 0.95 within the 256^3 set.
 >
 > `white_noise()` now takes `ref_nvox` (toml: **`PHASE_REF_NMESH`**): the field is drawn
-> once on a `ref_nvox^3` mesh and cropped in k-space, with a `(M/N)^{3/2}` rescaling to
-> restore the per-mode variance of a native draw and a re-symmetrisation because cropping
-> breaks Hermitian consistency on the Nyquist planes. Every mesh <= the reference is then a
-> strict subset of one realization. Absent or 0 keeps the legacy behaviour, so existing ICs
-> stay reproducible.
+> once on a `ref_nvox^3` mesh and matched to the run's own mesh in k-space, with a
+> `(M/N)^{3/2}` rescaling that restores the per-mode variance of a native draw. Absent or 0
+> keeps the legacy behaviour, so existing ICs stay reproducible. Two directions:
+>
+> * **`NMESH < PHASE_REF_NMESH` -- crop.** The reference is truncated to the coarser mesh,
+>   then re-symmetrised because cropping breaks Hermitian consistency on the Nyquist planes.
+>   Every mesh below the reference is a strict subset of one realization.
+> * **`NMESH > PHASE_REF_NMESH` -- embed (added 2026-10).** The reference's modes are
+>   transplanted into the finer mesh and the scales above its Nyquist come from a fresh
+>   `NMESH^3` draw with the same seed. This is what lets a realization first drawn at low
+>   resolution be re-run at high resolution; before it, `white_noise()` raised
+>   `ValueError` and the matching only ever worked downwards.
+>
+>   The reference's own Nyquist planes are deliberately **excluded** from the transplant: on
+>   the coarse mesh those modes are self-conjugate and therefore real, and carrying that
+>   constraint to the fine mesh -- where the partner is a distinct mode -- would be wrong.
+>   Dropping them keeps the transplanted block closed under conjugation, so the result is
+>   Hermitian-consistent by construction and needs no repair. The cost is ~`3/N` of the
+>   reference band (1.2% at `N = 256`), all of it at the very edge. Verified mode-by-mode
+>   at production size: `r = 1.000000` in every k-bin from 0.005 to the 256^3 Nyquist
+>   (0.67 /Mpc). See `stepsic/tests/test_white_noise.py`.
+>
+>   Because the embed starts from the native `NMESH^3` draw and overwrites only what the
+>   reference resolves, **two runs differing solely in `PHASE_REF_NMESH` share their
+>   small-scale modes exactly** -- which makes them a controlled experiment on the
+>   large-scale realization alone.
 >
 > **The 1024^3 run did not need redoing.** At `NMESH == PHASE_REF_NMESH` the crop is a
 > no-op, so the phase-matched IC came out *bit-identical* to the original. Only the 256^3
 > side was rebuilt (`test256glass_pm{,_run}`, ~1 h). Verified z = 0 cross-correlation with
 > the 1024^3 run: **r = 0.984 -> 0.898**, against r ~ 0 before.
 >
-> Note this leaves **two realizations** in the campaign: the four original 256^3 runs
-> (fine for the load-vs-topology decomposition, which never involves the 1024^3) and the
-> phase-matched pair used for everything about resolution. The Gadget runs do **not** need
-> repeating -- they only enter the 256^3-internal comparison.
+> Note this leaves **two realizations** in the campaign: A, the four original 256^3 runs
+> (fine for the load-vs-topology decomposition), and B, the phase-matched pair used for
+> everything about resolution. The Gadget runs do **not** need repeating -- they only enter
+> the 256^3-internal comparison.
+>
+> **Realization A at 1024^3 (2026-10).** With the embed direction available, realization A
+> was carried to 1024^3 (`test1024glassA{,_run}`, `PHASE_REF_NMESH = 256`, 2LPT, the same
+> `glass1024_run` load; **61.88 h** / 247.5 GPU-h on 4x H200). It shares realization A
+> exactly with the four 256^3 runs, so they are now its direct resolution partners, and it
+> is the column to put beside them in `Gadget_vs_PDS_1024_comparison.ipynb` -- the
+> realization-B 1024^3 run shows a different universe and the notebook had to keep warning
+> about it. Its small-scale modes are identical to the realization-B 1024^3 run's, so the
+> two together isolate the large-scale realization with nothing else varying.
 
 #### The low-k features, and what the glass relaxation really controls
 
@@ -485,21 +515,37 @@ It is unchanged by de-conformalization (1.209 -> 1.207, 1.916 -> 1.936), by 1LPT
 by the discrete S^3/I* modes, and by a 16x longer glass relaxation (1.916 -> 2.035) --
 every knob except the initial realization.
 
-The decisive check is that each realization was also run in **Gadget4** (flat T^3,
-FMM/TreePM, its own flat glass load) from a cubical IC with the same `SEED` and
-`PHASE_REF_NMESH`, so it samples the same modes and shares nothing else:
+Two experiments pin this down, from opposite directions.
+
+**(i) Each realization was also run in Gadget4** (flat T^3, FMM/TreePM, its own flat glass
+load) from a cubical IC with the same `SEED` and `PHASE_REF_NMESH`, so it samples the same
+modes and shares nothing else:
 
 | realization | runs | mean P(0.0209)/P(0.0314) | spread |
 |---|---|---|---|
-| A | StePS PDS, Gadget T^3 glass, Gadget T^3 grid | 1.249 | 0.102 |
-| C | StePS PDS, Gadget T^3 glass | 1.549 | 0.097 |
+| A | StePS PDS 256^3 1.209, Gadget T^3 glass 1.227, Gadget T^3 grid 1.311, **StePS PDS 1024^3 1.273** | 1.255 | 0.102 |
+| C | StePS PDS 1.597, Gadget T^3 glass 1.500 | 1.549 | 0.097 |
 | B | StePS PDS 256^3 1.916, **Gadget T^3 glass 1.833**, StePS PDS 1024^3 1.998 | 1.916 | 0.165 |
 
-Realization B is the one that matters: it carries the strong peak, and before its Gadget
-counterpart existed every strong-peak run was a PDS run, so "realization" and "PDS-specific"
-were indistinguishable. Gadget reproduces it (1.833 vs 1.916/1.998; raw P at k=0.0209 is
-71816 vs 73440 Mpc^3). Separations between realizations (B-A = 0.667) are several times the
-spread within one (<= 0.165), and consistent with the ~23% sample variance of a 62-mode bin.
+Realization B is the one that matters here: it carries the strong peak, and before its
+Gadget counterpart existed every strong-peak run was a PDS run, so "realization" and
+"PDS-specific" were indistinguishable. Gadget reproduces it (1.833 vs 1.916/1.998; raw P at
+k=0.0209 is 71816 vs 73440 Mpc^3). Separations between realizations (B-A = 0.661) are
+several times the spread within one (<= 0.165), and consistent with the ~23% sample
+variance of a 62-mode bin.
+
+**(ii) The matched 1024^3 pair (2026-10) is the controlled version.** Test (i) swaps the
+realization together with the code, topology and load. `test1024glassA_run` and
+`test1024glass_run` swap **only the realization**: same code, topology, resolution, glass
+load, LPT order, parameter file, binary, and -- by construction of the `PHASE_REF_NMESH`
+embed -- the same small-scale modes. The peak goes **1.998 (B) -> 1.273 (A)**, and raw
+P(k=0.0209) from 68725 to 42957 Mpc^3, a factor 1.60. The new run lands inside realization
+A's existing range (1.209-1.311), moving its mean by 0.006 and leaving the spread at 0.102.
+
+A by-product: realization A now holds a 1LPT run (256^3, 1.209) and a 2LPT run (1024^3,
+1.273), so the LPT order is no longer confounded with the realization anywhere. It is worth
+~0.06, well inside the within-realization spread.
+
 See `tools/Visualization/PDS_glass_variance_study.ipynb`.
 
 **3. The glass anomaly IS insufficient relaxation -- and a longer run cures it.**
