@@ -49,27 +49,6 @@ void recalculate_softening()
 	}
 }
 
-// Cached softening polynomial coefficients, recomputed only when beta changes.
-// thread_local so the cache is safe inside OpenMP parallel regions.
-// Region A (outer): r in (beta/2, beta)  — 4 coefficients + constant -1/15
-// Region B (inner): r in [0, beta/2]     — 3 coefficients
-static thread_local REAL _soft_beta_cached = -1.0;
-static thread_local REAL _soft_A[4]; // c0*r^3 + c1*r^2 + c2*r + c3 - 1/(15*r^3)
-static thread_local REAL _soft_B[3]; // c0*r^3 + c1*r^2 + c2
-
-static void _soft_rebuild_cache(REAL beta)
-{
-	if(beta == _soft_beta_cached) return;
-	_soft_beta_cached = beta;
-	_soft_A[0] = -32.0/(3.0*pow(beta, 6));
-	_soft_A[1] =  38.4/pow(beta, 5);
-	_soft_A[2] = -48.0/pow(beta, 4);
-	_soft_A[3] =  64.0/(3.0*pow(beta, 3));
-	_soft_B[0] =  32.0/pow(beta, 6);
-	_soft_B[1] = -38.4/pow(beta, 5);
-	_soft_B[2] =  32.0/(3.0*pow(beta, 3));
-}
-
 REAL force_softening(REAL r, REAL beta)
 {
 	//This function calculates the softened force coefficient between two particles
