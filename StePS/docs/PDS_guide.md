@@ -1339,7 +1339,7 @@ Two PDS force kernels run on the GPU:
   [Barnes-Hut tree force](#barnes-hut-tree-force-experimental).
 
 Use exact direct CUDA for reference/validation runs; use the GPU Barnes-Hut
-build for large production runs. There is still no GPU Barnes-Hut tree for the
+build for large production runs. GPU Barnes-Hut is also available for the
 non-PDS topologies (R³, S¹×R², T³).
 
 ---

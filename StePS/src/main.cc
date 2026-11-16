@@ -274,13 +274,6 @@ int main(int argc, char *argv[])
 	{
 		printf("\tUsing CUDA capable GPUs for force calculation.\n");
 	}
-	#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
-	if(rank == 0)
-	{
-		fprintf(stderr,"\nError: Barnes-Hut octree force calculation is not (yet) implemented on CUDA capable GPUs for this topology.\nIt is only available on the GPU for the Poincare Dodecahedral Space (POINCARE_DODECAHEDRAL) topology.\nPlease recompile StePS without the USE_BH or USE_CUDA option.\nExiting...\n");
-	}
-	return (-1);
-	#endif
 	#if defined(USE_BH) && defined(POINCARE_DODECAHEDRAL)
 	if(rank == 0)
 		printf("\tForce calculation: PDS Barnes-Hut tree on GPU(s).\n");
@@ -935,6 +928,19 @@ int main(int argc, char *argv[])
 		}
 	}
 	fflush(stdout);
+	HOST_OMP_THREADS = omp_get_max_threads();
+	#ifdef USE_CUDA
+	if(argc == 3)
+	{
+		n_GPU = atoi(argv[2]);
+		if(rank == 0)
+			printf("Using %i cuda capable GPU per MPI task.\n\n", n_GPU);
+	}
+	else
+	{
+		n_GPU = 1;
+	}
+	#endif
 	#if defined(USE_BH) && !defined(PERIODIC)
 	USE_RADIAL_BH_CORRECTION = false; //The radial BH force table iteration is not done yet
 	if(RADIAL_BH_FORCE_CORRECTION == 1)
@@ -1047,7 +1053,7 @@ int main(int argc, char *argv[])
 			Allocate_memory = false; //Now the memory is already allocated for the particle data arrays.
 		}
 		//Bcasting the particle data
-		#ifdef SINGLE_PRECISION
+		#ifdef USE_SINGLE_PRECISION
 			MPI_Bcast(&M_min,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 			MPI_Bcast(&rho_part,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 			MPI_Bcast(x,3*N,MPI_FLOAT,0,MPI_COMM_WORLD);
@@ -1311,7 +1317,7 @@ int main(int argc, char *argv[])
 			save_function_to_ascii_table(RADIAL_BH_FORCE_CORRECTION_PATH, 0.5*Rsim/(REAL)RADIAL_BH_FORCE_TABLE_SIZE, Rsim, Rsim/(REAL)RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_CORRECTION_HEADER);
 			fflush(stdout);
 		}
-		#ifdef SINGLE_PRECISION
+		#ifdef USE_SINGLE_PRECISION
 		MPI_Bcast(RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
 		#else
 		MPI_Bcast(RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -1422,19 +1428,6 @@ int main(int argc, char *argv[])
 			mpi_particle_range[i][2] = N/numtasks;
 		}
 	}
-		HOST_OMP_THREADS = omp_get_max_threads();  //capture BEFORE any omp_set_num_threads(n_GPU)
-#ifdef USE_CUDA
-	if(argc == 3)
-	{
-		n_GPU = atoi( argv[2] );
-		if(rank == 0)
-			printf("Using %i cuda capable GPU per MPI task.\n\n", n_GPU);
-	}
-	else
-	{
-		n_GPU = 1;
-	}
-	#endif
 	//Bcasting the number of particles
 	MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
 	//Bcasting the particle ranges

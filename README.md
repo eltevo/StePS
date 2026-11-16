@@ -21,7 +21,7 @@ StePS is a cosmological $N$-body code for compactified, infinite‑domain simula
 
 In $\mathbb{R}^3$, inverse stereographic compactification delivers smoothly decreasing resolution with radius, capturing small‑scale physics near the origin while preserving long‑wavelength modes across the full volume with isotropic outer boundaries. In $\mathrm{S}^1\times\mathbb{R}^2$, the same compactification applied to the transverse plane yields a cylindrical zoom‑in: one axis remains periodic, and the non‑periodic directions have open, isotropic boundaries. This naturally targets systems with axial symmetry (e.g., cosmic filaments and related anisotropic setups, or anisotropic cosmological models) while still sampling rare, massive structures over large effective volumes.
 
-StePS provides a direct $\mathcal{O}(N^2)$ multi-GPU‑accelerated gravity solver for maximal accuracy and a Barnes-Hut octree $\mathcal{O}(N\log N)$ solver for large CPU clusters. StePS is the first public code to support both zoom-in $\mathbb{R}^3$ and $\mathrm{S}^1\times\mathbb{R}^2$ cosmological simulations&mdash;alongside with the conventional $\mathrm{T}^3$&mdash;in one open‑source package.
+StePS provides direct $\mathcal{O}(N^2)$ and Barnes-Hut octree $\mathcal{O}(N\log N)$ gravity solvers for CPUs and CUDA GPUs. StePS is the first public code to support both zoom-in $\mathbb{R}^3$ and $\mathrm{S}^1\times\mathbb{R}^2$ cosmological simulations&mdash;alongside with the conventional $\mathrm{T}^3$&mdash;in one open‑source package.
 
 Example $\mathrm{S}^1\times\mathbb{R}^2$ simulation data: [eltevo.github.io](https://eltevo.github.io/projects/cylindrical-simulations/)
 
@@ -98,7 +98,7 @@ Several features are selected at compile time in the `Makefile`. The most import
 | *(no boundary flag)* | Non-periodic $\mathbb{R}^3$ mode (default) |
 | `-DPERIODIC` | Fully periodic $\mathrm{T}^3$ mode |
 | `-DPERIODIC_Z` | Cylindrical $\mathrm{S}^1\times\mathbb{R}^2$ mode |
-| `-DUSE_BH=0.25` | Barnes-Hut octree solver with the given opening angle (CPU) |
+| `-DUSE_BH=0.25` | Barnes-Hut octree solver with the given opening angle (CPU or CUDA) |
 | `-DUSE_SINGLE_PRECISION` | 32-bit force calculation (faster, lower memory) |
 | `-DHAVE_HDF5` | Enable HDF5 I/O (on by default) |
 | `-DCOSMOPARAM=0` | Background cosmology: 0 = ΛCDM, 1 = wCDM, 2 = CPL, -1 = tabulated |

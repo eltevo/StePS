@@ -34,6 +34,10 @@ extern int e[2202][4];
 extern REAL w[3];
 extern int N, el;
 
+#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
+cudaError_t forces_bh_cuda(REAL* x, REAL* F, int n_GPU, int ID_min, int ID_max);
+#endif
+
 #ifdef POINCARE_DODECAHEDRAL
 /* pds_group.h provides the static PDS_I_STAR[120][4] array and pds_init().
  * Each translation unit that includes this header gets its own copy; call
@@ -84,7 +88,12 @@ __device__ REAL get_cylindrical_force_correction(REAL r, REAL R, const REAL *FOR
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
 void forces(REAL*x, REAL*F, int ID_min, int ID_max)
 {
+	#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
+	if (forces_bh_cuda(x, F, n_GPU, ID_min, ID_max) != cudaSuccess)
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	#else
 	forces_cuda(x, F, n_GPU, ID_min, ID_max);
+	#endif
 	return;
 }
 #endif
@@ -179,7 +188,12 @@ __device__ void ewald_interpolate_cuda(int Ngrid, REAL L, const REAL *table, con
 
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)
 {
+	#ifdef USE_BH
+	if (forces_bh_cuda(x, F, n_GPU, ID_min, ID_max) != cudaSuccess)
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	#else
 	forces_periodic_cuda(x, F, n_GPU, ID_min, ID_max);
+	#endif
 	return;
 }
 #endif
@@ -467,7 +481,12 @@ __device__ void ewald_interpolate_D_cuda( const REAL* table, const int Nrho, con
 
 void forces_periodic_z(REAL*x, REAL*F, int ID_min, int ID_max)
 {
+	#ifdef USE_BH
+	if (forces_bh_cuda(x, F, n_GPU, ID_min, ID_max) != cudaSuccess)
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	#else
     forces_periodic_z_cuda(x, F, n_GPU, ID_min, ID_max);
+	#endif
     return;
 }
 #endif
@@ -548,6 +567,458 @@ __device__ REAL force_softening_cuda(REAL r, REAL beta)
 
 #endif
 }
+
+#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
+// DFS nodes use escape indices for stackless GPU traversal. Sorted ranges
+// also allow exact interactions within coincident Morton cells.
+struct EuclideanBHNode {
+    REAL com[3], mass, size;
+    int begin, end, escape;
+};
+struct EuclideanBHKey {
+    uint64_t code;
+    int particle;
+};
+
+static uint64_t bh_spread_bits(uint64_t v)
+{
+    v &= 0x1fffffULL;
+    v = (v | v << 32) & 0x1f00000000ffffULL;
+    v = (v | v << 16) & 0x1f0000ff0000ffULL;
+    v = (v | v << 8) & 0x100f00f00f00f00fULL;
+    v = (v | v << 4) & 0x10c30c30c30c30c3ULL;
+    return (v | v << 2) & 0x1249249249249249ULL;
+}
+
+struct BHAggregate { double mass, x, y, z; };
+
+static BHAggregate bh_build_tree(const std::vector<EuclideanBHKey>& keys,
+                                 int begin, int end, int level, REAL size,
+                                 const REAL* coords, std::vector<EuclideanBHNode>& tree)
+{
+    const int index = (int)tree.size();
+    tree.push_back(EuclideanBHNode());
+    BHAggregate sum = {0, 0, 0, 0};
+    if (end - begin == 1 || level == 21) {
+        for (int j = begin; j < end; ++j) {
+            int p = keys[j].particle;
+            double m = M[p];
+            sum.mass += m;
+            sum.x += m * coords[3*p];
+            sum.y += m * coords[3*p+1];
+            sum.z += m * coords[3*p+2];
+        }
+    } else {
+        const int shift = 3 * (20 - level);
+        for (int first = begin; first < end;) {
+            int last = first + 1;
+            const uint64_t octant = (keys[first].code >> shift) & 7;
+            while (last < end && ((keys[last].code >> shift) & 7) == octant) ++last;
+            BHAggregate child = bh_build_tree(keys, first, last, level+1, size*(REAL)0.5, coords, tree);
+            sum.mass += child.mass; sum.x += child.x; sum.y += child.y; sum.z += child.z;
+            first = last;
+        }
+    }
+    EuclideanBHNode node;
+    node.mass = (REAL)sum.mass;
+    node.com[0] = sum.mass ? (REAL)(sum.x/sum.mass) : 0;
+    node.com[1] = sum.mass ? (REAL)(sum.y/sum.mass) : 0;
+    node.com[2] = sum.mass ? (REAL)(sum.z/sum.mass) : 0;
+    node.size = size;
+    node.begin = begin; node.end = end; node.escape = (int)tree.size();
+    tree[index] = node;
+    return sum;
+}
+
+#if defined(PERIODIC) && EWALD_INTERPOLATION_ORDER != 4
+__device__ static void bh_ewald_t3(int n, REAL box, const REAL* table,
+                                    REAL dx, REAL dy, REAL dz, REAL D[3])
+{
+    int ix, iy, iz;
+    REAL fx, fy, fz;
+    map_to_centered_grid(dx, box, n, &ix, &fx);
+    map_to_centered_grid(dy, box, n, &iy, &fy);
+    map_to_centered_grid(dz, box, n, &iz, &fz);
+    D[0] = D[1] = D[2] = 0;
+    for (int a = 0; a < 2; ++a)
+        for (int b = 0; b < 2; ++b)
+            for (int c = 0; c < 2; ++c) {
+                REAL weight = (a ? fx : 1-fx) * (b ? fy : 1-fy) * (c ? fz : 1-fz);
+                size_t off = lut_offset_cuda(n, imodp(ix+a,n), imodp(iy+b,n), imodp(iz+c,n), 0);
+                for (int k = 0; k < 3; ++k) D[k] += weight * table[off+k];
+            }
+}
+#endif
+
+__global__ void EuclideanBHKernel(const EuclideanBHNode* tree, int nnodes,
+                                  const EuclideanBHKey* keys,
+                                  const REAL* coords, const REAL* masses, const REAL* soft,
+                                  REAL* out, int start, int count, REAL theta, REAL min_mass,
+                                  REAL particle_radius, REAL box, int periodic,
+                                  const REAL* table, int grid1, int grid2, REAL radial_extent,
+                                  int image_max, REAL image_cut)
+{
+    for (int local = blockIdx.x * blockDim.x + threadIdx.x; local < count;
+         local += blockDim.x * gridDim.x) {
+        int i = start + local;
+        REAL force[3] = {0, 0, 0};
+        int first_image = 0, last_image = 0;
+#if defined(PERIODIC_Z) && defined(PERIODIC_Z_NOLOOKUP)
+        if (periodic >= 2) { first_image = -image_max; last_image = image_max; }
+#endif
+        for (int image = first_image; image <= last_image; ++image) {
+            for (int n = 0; n < nnodes;) {
+                EuclideanBHNode node = tree[n];
+                if (node.mass == 0) { n = node.escape; continue; }
+                REAL dx = node.com[0] - coords[3*i];
+                REAL dy = node.com[1] - coords[3*i+1];
+                REAL dz = node.com[2] - coords[3*i+2] - image*box;
+#if defined(PERIODIC)
+                if (fabs(dx) > box*(REAL)0.5) dx -= copysign(box, dx);
+                if (fabs(dy) > box*(REAL)0.5) dy -= copysign(box, dy);
+                if (fabs(dz) > box*(REAL)0.5) dz -= copysign(box, dz);
+#elif defined(PERIODIC_Z)
+                if (periodic < 2
+                    #ifndef PERIODIC_Z_NOLOOKUP
+                    || periodic >= 2
+                    #endif
+                   ) {
+                    if (fabs(dz) > box*(REAL)0.5) dz -= copysign(box, dz);
+                }
+#endif
+                REAL dist = sqrt(dx*dx + dy*dy + dz*dz);
+                bool leaf = node.escape == n+1;
+                if (!leaf && !(node.size < theta*dist)) { ++n; continue; }
+                if (leaf) {
+                    for (int j = node.begin; j < node.end; ++j) {
+                        int p = keys[j].particle;
+                        if (p == i || masses[p] == 0) continue;
+                        REAL px = coords[3*p] - coords[3*i];
+                        REAL py = coords[3*p+1] - coords[3*i+1];
+                        REAL pz = coords[3*p+2] - coords[3*i+2] - image*box;
+#if defined(PERIODIC)
+                        if (fabs(px) > box*(REAL)0.5) px -= copysign(box, px);
+                        if (fabs(py) > box*(REAL)0.5) py -= copysign(box, py);
+                        if (fabs(pz) > box*(REAL)0.5) pz -= copysign(box, pz);
+#elif defined(PERIODIC_Z)
+                        if (periodic < 2
+                            #ifndef PERIODIC_Z_NOLOOKUP
+                            || periodic >= 2
+                            #endif
+                           ) {
+                            if (fabs(pz) > box*(REAL)0.5) pz -= copysign(box, pz);
+                        }
+#endif
+#if defined(PERIODIC_Z) && defined(PERIODIC_Z_NOLOOKUP)
+                        if (periodic >= 2 && fabs(pz) > image_cut) continue;
+#endif
+                        REAL r = sqrt(px*px + py*py + pz*pz);
+                        REAL beta = cbrt(masses[p]/min_mass)*particle_radius + soft[i];
+                        REAL w = force_softening_cuda(r, beta);
+                        REAL D[3] = {0, 0, 0};
+#if defined(PERIODIC)
+                        if (periodic >= 2) {
+                            #if EWALD_INTERPOLATION_ORDER == 4
+                            ewald_interpolate_cuda(grid1, box, table, px, py, pz, D);
+                            #else
+                            bh_ewald_t3(grid1, box, table, px, py, pz, D);
+                            #endif
+                        }
+#elif defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
+                        if (periodic >= 2)
+                            ewald_interpolate_D_cuda(table, grid1, grid2, radial_extent, box, px, py, pz, D);
+#endif
+                        force[0] += masses[p]*(w*px-D[0]);
+                        force[1] += masses[p]*(w*py-D[1]);
+                        force[2] += masses[p]*(w*pz-D[2]);
+                    }
+                } else {
+#if defined(PERIODIC_Z) && defined(PERIODIC_Z_NOLOOKUP)
+                    if (periodic >= 2 && fabs(dz) > image_cut) { n = node.escape; continue; }
+#endif
+                    REAL beta = cbrt(node.mass/min_mass)*particle_radius + soft[i];
+                    REAL w = force_softening_cuda(dist, beta);
+                    REAL D[3] = {0, 0, 0};
+#if defined(PERIODIC)
+                    if (periodic >= 2) {
+                        #if EWALD_INTERPOLATION_ORDER == 4
+                        ewald_interpolate_cuda(grid1, box, table, dx, dy, dz, D);
+                        #else
+                        bh_ewald_t3(grid1, box, table, dx, dy, dz, D);
+                        #endif
+                    }
+#elif defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
+                    if (periodic >= 2)
+                        ewald_interpolate_D_cuda(table, grid1, grid2, radial_extent, box, dx, dy, dz, D);
+#endif
+                    force[0] += node.mass*(w*dx-D[0]);
+                    force[1] += node.mass*(w*dy-D[1]);
+                    force[2] += node.mass*(w*dz-D[2]);
+                }
+                n = node.escape;
+            }
+        }
+        for (int k = 0; k < 3; ++k) out[3*local+k] = force[k];
+    }
+}
+
+#if !defined(PERIODIC)
+REAL linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2);
+static REAL bh_radial_correction(REAL r)
+{
+    const int count = RADIAL_BH_FORCE_TABLE_SIZE;
+    const REAL step = Rsim / count;
+    int i = (int)floor(r / step);
+    if (r > Rsim || i >= count) i = count-1;
+    REAL center = (i+(REAL)0.5)*step;
+    if (center > r && i <= 1)
+        return linear_interpolation(r, 0, 0, center, RADIAL_BH_FORCE_TABLE[i]);
+    int j = center <= r ? i+1 : i-1;
+    if (j >= count) { j = i; --i; }
+    return linear_interpolation(r, (i+(REAL)0.5)*step, RADIAL_BH_FORCE_TABLE[i],
+                                (j+(REAL)0.5)*step, RADIAL_BH_FORCE_TABLE[j]);
+}
+#endif
+
+#if defined(RANDOMIZE_BH) && !defined(PERIODIC)
+static void bh_rotate(REAL* v, const REAL axis[3], REAL angle)
+{
+    REAL c = cos(angle), s = sin(angle);
+    REAL dot = axis[0]*v[0] + axis[1]*v[1] + axis[2]*v[2];
+    REAL cross[3] = {axis[1]*v[2]-axis[2]*v[1], axis[2]*v[0]-axis[0]*v[2],
+                     axis[0]*v[1]-axis[1]*v[0]};
+    for (int k = 0; k < 3; ++k) v[k] = v[k]*c + cross[k]*s + axis[k]*dot*(1-c);
+}
+#endif
+
+cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id_max)
+{
+    const double start_time = omp_get_wtime();
+    int devices = 0;
+    cudaError_t status = cudaGetDeviceCount(&devices);
+    if (status != cudaSuccess || ngpu <= 0 || devices < ngpu) {
+        fprintf(stderr, "MPI rank %d: requested %d GPUs, available %d: %s\n",
+                rank, ngpu, devices, cudaGetErrorString(status));
+        ForceError = true;
+        return status == cudaSuccess ? cudaErrorInvalidDevice : status;
+    }
+    if (N <= 0) return cudaSuccess;
+
+    std::vector<REAL> transformed(coords, coords + 3*(size_t)N);
+    REAL center[3] = {0, 0, 0}, size = 0;
+#if !defined(PERIODIC)
+    REAL max_radius = 0;
+    for (int i = 0; i < N; ++i) {
+        REAL r2 = coords[3*i]*coords[3*i] + coords[3*i+1]*coords[3*i+1];
+        #ifndef PERIODIC_Z
+        r2 += coords[3*i+2]*coords[3*i+2];
+        #endif
+        max_radius = std::max(max_radius, (REAL)sqrt(r2));
+    }
+#endif
+#ifdef RANDOMIZE_BH
+    #if !defined(PERIODIC)
+    REAL axis[3] = {0, 0, 1}, angle = 0;
+    #endif
+    #if defined(PERIODIC) || defined(PERIODIC_Z)
+    REAL shift[3] = {0, 0, 0};
+    #endif
+    #if defined(PERIODIC)
+    for (int k = 0; k < 3; ++k) shift[k] = ((REAL)rand()/RAND_MAX-(REAL)0.5)*L;
+    printf("MPI task %i: Octree force calculation started with random shift vector (%.3f %.3f %.3f).\n",
+           rank, shift[0], shift[1], shift[2]);
+    #elif defined(PERIODIC_Z)
+    angle = ((REAL)rand()/RAND_MAX)*2*pi;
+    center[0] = ((REAL)rand()/RAND_MAX-(REAL)0.5)*2*max_radius;
+    center[1] = ((REAL)rand()/RAND_MAX-(REAL)0.5)*2*max_radius;
+    shift[2] = ((REAL)rand()/RAND_MAX-(REAL)0.5)*L;
+    printf("MPI task %i: Octree force calculation started with random shift vector (%.3f %.3f %.3f)\n\t    and rotation angle %.3f RAD around the z axis.\n",
+           rank, center[0], center[1], shift[2], angle);
+    #else
+    for (int k = 0; k < 3; ++k) center[k] = ((REAL)rand()/RAND_MAX-(REAL)0.5)*2*max_radius;
+    angle = ((REAL)rand()/RAND_MAX)*pi;
+    double azimuth = ((double)rand()/RAND_MAX)*2*M_PI;
+    double z = ((double)rand()/RAND_MAX)*2-1;
+    double r = sqrt(1-z*z);
+    axis[0] = (REAL)(r*cos(azimuth)); axis[1] = (REAL)(r*sin(azimuth)); axis[2] = (REAL)z;
+    printf("MPI task %i: Octree force calculation started with random %.3f RAD rotation along the\n\t    (%.3f, %.3f, %.3f) axis vector, and with random domain center (%.3f, %.3f, %.3f).\n",
+           rank, angle, axis[0], axis[1], axis[2], center[0], center[1], center[2]);
+    #endif
+    for (int i = 0; i < N; ++i) {
+        #if !defined(PERIODIC)
+        bh_rotate(&transformed[3*i], axis, angle);
+        #endif
+        #if defined(PERIODIC) || defined(PERIODIC_Z)
+        for (int k = 0; k < 3; ++k) {
+            #ifdef PERIODIC_Z
+            if (k != 2) continue;
+            #endif
+            REAL value = transformed[3*i+k] + shift[k];
+            if (value < 0) value += L;
+            else if (value >= L) value -= L;
+            transformed[3*i+k] = value;
+        }
+        #endif
+    }
+#endif
+    if (id_max < id_min) return cudaSuccess;
+#if defined(PERIODIC)
+    size = L; center[0] = center[1] = center[2] = L*(REAL)0.5;
+#elif defined(PERIODIC_Z)
+    #ifdef RANDOMIZE_BH
+    size = std::max(L, (REAL)(4*max_radius));
+    #else
+    size = std::max(L, (REAL)(2*max_radius));
+    #endif
+    center[2] = size*(REAL)0.5;
+#else
+    #ifdef RANDOMIZE_BH
+    size = (REAL)(4.00004*max_radius);
+    #else
+    size = (REAL)(2.00002*max_radius);
+    #endif
+#endif
+    if (size <= 0) size = 1;
+    const double cells = 2097152.0;
+    std::vector<EuclideanBHKey> keys(N);
+    #pragma omp parallel for num_threads(HOST_OMP_THREADS)
+    for (int i = 0; i < N; ++i) {
+        uint32_t xyz[3];
+        for (int k = 0; k < 3; ++k) {
+            double u = ((double)transformed[3*i+k] - ((double)center[k] - (double)size*0.5))*cells/size;
+            // CPU insertion puts coordinates exactly on a split plane in the lower octant.
+            xyz[k] = u <= 0 ? 0 : (u >= cells ? (uint32_t)cells-1 : (uint32_t)(ceil(u)-1));
+        }
+        keys[i].code = bh_spread_bits(xyz[0]) | (bh_spread_bits(xyz[1]) << 1) | (bh_spread_bits(xyz[2]) << 2);
+        keys[i].particle = i;
+    }
+    std::sort(keys.begin(), keys.end(), [](const EuclideanBHKey& a, const EuclideanBHKey& b) {
+        return a.code < b.code || (a.code == b.code && a.particle < b.particle);
+    });
+    std::vector<EuclideanBHNode> tree;
+    bh_build_tree(keys, 0, N, 0, size, transformed.data(), tree);
+
+    const REAL* host_table = NULL;
+    size_t table_count = 0;
+    int grid1 = 0, grid2 = 0, image_max = 0;
+    REAL radial_extent = 0, image_cut = 0;
+#ifdef PERIODIC
+    if (IS_PERIODIC >= 2) {
+        host_table = T3_EWALD_FORCE_TABLE; grid1 = N_EWALD_FORCE_GRID;
+        table_count = 3*(size_t)grid1*grid1*grid1;
+    }
+#elif defined(PERIODIC_Z)
+    #ifdef PERIODIC_Z_NOLOOKUP
+    if (IS_PERIODIC >= 2) { image_max = ewald_max; image_cut = ewald_cut*L; }
+    #else
+    if (IS_PERIODIC >= 2) {
+        host_table = S1R2_EWALD_FORCE_TABLE;
+        grid1 = Nrho_EWALD_FORCE_GRID; grid2 = Nz_EWALD_FORCE_GRID;
+        radial_extent = EWALD_LOOKUP_TABLE_RADIAL_EXTENT_FACTOR*Rsim;
+        table_count = 2*(size_t)grid1*grid2;
+    }
+    #endif
+#endif
+    std::vector<cudaError_t> errors(ngpu, cudaSuccess);
+    const int total = id_max-id_min+1;
+    #pragma omp parallel for num_threads(ngpu) schedule(static,1)
+    for (int gpu = 0; gpu < ngpu; ++gpu) {
+        int begin = id_min + (int)((long long)total*gpu/ngpu);
+        int count = id_min + (int)((long long)total*(gpu+1)/ngpu) - begin;
+        if (!count) continue;
+        EuclideanBHNode* d_tree = NULL;
+        EuclideanBHKey* d_keys = NULL;
+        REAL *d_coords = NULL, *d_mass = NULL, *d_soft = NULL, *d_out = NULL, *d_table = NULL;
+        cudaError_t err = cudaSetDevice(gpu);
+        #define BH_CUDA(call) do { if (err == cudaSuccess) err = (call); } while (0)
+        BH_CUDA(cudaMalloc((void**)&d_tree, tree.size()*sizeof(*d_tree)));
+        BH_CUDA(cudaMalloc((void**)&d_keys, keys.size()*sizeof(*d_keys)));
+        BH_CUDA(cudaMalloc((void**)&d_coords, 3*(size_t)N*sizeof(REAL)));
+        BH_CUDA(cudaMalloc((void**)&d_mass, N*sizeof(REAL)));
+        BH_CUDA(cudaMalloc((void**)&d_soft, N*sizeof(REAL)));
+        BH_CUDA(cudaMalloc((void**)&d_out, 3*(size_t)count*sizeof(REAL)));
+        if (table_count) BH_CUDA(cudaMalloc((void**)&d_table, table_count*sizeof(REAL)));
+        BH_CUDA(cudaMemcpy(d_tree, tree.data(), tree.size()*sizeof(*d_tree), cudaMemcpyHostToDevice));
+        BH_CUDA(cudaMemcpy(d_keys, keys.data(), keys.size()*sizeof(*d_keys), cudaMemcpyHostToDevice));
+        BH_CUDA(cudaMemcpy(d_coords, transformed.data(), 3*(size_t)N*sizeof(REAL), cudaMemcpyHostToDevice));
+        BH_CUDA(cudaMemcpy(d_mass, M, N*sizeof(REAL), cudaMemcpyHostToDevice));
+        BH_CUDA(cudaMemcpy(d_soft, SOFT_LENGTH, N*sizeof(REAL), cudaMemcpyHostToDevice));
+        if (table_count) BH_CUDA(cudaMemcpy(d_table, host_table, table_count*sizeof(REAL), cudaMemcpyHostToDevice));
+        if (err == cudaSuccess) {
+            int blocks = std::min((count + BLOCKSIZE-1)/BLOCKSIZE, 65535);
+            EuclideanBHKernel<<<blocks, BLOCKSIZE>>>(d_tree, (int)tree.size(), d_keys,
+                d_coords, d_mass, d_soft, d_out, begin, count, THETA, M_min, ParticleRadi,
+                L, IS_PERIODIC, d_table, grid1, grid2, radial_extent, image_max, image_cut);
+            err = cudaGetLastError();
+        }
+        BH_CUDA(cudaDeviceSynchronize());
+        BH_CUDA(cudaMemcpy(out + 3*(size_t)(begin-id_min), d_out, 3*(size_t)count*sizeof(REAL), cudaMemcpyDeviceToHost));
+        #undef BH_CUDA
+        if (d_tree) cudaFree(d_tree);
+        if (d_keys) cudaFree(d_keys);
+        if (d_coords) cudaFree(d_coords);
+        if (d_mass) cudaFree(d_mass);
+        if (d_soft) cudaFree(d_soft);
+        if (d_out) cudaFree(d_out);
+        if (d_table) cudaFree(d_table);
+        errors[gpu] = err;
+    }
+    for (int gpu = 0; gpu < ngpu; ++gpu) {
+        if (errors[gpu] != cudaSuccess) {
+            fprintf(stderr, "MPI rank %d: GPU %d Barnes-Hut force failed: %s\n",
+                    rank, gpu, cudaGetErrorString(errors[gpu]));
+            ForceError = true;
+            return errors[gpu];
+        }
+    }
+#if !defined(PERIODIC)
+    for (int i = id_min; i <= id_max; ++i) {
+        REAL* f = out + 3*(size_t)(i-id_min);
+        #if defined(RANDOMIZE_BH)
+        bh_rotate(f, axis, -angle);
+        #endif
+        if (COSMOLOGY == 1) {
+            REAL factor = 0;
+            if (COMOVING_INTEGRATION == 1) {
+                factor = mass_in_unit_sphere;
+                #ifdef PERIODIC_Z
+                #ifdef PERIODIC_Z_NOLOOKUP
+                bool finite_cylinder = true;
+                #else
+                bool finite_cylinder = IS_PERIODIC < 2;
+                #endif
+                if (finite_cylinder) {
+                    REAL r = sqrt(coords[3*i]*coords[3*i] + coords[3*i+1]*coords[3*i+1]);
+                    REAL step = Rsim / RADIAL_FORCE_TABLE_SIZE;
+                    int bin = (int)floor(r / Rsim * (RADIAL_FORCE_TABLE_SIZE-1));
+                    REAL correction = RADIAL_FORCE_TABLE[RADIAL_FORCE_TABLE_SIZE-1];
+                    if (bin < RADIAL_FORCE_TABLE_SIZE-1)
+                        correction = linear_interpolation(r, step*bin, RADIAL_FORCE_TABLE[bin],
+                                                          step*(bin+1), RADIAL_FORCE_TABLE[bin+1]);
+                    factor *= correction;
+                }
+                #endif
+                if (USE_RADIAL_BH_CORRECTION) {
+                    REAL r2 = coords[3*i]*coords[3*i] + coords[3*i+1]*coords[3*i+1];
+                    #ifndef PERIODIC_Z
+                    r2 += coords[3*i+2]*coords[3*i+2];
+                    #endif
+                    REAL r = sqrt(r2);
+                    if (r > 0) factor -= bh_radial_correction(r)/r;
+                }
+            } else factor = (REAL)(H0*H0*Omega_lambda);
+            f[0] += factor*coords[3*i]; f[1] += factor*coords[3*i+1];
+            #ifndef PERIODIC_Z
+            f[2] += factor*coords[3*i+2];
+            #endif
+        }
+    }
+#endif
+    printf("MPI task %d: CUDA Barnes-Hut force finished (theta %.3f, %zu nodes) in %.3fs.\n",
+           rank, (double)THETA, tree.size(), omp_get_wtime()-start_time);
+    return cudaSuccess;
+}
+#endif
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z)
 __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const REAL* M, const REAL* SOFT_LENGTH, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)

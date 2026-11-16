@@ -2,7 +2,7 @@
 
 **STEreographically Projected cosmological Simulations**
 
-StePS is a C++ cosmological N-body code for dark-matter-only simulations in $\mathbb{R}^3$, $S^1 \times \mathbb{R}^2$, and $\mathbb{T}^3$ topological manifolds. It supports direct summation on CPUs and NVIDIA GPUs, and a CPU Barnes-Hut octree solver for larger particle counts.
+StePS is a C++ cosmological N-body code for dark-matter-only simulations in $\mathbb{R}^3$, $S^1 \times \mathbb{R}^2$, and $\mathbb{T}^3$ topological manifolds. It supports direct summation and Barnes-Hut octree solvers on CPUs and NVIDIA GPUs.
 
 ## Authors and Contributors
 
@@ -27,7 +27,7 @@ Institute for Particle and Nuclear Physics, HUN-REN Wigner Research Centre for P
 - Optimized to run dark matter only N-body simulations in ΛCDM, wCDM or CPL (w0waCDM) cosmologies.
 - Running simulations with other expansion rates are possible by using external tabulated expansion histories.
 - Able to run standard periodic ($\mathbb{T}^3$), cylindrical ($S^1 \times \mathbb{R}^2$), and non-periodic spherical ($\mathbb{R}^3$) cosmological simulations.
-- Direct [CPU & GPU], Octree (a.k.a. Barnes-Hut)[CPU only], and randomized Octree [CPU only] force calculation.
+- Direct, Octree (a.k.a. Barnes-Hut), and randomized Octree force calculation on CPU and GPU.
 - Can be used to make periodic, quasi-periodic, cylindrical or spherical glass.
 - Available for GNU/Linux and Darwin (macOS).
 - Written in C++ with MPI, OpenMP and CUDA parallelization.
@@ -72,7 +72,7 @@ Optional:
 - HDF5 for HDF5 input/output. The templates enable it by default with `-DHAVE_HDF5`.
 - NVIDIA CUDA Toolkit for GPU acceleration. CUDA builds are supported on GNU/Linux only.
 
-CUDA and Barnes-Hut are currently separate build modes: a CUDA executable cannot also use `-DUSE_BH`.
+Combine `USING_CUDA = YES` with `-DUSE_BH` to use the GPU Barnes-Hut solver.
 
 ## Installation
 
@@ -224,10 +224,12 @@ StePS uses compile-time options to produce an executable optimized for one simul
 | Option | Description |
 | --- | --- |
 | No force-solver flag | Direct summation. |
-| `OPT += -DUSE_BH=0.25` | CPU Barnes-Hut octree solver with opening angle `theta = 0.25`. |
+| `OPT += -DUSE_BH=0.25` | CPU or CUDA Barnes-Hut octree solver with opening angle `theta = 0.25`. |
 | `OPT += -DRANDOMIZE_BH=123456` | Randomizes Barnes-Hut domains using the given seed. Recommended with Barnes-Hut. |
 
-Barnes-Hut is CPU-only. Do not combine `USING_CUDA = YES` with `-DUSE_BH`.
+The CUDA solver builds the tree on the host and traverses it on the GPUs.
+To compare it with the CPU solver on a CUDA-capable machine, run
+`CUDA_PATH=/path/to/cuda sh tests/run_cuda_bh_compare.sh` from the `StePS` directory.
 
 ### Force Softening
 | Option | Description |
@@ -506,7 +508,6 @@ Glass_logfile.dat:
 | `output directory does not exist` | Create the directory named by `OUT_DIR` before running. |
 | HDF5 output falls back or fails | Build with `OPT += -DHAVE_HDF5` and verify `HDF5_INC`/`HDF5_LIBS`. |
 | CUDA build cannot find `nvcc` | Set `CUDA_PATH` to the CUDA Toolkit installation. |
-| CUDA run exits with Barnes-Hut error | Rebuild without `-DUSE_BH`, or use the CPU executable. |
 | Boundary-condition startup error | Rebuild with the compile-time topology matching `IS_PERIODIC`. |
 | Hybrid MPI/OpenMP run is unexpectedly slow | Try `mpirun --bind-to none ...` and verify thread/process placement. |
 

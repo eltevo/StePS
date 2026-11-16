@@ -75,7 +75,7 @@ void BCAST_global_parameters()
 	MPI_Bcast(&PDS_R_CURV, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 #endif
 #endif
-#if defined(PERIODIC_Z) && defined(DIRECT_PERIODIC_REALSPACE)
+#if defined(PERIODIC_Z)
 	MPI_Bcast(&RADIAL_FORCE_ACCURACY,1,MPI_INT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&RADIAL_FORCE_TABLE_SIZE,1,MPI_INT,0,MPI_COMM_WORLD);
 #endif
