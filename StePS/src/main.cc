@@ -338,25 +338,7 @@ int main(int argc, char *argv[])
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions. (R^3 topological manifold)\n");
 	#endif
-	// Warn if IS_PERIODIC in the parameter file is inconsistent with the compiled topology.
-	// IS_PERIODIC > 0 in a non-periodic binary, or IS_PERIODIC == 0 in a periodic binary,
-	// will silently use the wrong force kernel.
-	if(rank == 0)
-	{
-		#if defined(PERIODIC)
-		if(IS_PERIODIC == 0)
-			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for T^3 (PERIODIC). The T^3 force kernel will be used.\n\n");
-		#elif defined(PERIODIC_Z)
-		if(IS_PERIODIC == 0)
-			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^1 x R^2 (PERIODIC_Z). The cylindrical force kernel will be used.\n\n");
-		#elif defined(POINCARE_DODECAHEDRAL)
-		if(IS_PERIODIC == 0)
-			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^3/I* (POINCARE_DODECAHEDRAL). The PDS force kernel will be used.\n\n");
-		#else
-		if(IS_PERIODIC > 0)
-			printf("\nWARNING: IS_PERIODIC=%d in the parameter file, but this binary was compiled for open boundaries (R^3). Periodic forces will NOT be applied.\n\n", IS_PERIODIC);
-		#endif
-	}
+
 	#if defined(USE_BH)
 	THETA = (REAL) USE_BH; //Opening angle for the octree
 	#if !defined(RANDOMIZE_BH)
@@ -476,6 +458,25 @@ int main(int argc, char *argv[])
 	}
 	fflush(stdout);
 	BCAST_global_parameters();
+	// Warn if IS_PERIODIC in the parameter file is inconsistent with the compiled topology.
+	// IS_PERIODIC > 0 in a non-periodic binary, or IS_PERIODIC == 0 in a periodic binary,
+	// will silently use the wrong force kernel.
+	if(rank == 0)
+	{
+		#if defined(PERIODIC)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for T^3 (PERIODIC). The T^3 force kernel will be used.\n\n");
+		#elif defined(PERIODIC_Z)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^1 x R^2 (PERIODIC_Z). The cylindrical force kernel will be used.\n\n");
+		#elif defined(POINCARE_DODECAHEDRAL)
+		if(IS_PERIODIC == 0)
+			printf("\nWARNING: IS_PERIODIC=0 in the parameter file, but this binary was compiled for S^3/I* (POINCARE_DODECAHEDRAL). The PDS force kernel will be used.\n\n");
+		#else
+		if(IS_PERIODIC > 0)
+			printf("\nWARNING: IS_PERIODIC=%d in the parameter file, but this binary was compiled for open boundaries (R^3). Periodic forces will NOT be applied.\n\n", IS_PERIODIC);
+		#endif
+	}
 	if(rank == 0)
 	{
 		//allocating memory for the MPI timing array with malloc, and setting the values to 1.0
