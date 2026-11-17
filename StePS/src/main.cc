@@ -151,7 +151,7 @@ double Omega_b,Omega_lambda,Omega_dm,Omega_r,Omega_k,Omega_m,H0,Hubble_param, De
 	int N_radial_bh_force_correction; //number of particles used in the radial BH force correction
 	int RADIAL_BH_FORCE_TABLE_ITERATION; //number of iterations for the radial BH force correction table calculation (only used in randomised BH force calculation)
 	bool USE_RADIAL_BH_CORRECTION; //true, if the radial BH force correction table is ready to use
-	#if !defined(PERIODIC)
+	#if !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
 		char RADIAL_BH_FORCE_CORRECTION_PATH[0x100]; //output file path for the radial BH force correction table
 	#endif
 #endif
@@ -164,7 +164,6 @@ REAL M_tmp;
 double a, a_start,a_prev,a_tmp;//Scalefactor, scalefactor at the starting time, previous scalefactor
 double Omega_m_eff; //Effective Omega_m
 double delta_a;
-
 
 // function declarations
 void read_param(FILE *param_file);
@@ -182,7 +181,7 @@ REAL kahan_sum(const REAL *array, size_t N);
 //Functions used in MPI parallelisation
 void BCAST_global_parameters();
 void BCAST_MPI_particle_ranges();
-#ifdef USE_BH
+#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
 void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADIAL_BH_N_TABLE, int TABLE_SIZE, REAL *F, REAL *x, int N);
 #endif
 #ifdef PERIODIC
@@ -214,6 +213,10 @@ void set_REAL_array_to_zero(REAL *array, int N);
 int file_exist(char *file_name);
 int dir_exist(char *dir_name);
 int load_IC(char *IC_FILE, int IC_FORMAT);
+#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
+bool load_radial_bh_table(const char *path, int *particle_count);
+bool save_radial_bh_table(const char *path, int particle_count);
+#endif
 int read_OUT_LST();
 void write_redshift_cone(REAL *x, REAL *v, double *limits, int z_index, int delta_z_index, int ALL);
 void write_ascii_snapshot(REAL* x, REAL *v);
@@ -941,10 +944,54 @@ int main(int argc, char *argv[])
 		n_GPU = 1;
 	}
 	#endif
-	#if defined(USE_BH) && !defined(PERIODIC)
+	#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
+	bool radial_bh_ic_loaded = false;
 	USE_RADIAL_BH_CORRECTION = false; //The radial BH force table iteration is not done yet
 	if(RADIAL_BH_FORCE_CORRECTION == 1)
 	{
+		if(!(RADIAL_BH_FORCE_TABLE = (REAL*)malloc(RADIAL_BH_FORCE_TABLE_SIZE*sizeof(REAL))))
+		{
+			fprintf(stderr, "MPI task %i: failed to allocate memory for RADIAL_BH_FORCE_TABLE.\n", rank);
+			MPI_Abort(MPI_COMM_WORLD, 1);
+		}
+		int radial_bh_cache_loaded = 0;
+		if(rank == 0)
+		{
+			int path_length = snprintf(RADIAL_BH_FORCE_CORRECTION_PATH, sizeof(RADIAL_BH_FORCE_CORRECTION_PATH),
+			                           "%s%s", OUT_DIR, "radial_bh_force_table.dat");
+			if(path_length < 0 || (size_t)path_length >= sizeof(RADIAL_BH_FORCE_CORRECTION_PATH))
+			{
+				fprintf(stderr, "Error: radial BH force correction path is too long.\n");
+				MPI_Abort(MPI_COMM_WORLD, 1);
+			}
+			if(load_radial_bh_table(RADIAL_BH_FORCE_CORRECTION_PATH, &N_radial_bh_force_correction))
+			{
+				if(load_IC(IC_FILE, IC_FORMAT) != 0)
+				{
+					fprintf(stderr, "Error: failed to load initial conditions from %s.\n", IC_FILE);
+					MPI_Abort(MPI_COMM_WORLD, 1);
+				}
+				if(N == N_radial_bh_force_correction)
+				{
+					radial_bh_cache_loaded = 1;
+					radial_bh_ic_loaded = true;
+					printf("Loaded radial BH force correction table from %s.\n", RADIAL_BH_FORCE_CORRECTION_PATH);
+				}
+				else
+				{
+					fprintf(stderr, "Radial BH force table particle count (%i) differs from the IC (%i); regenerating.\n",
+					        N_radial_bh_force_correction, N);
+					free(x); free(v); free(F); free(M); free(SOFT_LENGTH);
+					Allocate_memory = true;
+				}
+			}
+			else if(file_exist(RADIAL_BH_FORCE_CORRECTION_PATH))
+				fprintf(stderr, "Radial BH force table %s is incompatible or invalid; regenerating.\n",
+				        RADIAL_BH_FORCE_CORRECTION_PATH);
+		}
+		MPI_Bcast(&radial_bh_cache_loaded, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		if(!radial_bh_cache_loaded)
+		{
 		if(rank == 0)
 		{
 			if(file_exist(GLASS_FILE_FOR_BH_FORCE_CORRECTION) == 0 && strcmp(GLASS_FILE_FOR_BH_FORCE_CORRECTION, "None") != 0)
@@ -1132,12 +1179,6 @@ int main(int argc, char *argv[])
 			// in spherically symmetric (R^3) simulations, the radial force is proportional to the mass in a unit sphere
 			mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
 		#endif
-		// Allocating memory for the radial BH force correction table on all threads
-		if(!(RADIAL_BH_FORCE_TABLE = (REAL*)malloc(RADIAL_BH_FORCE_TABLE_SIZE*sizeof(REAL))))
-		{
-			fprintf(stderr, "MPI task %i: failed to allocate memory for RADIAL_BH_FORCE_TABLE.\n", rank);
-			exit(-2);
-		}
 		if(!(RADIAL_BH_N_TABLE = (int*)malloc(RADIAL_BH_FORCE_TABLE_SIZE*sizeof(int))))
 		{
 			fprintf(stderr, "MPI task %i: failed to allocate memory for RADIAL_BH_N_TABLE.\n", rank);
@@ -1306,47 +1347,73 @@ int main(int argc, char *argv[])
 					printf("Warning: No particles in shell %d, setting force to zero.\n", i);
 				}
 			}
-			char radial_bh_force_table_filename[] = "radial_bh_force_table.dat";
-			char RADIAL_BH_FORCE_CORRECTION_HEADER[] = "# Radial BH force correction table\n# r[Mpc]    F_correction[internal units]";
-			if(snprintf(RADIAL_BH_FORCE_CORRECTION_PATH, sizeof(RADIAL_BH_FORCE_CORRECTION_PATH), "%s%s", OUT_DIR, radial_bh_force_table_filename) < 0)
-			{
-				fprintf(stderr, "Error: The name of the ewald table got truncated.\nAborting.\n");
-				abort();
-			}
 			printf("Saving the radial BH force correction table into %s\n\n", RADIAL_BH_FORCE_CORRECTION_PATH);
-			save_function_to_ascii_table(RADIAL_BH_FORCE_CORRECTION_PATH, 0.5*Rsim/(REAL)RADIAL_BH_FORCE_TABLE_SIZE, Rsim, Rsim/(REAL)RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, RADIAL_BH_FORCE_CORRECTION_HEADER);
+			if(!save_radial_bh_table(RADIAL_BH_FORCE_CORRECTION_PATH, N))
+			{
+				fprintf(stderr, "Error: failed to save radial BH force correction table %s.\n",
+				        RADIAL_BH_FORCE_CORRECTION_PATH);
+				MPI_Abort(MPI_COMM_WORLD, 1);
+			}
 			fflush(stdout);
 		}
+		N_radial_bh_force_correction = N;
+		if(rank != 0)
+		{
+			free(x);
+			free(M);
+			free(SOFT_LENGTH);
+		}
+		else
+		{
+			free(x); free(v); free(F); free(M); free(SOFT_LENGTH);
+			Allocate_memory = true;
+		}
+		}
+		#ifdef RANDOMIZE_BH
+		else
+		{
+			// Preserve the random sequence that table-generation iterations consume.
+			#ifdef PERIODIC_Z
+			const int draws_per_iteration = 4;
+			#else
+			const int draws_per_iteration = 6;
+			#endif
+			for(int iteration = 0; iteration < RADIAL_BH_FORCE_TABLE_ITERATION; ++iteration)
+				for(int draw = 0; draw < draws_per_iteration; ++draw) rand();
+		}
+		#endif
 		#ifdef USE_SINGLE_PRECISION
 		MPI_Bcast(RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, MPI_FLOAT, 0, MPI_COMM_WORLD);
 		#else
 		MPI_Bcast(RADIAL_BH_FORCE_TABLE, RADIAL_BH_FORCE_TABLE_SIZE, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 		#endif
-		if(rank == 0)
+		if(rank == 0 && !radial_bh_cache_loaded)
 		{
 			printf("Radial BH force correction table calculated.\n");
 		}
-		N_radial_bh_force_correction = N; //Number of particles used in the radial BH force correction
 		USE_RADIAL_BH_CORRECTION = true; //The radial BH force table iteration is done
-		if(rank != 0)
+		#if defined(PERIODIC_Z) && defined(PERIODIC_Z_NOLOOKUP)
+		if(radial_bh_cache_loaded)
 		{
-			//freeing the memory used for the BH force table iteration
-			//free(F);
-			free(x);
-			free(M);
-			free(SOFT_LENGTH);
+			ewald_max = IS_PERIODIC+1;
+			ewald_cut = ((REAL)ewald_max)-0.4;
 		}
+		#endif
 	}
 	#endif
 	if(rank == 0)
 	{
 		// Loading the initial conditions
+		#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
+		if(!radial_bh_ic_loaded && load_IC(IC_FILE, IC_FORMAT) != 0)
+		#else
 		if(load_IC(IC_FILE, IC_FORMAT) != 0)
+		#endif
 		{
 			fprintf(stderr, "Error: failed to load the initial conditions from %s file.\nExiting.\n", IC_FILE);
 			return (-1);
 		}
-		#ifdef USE_BH
+		#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
 		if(RADIAL_BH_FORCE_CORRECTION == 1)
 		{
 			if (N!=N_radial_bh_force_correction)

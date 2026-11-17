@@ -23,6 +23,11 @@
 #include <fstream>
 #include <string>
 #include <iterator>
+#include <cstdint>
+#include <iomanip>
+#include <limits>
+#include <sstream>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "mpi.h"
@@ -55,6 +60,122 @@ int dir_exist(char *dir_name)
 {
 	return path_has_type(dir_name, S_IFDIR);
 }
+
+#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
+static bool radial_bh_finite(double value)
+{
+	uint64_t bits;
+	static_assert(sizeof(bits) == sizeof(value), "double must be 64-bit");
+	memcpy(&bits, &value, sizeof(bits));
+	return (bits & UINT64_C(0x7ff0000000000000)) != UINT64_C(0x7ff0000000000000);
+}
+
+static std::string radial_bh_metadata()
+{
+	std::ostringstream header;
+	header << std::setprecision(17)
+	       << "# Radial BH force correction table v1\n"
+	       << "# Geometry ";
+	#if defined(PERIODIC_Z)
+	header << "S1xR2\n";
+	#else
+	header << "R3\n";
+	#endif
+	header << "# Radius " << (double)Rsim << "\n"
+	       << "# Theta " << (double)THETA << "\n"
+	       << "# Bins " << RADIAL_BH_FORCE_TABLE_SIZE << "\n"
+	       << "# ParticleRadius " << (double)ParticleRadi << "\n"
+	       << "# Cosmology " << COSMOLOGY << ' ' << COMOVING_INTEGRATION << ' '
+	       << H0 << ' ' << Omega_m << ' ' << Omega_lambda << ' ' << H0_INDEPENDENT_UNITS << "\n";
+	#ifdef GRAVITYSOFTENINGC2
+	header << "# Softening C2\n";
+	#else
+	header << "# Softening cubic\n";
+	#endif
+	#ifdef RANDOMIZE_BH
+	header << "# Randomization " << RANDOMIZE_BH << ' ' << RADIAL_BH_FORCE_TABLE_ITERATION << "\n";
+	#else
+	header << "# Randomization off\n";
+	#endif
+	#ifdef PERIODIC_Z
+	header << "# Cylinder " << (double)L << ' ' << IS_PERIODIC << ' '
+	       << RADIAL_FORCE_TABLE_SIZE << ' ' << RADIAL_FORCE_ACCURACY << "\n";
+	#ifdef PERIODIC_Z_NOLOOKUP
+	header << "# PeriodicForce real-space\n";
+	#elif defined(PERIODIC_Z_RSPACELOOKUP)
+	header << "# PeriodicForce real-space-table " << EWALD_INTERPOLATION_ORDER << "\n";
+	#else
+	header << "# PeriodicForce ewald-table " << EWALD_INTERPOLATION_ORDER << "\n";
+	#endif
+	#endif
+	return header.str();
+}
+
+bool load_radial_bh_table(const char* path, int* particle_count)
+{
+	std::ifstream input(path);
+	if (!input) return false;
+	std::istringstream expected(radial_bh_metadata());
+	std::string line, reference;
+	while (std::getline(expected, reference))
+		if (!std::getline(input, line) || line != reference) return false;
+
+	if (!std::getline(input, line)) return false;
+	std::istringstream count_line(line);
+	std::string hash, label, extra;
+	int count;
+	if (!(count_line >> hash >> label >> count) || hash != "#" ||
+	    label != "Particles" || count <= 0 || (count_line >> extra)) return false;
+	if (!std::getline(input, line) || line != "# r[Mpc] F_correction[internal units]") return false;
+
+	std::vector<REAL> values(RADIAL_BH_FORCE_TABLE_SIZE);
+	for (int i = 0; i < RADIAL_BH_FORCE_TABLE_SIZE; ++i)
+	{
+		if (!std::getline(input, line)) return false;
+		std::istringstream row(line);
+		double radius, value;
+		const double expected_radius = ((double)i + 0.5) * (double)Rsim / RADIAL_BH_FORCE_TABLE_SIZE;
+		if (!(row >> radius >> value) || (row >> extra) ||
+		    !radial_bh_finite(radius) || !radial_bh_finite(value) ||
+		    radius != expected_radius || fabs(value) > std::numeric_limits<REAL>::max())
+			return false;
+		values[i] = (REAL)value;
+	}
+	while (std::getline(input, line))
+		if (line.find_first_not_of(" \t\r") != std::string::npos) return false;
+	if (input.bad()) return false;
+	std::copy(values.begin(), values.end(), RADIAL_BH_FORCE_TABLE);
+	*particle_count = count;
+	return true;
+}
+
+bool save_radial_bh_table(const char* path, int particle_count)
+{
+	std::string temporary = std::string(path) + ".tmp." + std::to_string((long long)getpid());
+	std::ofstream output(temporary.c_str(), std::ios::out | std::ios::trunc);
+	if (!output) return false;
+	output << radial_bh_metadata() << "# Particles " << particle_count
+	       << "\n# r[Mpc] F_correction[internal units]\n" << std::setprecision(17);
+	for (int i = 0; i < RADIAL_BH_FORCE_TABLE_SIZE; ++i)
+	{
+		if (!radial_bh_finite((double)RADIAL_BH_FORCE_TABLE[i]))
+		{
+			output.close();
+			remove(temporary.c_str());
+			return false;
+		}
+		output << ((double)i + 0.5) * (double)Rsim / RADIAL_BH_FORCE_TABLE_SIZE
+		       << '\t' << (double)RADIAL_BH_FORCE_TABLE[i] << '\n';
+	}
+	output.close();
+	if (!output || rename(temporary.c_str(), path) != 0)
+	{
+		remove(temporary.c_str());
+		return false;
+	}
+	return true;
+}
+#endif
 
 int measure_N_part_from_ascii_snapshot(char * filename)
 {

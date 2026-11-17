@@ -428,10 +428,18 @@ These parameters are used only when the executable is built with `-DUSE_BH`:
 
 | Parameter | Meaning |
 | --- | --- |
-| `RADIAL_BH_FORCE_CORRECTION` | `0` disables radial correction, `1` enables it for non-periodic and cylindrical runs. |
+| `RADIAL_BH_FORCE_CORRECTION` | `0` disables radial correction, `1` enables it for R³ and cylindrical runs. Ignored for T³ and PDS. |
 | `GLASS_FILE_FOR_BH_FORCE_CORRECTION` | Glass file used to estimate the correction. Use `None` to use the IC file. |
 | `RADIAL_BH_FORCE_TABLE_SIZE` | Lookup-table size for radial BH force correction. |
 | `RADIAL_BH_FORCE_TABLE_ITERATION` | Iteration count for randomized BH correction table calculation. |
+
+When radial correction is enabled, StePS saves `radial_bh_force_table.dat` in
+the output directory and reuses it on restart if its metadata, particle count
+and data match the current run. Incompatible, malformed and older tables
+without metadata are regenerated and overwritten. The header records the
+geometry, radius, opening angle and other force settings. It does not identify
+the glass or IC contents: delete the table when changing the source distribution
+and a new correction is desired.
 
 ### Alternative Cosmology Parameters
 

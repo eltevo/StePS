@@ -798,7 +798,7 @@ if(COSMOLOGY == 1)
 	}
 }
 #endif
-#if defined(USE_BH) && !defined(PERIODIC)
+#if defined(USE_BH) && !defined(PERIODIC) && !defined(POINCARE_DODECAHEDRAL)
 	printf("Radial BH force correction\t%i\n",RADIAL_BH_FORCE_CORRECTION);
 	if(RADIAL_BH_FORCE_CORRECTION==1)
 	{
@@ -808,6 +808,9 @@ if(COSMOLOGY == 1)
 			printf("BH force correction iterations\t%i\n",RADIAL_BH_FORCE_TABLE_ITERATION);
 		#endif
 	}
+#elif defined(USE_BH) && (defined(PERIODIC) || defined(POINCARE_DODECAHEDRAL))
+	if(RADIAL_BH_FORCE_CORRECTION == 1)
+		fprintf(stderr, "Warning: radial BH force correction is not used for this closed topology; ignoring it.\n");
 #endif
 printf("Wall-clock time limit\t\t%.2f h\n", TIME_LIMIT_IN_MINS/60.0);
 if(COSMOLOGY==1)
