@@ -243,14 +243,15 @@ To compare it with the CPU solver on a CUDA-capable machine, run
 | --- | --- |
 | No boundary flag | Non-periodic `R^3` topology. |
 | `OPT += -DPERIODIC` | Fully periodic `T^3` topology. |
+| `OPT += -DPOINCARE_DODECAHEDRAL` | Poincare Dodecahedral Space topology (`S^3/I*` where I* is the binary icosahedral group). |
 | `OPT += -DPERIODIC_Z` | Cylindrical `S^1 x R^2` topology with periodic `z`. |
 | `OPT += -DPERIODIC_Z_RSPACELOOKUP` | Builds the cylindrical lookup table by direct real-space summation. Requires `-DPERIODIC_Z`. |
 | `OPT += -DPERIODIC_Z_NOLOOKUP` | Uses direct real-space summation of periodic images for every cylindrical interaction. Requires `-DPERIODIC_Z`. |
 | `EWALD_INTERPOLATION_ORDER = 0` | NGP interpolation for Ewald lookup tables. |
-| `EWALD_INTERPOLATION_ORDER = 2` | CIC interpolation. Current template default. |
-| `EWALD_INTERPOLATION_ORDER = 4` | TSC interpolation. More accurate, usually slower. |
+| `EWALD_INTERPOLATION_ORDER = 2` | CIC interpolation for Ewald lookup tables. |
+| `EWALD_INTERPOLATION_ORDER = 4` | TSC interpolation for Ewald lookup tables. |
 
-Use only one of `-DPERIODIC` and `-DPERIODIC_Z`.
+Use only one of `-DPERIODIC`, `-DPOINCARE_DODECAHEDRAL`,  and `-DPERIODIC_Z`.
 
 The compile-time boundary flag and the parameter-file `IS_PERIODIC` setting must match. If they contradict each other, StePS exits with an error.
 
@@ -428,18 +429,15 @@ These parameters are used only when the executable is built with `-DUSE_BH`:
 
 | Parameter | Meaning |
 | --- | --- |
-| `RADIAL_BH_FORCE_CORRECTION` | `0` disables radial correction, `1` enables it for R³ and cylindrical runs. Ignored for T³ and PDS. |
+| `RADIAL_BH_FORCE_CORRECTION` | `0` disables radial correction, `1` enables it for Non-periodic (`R^3`) and cylindrical (`S^1 x R^2`) runs. Ignored for fully periodic `T^3` and PDS manifolds. |
 | `GLASS_FILE_FOR_BH_FORCE_CORRECTION` | Glass file used to estimate the correction. Use `None` to use the IC file. |
 | `RADIAL_BH_FORCE_TABLE_SIZE` | Lookup-table size for radial BH force correction. |
 | `RADIAL_BH_FORCE_TABLE_ITERATION` | Iteration count for randomized BH correction table calculation. |
 
 When radial correction is enabled, StePS saves `radial_bh_force_table.dat` in
-the output directory and reuses it on restart if its metadata, particle count
-and data match the current run. Incompatible, malformed and older tables
-without metadata are regenerated and overwritten. The header records the
-geometry, radius, opening angle and other force settings. It does not identify
-the glass or IC contents: delete the table when changing the source distribution
-and a new correction is desired.
+the output directory and reuses it on restart if its metadata  match the current
+run. Incompatible, malformed and older tables without metadata are regenerated
+and overwritten.
 
 ### Alternative Cosmology Parameters
 

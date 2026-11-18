@@ -1,9 +1,11 @@
 # Change Log
 All notable changes to the StePS simulation code is documented in this file.
 
-## [v2.0.1.2] - TBA
+## [v3.0.0.0] - TBA
 
 ### Added
+- Added CUDA implementation of the Barnes-Hut force calculation for all available topologies.
+- Implemented radial BH correction look-up table I/O.
 - Added C2-Wendland softening option (Wendland, 1995).
 
 ## [v2.0.1.1] - 2026-06-19
