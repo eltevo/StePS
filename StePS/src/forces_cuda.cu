@@ -897,6 +897,7 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
     });
     std::vector<EuclideanBHNode> tree;
     bh_build_tree(keys, 0, N, 0, size, transformed.data(), tree);
+    double build_time = omp_get_wtime() - start_time;
 
     const REAL* host_table = NULL;
     size_t table_count = 0;
@@ -1014,8 +1015,8 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
         }
     }
 #endif
-    printf("MPI task %d: CUDA Barnes-Hut force finished (theta %.3f, %zu nodes) in %.3fs.\n",
-           rank, (double)THETA, tree.size(), omp_get_wtime()-start_time);
+    printf("CUDA Euclidean tree force finished on MPI task %i. Wall-clock time: %.3fs [tree build %.4fs (%.0f%%)].\n",
+           rank, omp_get_wtime()-start_time, build_time, 100*build_time/(omp_get_wtime()-start_time));
     return cudaSuccess;
 }
 #endif
@@ -2170,9 +2171,9 @@ cudaError_t forces_pds_bh_cuda(REAL* pds_q, REAL* F, int n_GPU, int ID_min, int 
     }
 
     double omp_end_time = omp_get_wtime();
-    printf("PDS Barnes-Hut force calculation finished on MPI task %i (theta = %.3f, %d tree nodes). Wall-clock time = %fs  [host tree build %.4fs (%.0f%%), GPU section %.4fs].\n",
-           rank, (double)THETA, nnodes, omp_end_time - omp_start_time,
-           t_build, 100.0*t_build/(omp_end_time - omp_start_time), omp_end_time - t_gpu_start);
+    printf("CUDA PDS tree force calculation finished on MPI task %i. Wall-clock time = %fs  [tree build %.4fs (%.0f%%)].\n",
+           rank, omp_end_time - omp_start_time,
+           t_build, 100.0*t_build/(omp_end_time - omp_start_time));
     return cudaStatus;
 }
 #endif /* USE_BH */

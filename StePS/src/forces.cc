@@ -360,7 +360,7 @@ REAL get_cylindrical_force_correction(REAL r, REAL R, REAL *FORCE_TABLE, int TAB
 }
 #endif
 
-#if !defined(PERIODIC) && !defined(PERIODIC_Z)
+#if !defined(PERIODIC) && !defined(PERIODIC_Z) && !defined(POINCARE_DODECAHEDRAL)
 // Free StePS boundary conditions
 #if defined(USE_BH)
 // Barnes-Hut oct-tree force calculation
@@ -490,6 +490,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
         // Insert particles into the octree
         insert_particle(rootnode, x, M, i);
     }
+	double build_tree_time = omp_get_wtime()-omp_start_time;
     for(i=0; i<N_mpi_thread; i++)
     {
             for(k=0; k<3; k++)
@@ -545,7 +546,7 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
 	//timing
 	double omp_end_time = omp_get_wtime();
 	//timing
-	printf("Octree force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
+	printf("Octree force calculation finished on MPI task %i. Force calculation wall-clock time = %.3fs [tree build %.4fs (%.0f%%)].\n", rank, omp_end_time-omp_start_time, build_tree_time, 100*build_tree_time/(omp_end_time-omp_start_time));
 	return;
 }
 
@@ -739,6 +740,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
         // Insert particles into the octree
         insert_particle(rootnode, x, M, i);
     }
+	double build_tree_time = omp_get_wtime()-omp_start_time;
     for(i=0; i<N_mpi_thread; i++)
     {
 		for(k=0; k<3; k++)
@@ -811,7 +813,7 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max) //force calculation
 	//timing
 	double omp_end_time = omp_get_wtime();
 	//timing
-	printf("Octree force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
+	printf("Octree force calculation finished on MPI task %i. Force calculation wall-clock time = %.3fs [tree build %.4fs (%.0f%%)].\n", rank, omp_end_time-omp_start_time, build_tree_time, 100*build_tree_time/(omp_end_time-omp_start_time));
 	return;
 }
 
@@ -1125,6 +1127,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
         // Insert particles into the octree
         insert_particle(rootnode, x, M, i);
 	}
+	double build_tree_time = omp_get_wtime()-omp_start_time;
     for(i=0; i<N_mpi_thread; i++)
     {
 		for(k=0; k<3; k++)
@@ -1256,7 +1259,7 @@ void forces_periodic_z(REAL* x, REAL* F, int ID_min, int ID_max)
     //timing
     double omp_end_time = omp_get_wtime();
     //timing
-    printf("Octree force calculation finished on MPI task %i. Force calculation wall-clock time = %fs.\n", rank, omp_end_time-omp_start_time);
+    printf("Octree force calculation finished on MPI task %i. Force calculation wall-clock time = %.3fs [tree build %.4fs (%.0f%%)].\n", rank, omp_end_time-omp_start_time, build_tree_time, 100*build_tree_time/(omp_end_time-omp_start_time));
     return;
 }
 

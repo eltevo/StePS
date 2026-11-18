@@ -8,6 +8,9 @@ All notable changes to the StePS simulation code is documented in this file.
 - Implemented radial BH correction look-up table I/O.
 - Added C2-Wendland softening option (Wendland, 1995).
 
+### Changed
+- Octree build time is now measured and printed during the simulation.
+
 ## [v2.0.1.1] - 2026-06-19
 
 ### Added
