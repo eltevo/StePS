@@ -975,11 +975,11 @@ int main(int argc, char *argv[])
 				{
 					radial_bh_cache_loaded = 1;
 					radial_bh_ic_loaded = true;
-					printf("Loaded radial BH force correction table from %s.\n", RADIAL_BH_FORCE_CORRECTION_PATH);
+					printf("Loaded radial BH force correction table from %s.\n\n", RADIAL_BH_FORCE_CORRECTION_PATH);
 				}
 				else
 				{
-					fprintf(stderr, "Radial BH force table particle count (%i) differs from the IC (%i); regenerating.\n",
+					fprintf(stderr, "Radial BH force table particle count (%i) differs from the IC (%i); regenerating.\n\n",
 					        N_radial_bh_force_correction, N);
 					free(x); free(v); free(F); free(M); free(SOFT_LENGTH);
 					Allocate_memory = true;

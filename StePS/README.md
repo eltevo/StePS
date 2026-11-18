@@ -429,7 +429,7 @@ These parameters are used only when the executable is built with `-DUSE_BH`:
 
 | Parameter | Meaning |
 | --- | --- |
-| `RADIAL_BH_FORCE_CORRECTION` | `0` disables radial correction, `1` enables it for Non-periodic (`R^3`) and cylindrical (`S^1 x R^2`) runs. Ignored for fully periodic `T^3` and PDS manifolds. |
+| `RADIAL_BH_FORCE_CORRECTION` | `0` disables radial correction, `1` enables it for Non-periodic (`R^3`) and cylindrical (`S^1 x R^2`) runs. Ignored for fully periodic `T^3` and Poincare Dodecahedral Space manifolds. |
 | `GLASS_FILE_FOR_BH_FORCE_CORRECTION` | Glass file used to estimate the correction. Use `None` to use the IC file. |
 | `RADIAL_BH_FORCE_TABLE_SIZE` | Lookup-table size for radial BH force correction. |
 | `RADIAL_BH_FORCE_TABLE_ITERATION` | Iteration count for randomized BH correction table calculation. |

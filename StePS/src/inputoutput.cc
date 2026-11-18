@@ -74,7 +74,7 @@ static std::string radial_bh_metadata()
 {
 	std::ostringstream header;
 	header << std::setprecision(17)
-	       << "# Radial BH force correction table v1\n"
+	       << "# Radial BH force correction table\n"
 	       << "# Geometry ";
 	#if defined(PERIODIC_Z)
 	header << "S1xR2\n";
@@ -84,14 +84,7 @@ static std::string radial_bh_metadata()
 	header << "# Radius " << (double)Rsim << "\n"
 	       << "# Theta " << (double)THETA << "\n"
 	       << "# Bins " << RADIAL_BH_FORCE_TABLE_SIZE << "\n"
-	       << "# ParticleRadius " << (double)ParticleRadi << "\n"
-	       << "# Cosmology " << COSMOLOGY << ' ' << COMOVING_INTEGRATION << ' '
-	       << H0 << ' ' << Omega_m << ' ' << Omega_lambda << ' ' << H0_INDEPENDENT_UNITS << "\n";
-	#ifdef GRAVITYSOFTENINGC2
-	header << "# Softening C2\n";
-	#else
-	header << "# Softening cubic\n";
-	#endif
+	       << "# Cosmology " << COSMOLOGY << ' ' << H0*UNIT_V << ' ' << Omega_m << ' ' << H0_INDEPENDENT_UNITS << "\n";
 	#ifdef RANDOMIZE_BH
 	header << "# Randomization " << RANDOMIZE_BH << ' ' << RADIAL_BH_FORCE_TABLE_ITERATION << "\n";
 	#else
