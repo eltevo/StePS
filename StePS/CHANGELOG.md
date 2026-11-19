@@ -4,6 +4,7 @@ All notable changes to the StePS simulation code is documented in this file.
 ## [v3.0.0.0] - TBA
 
 ### Added
+- Implemented NGP and CIC Ewald interpolation to the T^3 for GPU mode. 
 - Added CUDA implementation of the Barnes-Hut force calculation for all available topologies.
 - Implemented radial BH correction look-up table I/O.
 - Added C2-Wendland softening option (Wendland, 1995).

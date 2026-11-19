@@ -45,12 +45,15 @@ cudaError_t forces_bh_cuda(REAL* x, REAL* F, int n_GPU, int ID_min, int ID_max);
 #include "pds_group.h"
 #endif
 
-#if !defined(PERIODIC) && !defined(PERIODIC_Z)
+#if !defined(PERIODIC) && !defined(PERIODIC_Z) && !defined(POINCARE_DODECAHEDRAL)
+// R^3 topology.
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
 #elif defined(PERIODIC)
+// T^3 topology.
 int ewald_space(REAL R, int ewald_index[2102][4]);
 cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
 #elif defined(PERIODIC_Z)
+// S^1 x R^2 topology.
 cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max);
 
 __device__ REAL cuda_linear_interpolation(REAL X, REAL X1, REAL Y1, REAL X2, REAL Y2)
@@ -85,24 +88,26 @@ __device__ REAL get_cylindrical_force_correction(REAL r, REAL R, const REAL *FOR
 }
 #endif
 
-#if !defined(PERIODIC) && !defined(PERIODIC_Z)
+#if !defined(PERIODIC) && !defined(PERIODIC_Z) && !defined(POINCARE_DODECAHEDRAL)
+//In R^3 topology we simply call the forces_cuda or forces_bh_cuda function to calculate the forces on GPUs
 void forces(REAL*x, REAL*F, int ID_min, int ID_max)
 {
-	#if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
+	#if defined(USE_BH)
 	if (forces_bh_cuda(x, F, n_GPU, ID_min, ID_max) != cudaSuccess)
 		MPI_Abort(MPI_COMM_WORLD, 1);
 	#else
-	forces_cuda(x, F, n_GPU, ID_min, ID_max);
+	    forces_cuda(x, F, n_GPU, ID_min, ID_max);
 	#endif
 	return;
 }
 #endif
+
 #ifdef PERIODIC
+//in T^3 topology, interpolation is done on the GPU, so we need to define the interpolation functions here
 __device__ static inline size_t lut_offset_cuda(int Ngrid, int ix, int iy, int iz, int comp)
 {
     return ((size_t)((ix * Ngrid + iy) * Ngrid + iz) * 3u) + (size_t)comp;
 }
-
 
 __device__ int imodp(int i, int n)
 {
@@ -130,9 +135,10 @@ __device__ void get_cubic_weights(REAL t, REAL w[4])
     w[3] =  0.5*t3 - 0.5*t2;
 }
 
+// The interpolation function depends from the value of EWALD_INTERPOLATION_ORDER
 __device__ void ewald_interpolate_cuda(int Ngrid, REAL L, const REAL *table, const REAL dx, const REAL dy, const REAL dz, REAL D[3])
 {
-    //Ewald interpolation in T^3 periodic torus topology using tri-cubic interpolation
+    //Ewald interpolation in T^3 periodic torus topology
     //Inputs:
     //    * Ngrid   :  Grid dimension
     //    * L       :  Box size
@@ -140,6 +146,55 @@ __device__ void ewald_interpolate_cuda(int Ngrid, REAL L, const REAL *table, con
     //    * dx,dy,dz:  Relative particle position
     //    * D       :  Output force correction
 
+    #if EWALD_INTERPOLATION_ORDER == 0
+        // Nearest Grid Point (NGP) interpolation
+        int ix, iy, iz;
+        REAL fx, fy, fz;
+
+        map_to_centered_grid(dx, L, Ngrid, &ix, &fx);
+        map_to_centered_grid(dy, L, Ngrid, &iy, &fy);
+        map_to_centered_grid(dz, L, Ngrid, &iz, &fz);
+
+        if (fx >= (REAL)0.5) ++ix;
+        if (fy >= (REAL)0.5) ++iy;
+        if (fz >= (REAL)0.5) ++iz;
+
+        size_t off = lut_offset_cuda(
+            Ngrid,
+            imodp(ix, Ngrid),
+            imodp(iy, Ngrid),
+            imodp(iz, Ngrid),
+            0
+        );
+
+        D[0] = table[off + 0];
+        D[1] = table[off + 1];
+        D[2] = table[off + 2];
+    #elif EWALD_INTERPOLATION_ORDER == 2
+        // Tri-linear (CIC) interpolation
+
+        //map to grid coordinates
+        int ix, iy, iz;
+        REAL fx, fy, fz;
+        map_to_centered_grid(dx, L, Ngrid, &ix, &fx);
+        map_to_centered_grid(dy, L, Ngrid, &iy, &fy);
+        map_to_centered_grid(dz, L, Ngrid, &iz, &fz);
+        D[0] = D[1] = D[2] = 0;
+        for (int a = 0; a < 2; ++a)
+        {
+            for (int b = 0; b < 2; ++b)
+            {
+                for (int c = 0; c < 2; ++c)
+                {
+                    REAL weight = (a ? fx : 1-fx) * (b ? fy : 1-fy) * (c ? fz : 1-fz);
+                    size_t off = lut_offset_cuda(Ngrid, imodp(ix+a,Ngrid), imodp(iy+b,Ngrid), imodp(iz+c,Ngrid), 0);
+                    for (int k = 0; k < 3; ++k)
+                        D[k] += weight * table[off+k];
+                }
+            }
+        }
+    #else
+    //TSC interpolation (EWALD_INTERPOLATION_ORDER == 4)
 
     // Map to grid coordinates
     int ix0, iy0, iz0;
@@ -184,6 +239,8 @@ __device__ void ewald_interpolate_cuda(int Ngrid, REAL L, const REAL *table, con
     D[0] = sum[0];
     D[1] = sum[1];
     D[2] = sum[2];
+    #endif
+    
 }
 
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)
@@ -197,8 +254,10 @@ void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)
 	return;
 }
 #endif
-#ifdef PERIODIC_Z
 
+#ifdef PERIODIC_Z
+// In S^1xR^2 topology, the Ewald interpolation is done on the GPU, so we need to define the interpolation functions here
+// The interpolation is 2D, so we need separate functions compared to the T^3 case.
 __device__ static inline size_t lut2D_offset_cuda(int Nrho, int Nz, int ir, int iz, int comp)
 {
     return ((size_t)ir * (size_t)Nz + (size_t)iz) * 2u + (size_t)comp;
@@ -569,6 +628,8 @@ __device__ REAL force_softening_cuda(REAL r, REAL beta)
 }
 
 #if defined(USE_BH) && !defined(POINCARE_DODECAHEDRAL)
+// Barnes-Hut tree force calculation in locally Euclidean (R^3, T^3, or S^1 x R^2) spaces. The tree is built on the CPU and traversed on the GPU.
+
 // DFS nodes use escape indices for stackless GPU traversal. Sorted ranges
 // also allow exact interactions within coincident Morton cells.
 struct EuclideanBHNode {
@@ -592,9 +653,7 @@ static uint64_t bh_spread_bits(uint64_t v)
 
 struct BHAggregate { double mass, x, y, z; };
 
-static BHAggregate bh_build_tree(const std::vector<EuclideanBHKey>& keys,
-                                 int begin, int end, int level, REAL size,
-                                 const REAL* coords, std::vector<EuclideanBHNode>& tree)
+static BHAggregate bh_build_tree(const std::vector<EuclideanBHKey>& keys, int begin, int end, int level, REAL size, const REAL* coords, std::vector<EuclideanBHNode>& tree)
 {
     const int index = (int)tree.size();
     tree.push_back(EuclideanBHNode());
@@ -630,36 +689,10 @@ static BHAggregate bh_build_tree(const std::vector<EuclideanBHKey>& keys,
     return sum;
 }
 
-#if defined(PERIODIC) && EWALD_INTERPOLATION_ORDER != 4
-__device__ static void bh_ewald_t3(int n, REAL box, const REAL* table,
-                                    REAL dx, REAL dy, REAL dz, REAL D[3])
+__global__ void EuclideanBHKernel(const EuclideanBHNode* tree, int nnodes, const EuclideanBHKey* keys, const REAL* coords, const REAL* masses, const REAL* soft, REAL* out, int start, int count, REAL theta, REAL min_mass, REAL particle_radius, REAL box, int periodic, const REAL* table, int grid1, int grid2, REAL radial_extent, int image_max, REAL image_cut)
 {
-    int ix, iy, iz;
-    REAL fx, fy, fz;
-    map_to_centered_grid(dx, box, n, &ix, &fx);
-    map_to_centered_grid(dy, box, n, &iy, &fy);
-    map_to_centered_grid(dz, box, n, &iz, &fz);
-    D[0] = D[1] = D[2] = 0;
-    for (int a = 0; a < 2; ++a)
-        for (int b = 0; b < 2; ++b)
-            for (int c = 0; c < 2; ++c) {
-                REAL weight = (a ? fx : 1-fx) * (b ? fy : 1-fy) * (c ? fz : 1-fz);
-                size_t off = lut_offset_cuda(n, imodp(ix+a,n), imodp(iy+b,n), imodp(iz+c,n), 0);
-                for (int k = 0; k < 3; ++k) D[k] += weight * table[off+k];
-            }
-}
-#endif
-
-__global__ void EuclideanBHKernel(const EuclideanBHNode* tree, int nnodes,
-                                  const EuclideanBHKey* keys,
-                                  const REAL* coords, const REAL* masses, const REAL* soft,
-                                  REAL* out, int start, int count, REAL theta, REAL min_mass,
-                                  REAL particle_radius, REAL box, int periodic,
-                                  const REAL* table, int grid1, int grid2, REAL radial_extent,
-                                  int image_max, REAL image_cut)
-{
-    for (int local = blockIdx.x * blockDim.x + threadIdx.x; local < count;
-         local += blockDim.x * gridDim.x) {
+    for (int local = blockIdx.x * blockDim.x + threadIdx.x; local < count; local += blockDim.x * gridDim.x)
+    {
         int i = start + local;
         REAL force[3] = {0, 0, 0};
         int first_image = 0, last_image = 0;
@@ -689,7 +722,7 @@ __global__ void EuclideanBHKernel(const EuclideanBHNode* tree, int nnodes,
                 REAL dist = sqrt(dx*dx + dy*dy + dz*dz);
                 bool leaf = node.escape == n+1;
                 if (!leaf && !(node.size < theta*dist)) { ++n; continue; }
-                if (leaf) {
+                if (leaf){
                     for (int j = node.begin; j < node.end; ++j) {
                         int p = keys[j].particle;
                         if (p == i || masses[p] == 0) continue;
@@ -717,12 +750,9 @@ __global__ void EuclideanBHKernel(const EuclideanBHNode* tree, int nnodes,
                         REAL w = force_softening_cuda(r, beta);
                         REAL D[3] = {0, 0, 0};
 #if defined(PERIODIC)
-                        if (periodic >= 2) {
-                            #if EWALD_INTERPOLATION_ORDER == 4
+                        if (periodic >= 2)
+                        {
                             ewald_interpolate_cuda(grid1, box, table, px, py, pz, D);
-                            #else
-                            bh_ewald_t3(grid1, box, table, px, py, pz, D);
-                            #endif
                         }
 #elif defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
                         if (periodic >= 2)
@@ -740,12 +770,9 @@ __global__ void EuclideanBHKernel(const EuclideanBHNode* tree, int nnodes,
                     REAL w = force_softening_cuda(dist, beta);
                     REAL D[3] = {0, 0, 0};
 #if defined(PERIODIC)
-                    if (periodic >= 2) {
-                        #if EWALD_INTERPOLATION_ORDER == 4
+                    if (periodic >= 2)
+                    {
                         ewald_interpolate_cuda(grid1, box, table, dx, dy, dz, D);
-                        #else
-                        bh_ewald_t3(grid1, box, table, dx, dy, dz, D);
-                        #endif
                     }
 #elif defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
                     if (periodic >= 2)
@@ -1021,7 +1048,8 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
 }
 #endif
 
-#if !defined(PERIODIC) && !defined(PERIODIC_Z)
+#if !defined(PERIODIC) && !defined(PERIODIC_Z) && !defined(POINCARE_DODECAHEDRAL) && !defined(USE_BH)
+// Direct summation for R^3 topology.
 __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const REAL* M, const REAL* SOFT_LENGTH, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
@@ -1066,7 +1094,8 @@ __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, 
 }
 #endif
 
-#ifdef PERIODIC
+#if defined(PERIODIC) && !defined(USE_BH)
+// Direct summation for T^3 topology.
 __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL *EwaldTable, int NewaldGrid, int ID_min, int ID_max)
 {
 	// This kernel calculates forces in periodic T^3 topology
@@ -1148,8 +1177,8 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 }
 #endif
 
-#ifdef PERIODIC_Z
-
+#if defined(PERIODIC_Z)  && !defined(USE_BH)
+// Direct summation for S^1xR^2 topology.
 #ifdef PERIODIC_Z_NOLOOKUP
 // Direct summation over multiple real-space images in periodic Z direction
 __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const REAL RADIAL_FORCE_TABLE_SIZE, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
@@ -2262,7 +2291,7 @@ void recalculate_softening()
 	}
 }
 
-#if !defined(PERIODIC) && !defined(PERIODIC_Z)
+#if !defined(PERIODIC) && !defined(PERIODIC_Z) && !defined(POINCARE_DODECAHEDRAL) && !defined(USE_BH)
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation on GPU
 {
 	int i, j;
@@ -2505,7 +2534,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 }
 #endif
 
-#ifdef PERIODIC
+#if defined(PERIODIC) && !defined(USE_BH)
 cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation with multiple images on GPU
 {
 	int i, j;
@@ -2762,7 +2791,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 }
 #endif
 
-#ifdef PERIODIC_Z
+#if defined(PERIODIC_Z) && !defined(USE_BH)
 cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation with z-periodic boundaries on GPU
 {
     int i, j;
