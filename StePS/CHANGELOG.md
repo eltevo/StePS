@@ -12,6 +12,10 @@ All notable changes to the StePS simulation code is documented in this file.
 ### Changed
 - Octree build time is now measured and printed during the simulation.
 - CUDA force kernels use 128 threads per block for direct summation and 256 for Barnes-Hut.
+- T^3 Ewald interpolation choices use the same NGP, CIC, or three-point TSC scheme on CPU and GPU.
+
+### Fixed
+- For T^3, the Ewald table is sampled at cell centers.
 
 ## [v2.0.1.1] - 2026-06-19
 

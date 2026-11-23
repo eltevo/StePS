@@ -187,8 +187,8 @@ void get_radial_bh_force_correction_table(REAL *RADIAL_BH_FORCE_TABLE, int *RADI
 #ifdef PERIODIC
 int ewald_space(REAL R, int ewald_index[][4]);
 void calculate_t3_ewald_lookup_table(int Ngrid, REAL L, REAL alpha, int realspace_el, int recspace_el, int realspace_ewald_index[][4], int recspace_ewald_index[][4], REAL rel_cut, REAL rec_cut, REAL *T3_EWALD_FORCE_TABLE);
-int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_EWALD_FORCE_TABLE);
-int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_out);
+int save_t3_ewald_lookup_table(const char *filename, int Ngrid, REAL boxsize, const REAL *T3_EWALD_FORCE_TABLE);
+int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL boxsize, REAL **table_out);
 #elif defined(PERIODIC_Z) && !defined(PERIODIC_Z_NOLOOKUP)
 //Functions for S^1 x R^2 Ewald summation
 void calculate_S1R2ewald_correction_table(int Nrho, int Nz, REAL rho_max, REAL Lz, REAL alpha, int nmax, int mmax, REAL*& S1R2_EWALD_FORCE_TABLE);
@@ -547,14 +547,30 @@ int main(int argc, char *argv[])
 				}
 				#ifdef HAVE_HDF5
 					//if we have HDF5, we save/load the Ewald table in HDF5 format				
-					if(snprintf(ewaldfilepath, sizeof(ewaldfilepath), "%s%s", OUT_DIR, EwaldTableFile) < 0)
+					int path_length = snprintf(ewaldfilepath, sizeof(ewaldfilepath), "%s%s", OUT_DIR, EwaldTableFile);
+					if(path_length < 0 || (size_t)path_length >= sizeof(ewaldfilepath))
 					{
 						fprintf(stderr, "Error: The name of the ewald table got truncated.\nAborting.\n");
 						abort();
 					}
-					if(file_exist(ewaldfilepath) == 0)
+					bool table_loaded = false;
+					if(file_exist(ewaldfilepath))
 					{
-						printf("Ewald lookup table file (%s) not found.\nCalculating new lookup table...\n", ewaldfilepath);
+						REAL *loaded_table = NULL;
+						printf("Ewald lookup table file (%s) found. Loading...\n", ewaldfilepath);
+						if(load_t3_ewald_lookup_table(ewaldfilepath, &N_EWALD_FORCE_GRID, L, &loaded_table) == 0)
+						{
+							free(T3_EWALD_FORCE_TABLE);
+							T3_EWALD_FORCE_TABLE = loaded_table;
+							table_loaded = true;
+							printf("Ewald lookup table loaded with grid size %i.\n", N_EWALD_FORCE_GRID);
+						}
+						else
+							fprintf(stderr, "Warning: Ewald lookup table is invalid or incompatible; regenerating %s.\n", ewaldfilepath);
+					}
+					if(!table_loaded)
+					{
+						printf("Calculating new Ewald lookup table...\n");
 						double EWALD_omp_start_time = omp_get_wtime(); //Timing
 						number_of_ewald_real_space_indexes = ewald_space(rel_cut+1,ewald_real_space_indexes); //real space indexes
 						number_of_ewald_reciprocal_space_indexes = ewald_space(rec_cut+2,ewald_reciprocal_space_indexes); //reciprocal space indexes
@@ -563,20 +579,11 @@ int main(int argc, char *argv[])
 						double EWALD_omp_end_time = omp_get_wtime(); //Timing
 						printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
 						printf("Ewald lookup table calculated.\nSaving into %s\n", ewaldfilepath);
-						save_t3_ewald_lookup_table(ewaldfilepath, N_EWALD_FORCE_GRID, T3_EWALD_FORCE_TABLE);
-					}
-					else
-					{
-						printf("Ewald lookup table file (%s) found.\nLoading lookup table from file...\n", ewaldfilepath);
-						double EWALD_omp_start_time = omp_get_wtime(); //Timing
-						if(load_t3_ewald_lookup_table(ewaldfilepath, &N_EWALD_FORCE_GRID, &T3_EWALD_FORCE_TABLE)!=0)
+						if(save_t3_ewald_lookup_table(ewaldfilepath, N_EWALD_FORCE_GRID, L, T3_EWALD_FORCE_TABLE) != 0)
 						{
-							fprintf(stderr, "Error: Failed to load the Ewald lookup table from file %s\nAborting.\n", ewaldfilepath);
-							return(-2);
+							fprintf(stderr, "Error: Failed to save Ewald lookup table to %s.\n", ewaldfilepath);
+							MPI_Abort(MPI_COMM_WORLD, 1);
 						}
-						printf("Ewald lookup table loaded from file %s with grid size %i.\n", ewaldfilepath, N_EWALD_FORCE_GRID);
-						double EWALD_omp_end_time = omp_get_wtime(); //Timing
-						printf("Ewald lookup table loading finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
 					}
 				#else
 					printf("HDF5 support not compiled in.\nCalculating new Ewald lookup table...\n");
@@ -587,11 +594,7 @@ int main(int argc, char *argv[])
 					double EWALD_omp_end_time = omp_get_wtime(); //Timing
 					printf("Ewald lookup table calculation finished. Wall-clock time = %fs.\n", EWALD_omp_end_time-EWALD_omp_start_time);
 				#endif
-				#ifndef USE_CUDA
-					printf("Ewald lookup table interpolation order: %i\n\n", EWALD_INTERPOLATION_ORDER);
-				#else
-					printf("Ewald lookup table interpolation order is always 4 on GPUs in T^3 topological manifolds.\n\n");
-				#endif
+				printf("Ewald lookup table interpolation order: %i\n\n", EWALD_INTERPOLATION_ORDER);
 				fflush(stdout);
 			}
 			//Bcasting the N_EWALD_FORCE_GRID variable to all MPI threads

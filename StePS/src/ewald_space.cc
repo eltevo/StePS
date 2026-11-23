@@ -26,19 +26,14 @@
 
 #include "mpi.h"
 #include "global_variables.h"
+#ifdef PERIODIC
+#include "t3_ewald_interpolation.h"
+#endif
 
 
 #ifdef USE_SINGLE_PRECISION
-#define ERFC(x)  erfcf((x))
-#define SIN(x)   sinf((x))
-#define COS(x)  cosf(x)
-#define EXP(x)   expf((x))
 #define SQRT(x)  sqrtf((x))
 #else
-#define ERFC(x)  erfc((x))
-#define SIN(x)   sin((x))
-#define COS(x)  cos((x))
-#define EXP(x)   exp((x))
 #define SQRT(x)  sqrt((x))
 #endif
 
@@ -210,13 +205,15 @@ int ewald_space(REAL R, int ewald_index[][4])
 //Compute the Ewald force (real + reciprocal) and subtract nearest-image Newton to return the correction D(r).
 static void ewald_force_correction( const REAL r[3], REAL L, REAL alpha, int realspace_el, int recspace_el, int real_idx[][4], int rec_idx[][4], REAL rel_cut, REAL rec_cut, REAL D[3])
 {
-    REAL F_real[3] = {0,0,0};
-    REAL F_rec [3] = {0,0,0};
-
-    const REAL V = L*L*L;
-    const REAL two_alpha_over_sqrtpi = (REAL)(2.0) * alpha / (REAL)sqrt(pi);
-    const REAL fourpi_over_V = (REAL)(4.0 * pi) / V;
-    const REAL relcutL2 = (rel_cut * L) * (rel_cut * L);
+    // The correction subtracts two large forces near the origin. Accumulate in
+    // double even when the table itself uses single precision.
+    double F_real[3] = {0,0,0};
+    double F_rec [3] = {0,0,0};
+    const double box = L, damping = alpha;
+    const double V = box*box*box;
+    const double two_alpha_over_sqrtpi = 2.0 * damping / sqrt(pi);
+    const double fourpi_over_V = 4.0 * pi / V;
+    const double relcutL2 = ((double)rel_cut * box) * ((double)rel_cut * box);
 
     // real-space sum
     for (int m = 0; m <= realspace_el; ++m)
@@ -224,19 +221,17 @@ static void ewald_force_correction( const REAL r[3], REAL L, REAL alpha, int rea
         const int nx = real_idx[m][0];
         const int ny = real_idx[m][1];
         const int nz = real_idx[m][2];
-        REAL Rv[3] = { r[0] + (REAL)nx * L,
-                       r[1] + (REAL)ny * L,
-                       r[2] + (REAL)nz * L };
-        REAL R2 = Rv[0]*Rv[0] + Rv[1]*Rv[1] + Rv[2]*Rv[2];
-        if ((R2 == (REAL)0) || (R2 > relcutL2)) continue; // skip self contribution
-        REAL R  = SQRT(R2);
-        REAL invR  = (REAL)1.0 / R;
-        REAL invR3 = invR * invR * invR;
+        double Rv[3] = { r[0] + nx * box, r[1] + ny * box, r[2] + nz * box };
+        double R2 = Rv[0]*Rv[0] + Rv[1]*Rv[1] + Rv[2]*Rv[2];
+        if (R2 == 0 || R2 > relcutL2) continue;
+        double R = sqrt(R2);
+        double invR = 1.0 / R;
+        double invR3 = invR * invR * invR;
 
-        REAL erfc_term = ERFC(alpha * R);
-        REAL exp_term  = EXP(-(alpha*alpha) * R2);
-        REAL bracket   = erfc_term + two_alpha_over_sqrtpi * R * exp_term;
-        REAL coeff     = invR3 * bracket; // scalar multiply of unit-vector Rv/R
+        double erfc_term = erfc(damping * R);
+        double exp_term = exp(-damping*damping * R2);
+        double bracket = erfc_term + two_alpha_over_sqrtpi * R * exp_term;
+        double coeff = invR3 * bracket;
 
         F_real[0] += -Rv[0] * coeff;
         F_real[1] += -Rv[1] * coeff;
@@ -251,15 +246,15 @@ static void ewald_force_correction( const REAL r[3], REAL L, REAL alpha, int rea
         const int l = rec_idx[m][2];
         if (h == 0 && k == 0 && l == 0) continue;
 
-        REAL factor = (REAL)(2.0 * pi / L);
-        REAL kv[3] = { factor * (REAL)h, factor * (REAL)k, factor * (REAL)l };
-        REAL k2 = kv[0]*kv[0] + kv[1]*kv[1] + kv[2]*kv[2];
-        if (k2 == (REAL)0 || k2 > rec_cut*rec_cut) continue;
+        double factor = 2.0 * pi / box;
+        double kv[3] = { factor * h, factor * k, factor * l };
+        double k2 = kv[0]*kv[0] + kv[1]*kv[1] + kv[2]*kv[2];
+        if (h*h + k*k + l*l > (double)rec_cut*rec_cut) continue;
 
-        REAL damp   = EXP( - k2 / (REAL)(4.0 * alpha * alpha) );
-        REAL coeff  = fourpi_over_V * damp / k2;
-        REAL phase  = kv[0]*r[0] + kv[1]*r[1] + kv[2]*r[2];
-        REAL s      = SIN(phase);
+        double damp = exp(-k2 / (4.0 * damping * damping));
+        double coeff = fourpi_over_V * damp / k2;
+        double phase = kv[0]*r[0] + kv[1]*r[1] + kv[2]*r[2];
+        double s = sin(phase);
 
         F_rec[0] += -kv[0] * coeff * s;
         F_rec[1] += -kv[1] * coeff * s;
@@ -267,12 +262,12 @@ static void ewald_force_correction( const REAL r[3], REAL L, REAL alpha, int rea
     }
 
     // nearest-image Newtonian force (as in R^3 manifold)
-    REAL r2 = r[0]*r[0] + r[1]*r[1] + r[2]*r[2];
-    if (r2 > (REAL)0)
+    double r2 = (double)r[0]*r[0] + (double)r[1]*r[1] + (double)r[2]*r[2];
+    if (r2 > 0)
     {
-        REAL rnorm = SQRT(r2);
-        REAL invr3 = (REAL)1.0 / (rnorm*rnorm*rnorm);
-        REAL F_newton[3] = { -r[0]*invr3, -r[1]*invr3, -r[2]*invr3 };
+        double rnorm = sqrt(r2);
+        double invr3 = 1.0 / (rnorm*rnorm*rnorm);
+        double F_newton[3] = { -r[0]*invr3, -r[1]*invr3, -r[2]*invr3 };
 
         // correction: D = (F_real + F_rec) - F_newton
         D[0] = (F_real[0] + F_rec[0]) - F_newton[0];
@@ -302,6 +297,7 @@ void calculate_t3_ewald_lookup_table(int Ngrid, REAL L, REAL alpha, int realspac
 	//	T3_EWALD_FORCE_TABLE: the Ewald force correction lookup table length = Ngrid * Ngrid * Ngrid * 3
 	int i,j,k;
     int chunk = Ngrid/16; //dynamic scheduling chunk size
+    if (chunk < 1) chunk = 1;
 	//clear table
     memset(T3_EWALD_FORCE_TABLE, 0, (size_t)Ngrid*Ngrid*Ngrid*3*sizeof(REAL));
 	//build O symmetry rotations
@@ -321,9 +317,9 @@ void calculate_t3_ewald_lookup_table(int Ngrid, REAL L, REAL alpha, int realspac
                 {
                     // physical coordinates of the separation (nearest-image)
                     REAL r[3] = {
-                        ( (REAL)i + (REAL)0.5 ) * grid_spacing - L/(REAL)2.0,
-                        ( (REAL)j + (REAL)0.5 ) * grid_spacing - L/(REAL)2.0,
-                        ( (REAL)k + (REAL)0.5 ) * grid_spacing - L/(REAL)2.0
+                        ((REAL)i - (REAL)(Ngrid-1)*(REAL)0.5) * grid_spacing,
+                        ((REAL)j - (REAL)(Ngrid-1)*(REAL)0.5) * grid_spacing,
+                        ((REAL)k - (REAL)(Ngrid-1)*(REAL)0.5) * grid_spacing
                     };
 
                     // correction D at the wedge point
@@ -384,143 +380,9 @@ void calculate_t3_ewald_lookup_table(int Ngrid, REAL L, REAL alpha, int realspac
 }
 
 #ifndef USE_CUDA
-//Helper functions for the interpolation in the T^3 Ewald force correction table (CPU version)
-// CUDA version of interpolation function are in forces_cuda.cu
-
-
-
-// positive modulo for periodic wrap
-static inline int imodp(int i, int n)
-{
-    int r = i % n;
-    return (r < 0) ? (r + n) : r;
-}
-
-// Map a physical coordinate r in [-L/2,L/2] (or any real number) to the index of the *left* neighbor cell-center and the fractional offset fx in [0,1), given that centers lie at (i+0.5)*a - L/2.
-static inline void map_to_centered_grid(REAL r, REAL L, int Ngrid, int *i0, REAL *fx)
-{
-    REAL grid_spacing  = L / (REAL)Ngrid;                 /* grid spacing */
-    REAL u  = (r + L*(REAL)0.5) / grid_spacing - (REAL)0.5; /* continuous index @ centers */
-    REAL uf = floor(u);
-    *i0 = imodp((int)uf, Ngrid);
-    *fx = (REAL)(u - uf); /* in [0,1) */
-}
-
-#if EWALD_INTERPOLATION_ORDER != 4
-static void get_lagrange_weights(REAL fx, int stencil, REAL *w) 
-{
-    //Compute 1D Lagrange weights for a uniform grid.
-    //Note that this is an unoptimized general implementation for testing purposes.
-    //inputs:
-    // * fx     :  Fractional position in [0, 1) between center i and i+1
-    // * stencil:  Number of points (must be even: 2=linear, 4=cubic, etc.)
-    // * w      :  Output array of size [stencil]
-    //          Logic for stencil: 
-    //              -> If stencil=2, we use points relative to i0: {0, 1}
-    //              -> If stencil=4, we use points relative to i0: {-1, 0, 1, 2}
-    //              -> Generally, start_offset = -(stencil/2 - 1)
-
-    // The relative integer coordinates of the stencil points
-    // e.g. for N=4: -1, 0, 1, 2
-    int start = -(stencil / 2 - 1);
-
-    for (int j = 0; j < stencil; j++)
-    {
-        w[j] = 1.0;
-        REAL xj = (REAL)(start + j); // coordinate of the j-th support point
-        // Lagrange basis polynomial product
-        for (int k = 0; k < stencil; k++)
-        {
-            if (k == j) continue;
-            REAL xk = (REAL)(start + k);
-            w[j] *= (fx - xk) / (xj - xk);
-        }
-    }
-}
-#else
-void get_cubic_weights(REAL t, REAL w[4])
-{
-    // Same as above but hardcoded for cubic (stencil=4) for efficiency
-    REAL t2 = t*t;
-    REAL t3 = t*t2;
-    w[0] = -0.5*t3 + t2 - 0.5*t;        // Index i0-1
-    w[1] =  1.5*t3 - 2.5*t2 + 1.0;      // Index i0
-    w[2] = -1.5*t3 + 2.0*t2 + 0.5*t;    // Index i0+1
-    w[3] =  0.5*t3 - 0.5*t2;            // Index i0+2
-}
-#endif
-
 void ewald_interpolate_D(int Ngrid, REAL L, const REAL *table, const REAL dx, const REAL dy, const REAL dz, REAL D[3], int order)
 {
-    //Ewald interpolation in T^3 periodic torus topology using Lagrange interpolation of given order (even numbers only, 2=cic(tri-linear), 4=tri-cubic, etc.)
-    //Inputs:
-    //    * Ngrid   :  Grid dimension
-    //    * L       :  Box size
-    //    * table   :  Force table
-    //    * dx,dy,dz:  Relative particle position
-    //    * D       :  Output force correction
-    //    * order   :  Stencil size (Use 4 for Cubic/standard, 2 for Linear)
-
-    // Safety check: order must be even and positive
-    if (order < 2 || order % 2 != 0) order = 2; // fallback to linear
-
-    // Map to grid coordinates
-    int ix0, iy0, iz0;
-    REAL fx, fy, fz;
-    map_to_centered_grid(dx, L, Ngrid, &ix0, &fx);
-    map_to_centered_grid(dy, L, Ngrid, &iy0, &fy);
-    map_to_centered_grid(dz, L, Ngrid, &iz0, &fz);
-
-    // Compute weights for each dimension
-    #if EWALD_INTERPOLATION_ORDER != 4
-    // Max order 8 is usually sufficient
-    REAL wx[8], wy[8], wz[8];
-    int safe_order = (order > 8) ? 8 : order;
-    
-    //this can be optimized further by precomputing weights for common fx, fy, fz values
-    get_lagrange_weights(fx, safe_order, wx);
-    get_lagrange_weights(fy, safe_order, wy);
-    get_lagrange_weights(fz, safe_order, wz);
-    #else
-    // Hardcoded cubic weights for efficiency
-    REAL wx[4], wy[4], wz[4];
-    get_cubic_weights(fx, wx);
-    get_cubic_weights(fy, wy);
-    get_cubic_weights(fz, wz);
-    int safe_order = 4;
-    #endif
-
-    // Perform Tensor Product Summation
-    REAL sum[3] = {0.0, 0.0, 0.0};
-    
-    // Offset to the starting neighbor index
-    int offset = -(safe_order / 2 - 1);
-
-    for (int i = 0; i < safe_order; i++) {
-        int ix = imodp(ix0 + offset + i, Ngrid);
-        REAL w_x = wx[i];
-
-        for (int j = 0; j < safe_order; j++) {
-            int iy = imodp(iy0 + offset + j, Ngrid);
-            REAL w_xy = w_x * wy[j];
-
-            for (int k = 0; k < safe_order; k++) {
-                int iz = imodp(iz0 + offset + k, Ngrid);
-                REAL w_xyz = w_xy * wz[k];
-
-                // Fetch vector from table
-                size_t idx = lut_offset(Ngrid, ix, iy, iz, 0);
-                
-                sum[0] += w_xyz * table[idx + 0];
-                sum[1] += w_xyz * table[idx + 1];
-                sum[2] += w_xyz * table[idx + 2];
-            }
-        }
-    }
-
-    D[0] = sum[0];
-    D[1] = sum[1];
-    D[2] = sum[2];
+    t3_ewald_interpolate(Ngrid, L, table, dx, dy, dz, D, order);
 }
 #endif
 //end of PERIODIC (T^3) case

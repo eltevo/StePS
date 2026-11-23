@@ -2045,15 +2045,29 @@ void write_header_attributes_in_hdf5(hid_t handle)
 }
 
 #if defined(PERIODIC)
+static int read_t3_scalar_attribute(hid_t group, const char *name, hid_t type, void *value)
+{
+	if (H5Aexists(group, name) <= 0) return -1;
+	hid_t attribute = H5Aopen(group, name, H5P_DEFAULT);
+	if (attribute < 0) return -1;
+	hid_t space = H5Aget_space(attribute);
+	int result = -1;
+	if (space >= 0 && H5Sget_simple_extent_type(space) == H5S_SCALAR)
+		result = H5Aread(attribute, type, value);
+	if (space >= 0) H5Sclose(space);
+	H5Aclose(attribute);
+	return result;
+}
+
 //Save the T^3 Ewald force-correction lookup table to HDF5 format
-int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_EWALD_FORCE_TABLE)
+int save_t3_ewald_lookup_table(const char *filename, int Ngrid, REAL boxsize, const REAL *T3_EWALD_FORCE_TABLE)
 {
 	hid_t datatype = 0;
 	hid_t headergrp = 0;
 	#ifdef USE_SINGLE_PRECISION
-		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+		datatype = H5T_NATIVE_FLOAT; //Force vector components saved as float
 	#else
-		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+		datatype = H5T_NATIVE_DOUBLE; //Force vector components saved as double
 	#endif
     herr_t status;
     hid_t ewald_file = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -2061,9 +2075,10 @@ int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_E
 
 	//Creating the header group, and write the header into the file
 	headergrp = H5Gcreate(ewald_file, "/Header", 0, H5P_DEFAULT,H5P_DEFAULT);
+	if (headergrp < 0) { H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create header group\n"); return -2; }
     //Creatin the t3_ewald group for storing the dataset
     hid_t g = H5Gcreate2(ewald_file, "/t3_ewald", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    if (g < 0) { H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald group\n"); return -2; }
+    if (g < 0) { H5Gclose(headergrp); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald group\n"); return -2; }
 
     // dataset space: (Ngrid, Ngrid, Ngrid, 3)
     hsize_t dims[4] = { (hsize_t)Ngrid, (hsize_t)Ngrid, (hsize_t)Ngrid, (hsize_t)3 };
@@ -2071,7 +2086,7 @@ int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_E
 
     // dataset create
     hid_t dset = H5Dcreate2(g, "T3_EWALD_FORCE_TABLE", datatype, dspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    if (dset < 0) { H5Sclose(dspace); H5Gclose(g); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald dataset\n"); return -3; }
+    if (dset < 0) { H5Sclose(dspace); H5Gclose(g); H5Gclose(headergrp); H5Fclose(ewald_file); fprintf(stderr, "HDF5: cannot create ewald dataset\n"); return -3; }
 
 
 	// Explicit memory dataspace: same dims as dataset
@@ -2087,8 +2102,8 @@ int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_E
 	//saving the Ewald grid size
 	hid_t hdf5_dataspace = H5Screate(H5S_SCALAR);
 	hid_t hdf5_attribute = H5Acreate(headergrp, "EWALD_GRID_SIZE", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
-	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Ngrid);
-	H5Aclose(hdf5_attribute);
+	if (hdf5_attribute < 0 || H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &Ngrid) < 0) status = -1;
+	if (hdf5_attribute >= 0) H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 	//saving float/double precision info
 	hdf5_dataspace = H5Screate(H5S_SCALAR);
@@ -2098,31 +2113,42 @@ int save_t3_ewald_lookup_table(const char *filename, int Ngrid, const REAL *T3_E
 	#else
 		int precision = 1; //64-bit double
 	#endif
-	H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &precision);
-	H5Aclose(hdf5_attribute);
+	if (hdf5_attribute < 0 || H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &precision) < 0) status = -1;
+	if (hdf5_attribute >= 0) H5Aclose(hdf5_attribute);
+	H5Sclose(hdf5_dataspace);
+	const int table_version = 2;
+	const double table_boxsize = (double)boxsize;
+	hdf5_dataspace = H5Screate(H5S_SCALAR);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_TABLE_VERSION", H5T_NATIVE_INT, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	if (hdf5_attribute < 0 || H5Awrite(hdf5_attribute, H5T_NATIVE_INT, &table_version) < 0) status = -1;
+	if (hdf5_attribute >= 0) H5Aclose(hdf5_attribute);
+	hdf5_attribute = H5Acreate(headergrp, "EWALD_INTERNAL_BOXSIZE", H5T_NATIVE_DOUBLE, hdf5_dataspace, H5P_DEFAULT, H5P_DEFAULT);
+	if (hdf5_attribute < 0 || H5Awrite(hdf5_attribute, H5T_NATIVE_DOUBLE, &table_boxsize) < 0) status = -1;
+	if (hdf5_attribute >= 0) H5Aclose(hdf5_attribute);
 	H5Sclose(hdf5_dataspace);
 
     /* clean-up */
+    H5Sclose(mspace);
     H5Dclose(dset);
     H5Sclose(dspace);
 	H5Gclose(headergrp);
     H5Gclose(g);
-    H5Fclose(ewald_file);
+    if (H5Fclose(ewald_file) < 0) status = -1;
     return (status < 0) ? -4 : 0;
 }
 
 
-int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_out)
+int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL boxsize, REAL **table_out)
 {
 	hid_t datatype = 0;
 	herr_t status = 0;
 	int precision = 0;
 	int format_mismatch = 0; //0: no mismatch, 1: file=float/program=double, 2: file=double/program=float
 	#ifdef USE_SINGLE_PRECISION
-		datatype = H5Tcopy(H5T_NATIVE_FLOAT); //Force vector components saved as float
+		datatype = H5T_NATIVE_FLOAT; //Force vector components saved as float
 		double *mismatchbuf; //temporary buffer for conversion if needed
 	#else
-		datatype = H5Tcopy(H5T_NATIVE_DOUBLE); //Force vector components saved as double
+		datatype = H5T_NATIVE_DOUBLE; //Force vector components saved as double
 		float *mismatchbuf; //temporary buffer for conversion if needed
 	#endif
 
@@ -2142,43 +2168,47 @@ int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_ou
 		fprintf(stderr, "HDF5: cannot open header group\n");
 		return -3;
 	}
-	hid_t hdf5_attribute = H5Aopen(headergrp, "EWALD_GRID_SIZE", H5P_DEFAULT);
-	if (hdf5_attribute < 0)
+	int version = 0;
+	double stored_boxsize = 0;
+	if (read_t3_scalar_attribute(headergrp, "EWALD_TABLE_VERSION", H5T_NATIVE_INT, &version) < 0 ||
+	    read_t3_scalar_attribute(headergrp, "EWALD_INTERNAL_BOXSIZE", H5T_NATIVE_DOUBLE, &stored_boxsize) < 0)
 	{
+		fprintf(stderr, "HDF5: Ewald table lacks current cache metadata\n");
 		H5Gclose(headergrp);
 		H5Fclose(f);
-		fprintf(stderr, "HDF5: cannot open EWALD_GRID_SIZE attribute\n");
 		return -4;
 	}
-	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, Ngrid);
+	if (version != 2 || stored_boxsize != (double)boxsize)
+	{
+		fprintf(stderr, "HDF5: incompatible Ewald table version or box size\n");
+		H5Gclose(headergrp);
+		H5Fclose(f);
+		return -4;
+	}
+	int stored_grid = 0;
+	status = read_t3_scalar_attribute(headergrp, "EWALD_GRID_SIZE", H5T_NATIVE_INT, &stored_grid);
 	if (status < 0)
 	{
-		H5Aclose(hdf5_attribute);
 		H5Gclose(headergrp);
 		H5Fclose(f);
 		fprintf(stderr, "HDF5: cannot read EWALD_GRID_SIZE attribute\n");
 		return -5;
 	}
-	H5Aclose(hdf5_attribute);
-	hdf5_attribute = H5Aopen(headergrp, "EWALD_PRECISION", H5P_DEFAULT);
-	if (hdf5_attribute < 0)
+	if (stored_grid != *Ngrid)
 	{
-		H5Aclose(hdf5_attribute);
+		fprintf(stderr, "HDF5: incompatible Ewald grid size (%d, expected %d)\n", stored_grid, *Ngrid);
 		H5Gclose(headergrp);
 		H5Fclose(f);
-		fprintf(stderr, "HDF5: cannot open EWALD_PRECISION attribute\n");
-		return -6;
+		return -4;
 	}
-	status = H5Aread(hdf5_attribute, H5T_NATIVE_INT, &precision);
-	if (status < 0)
+	status = read_t3_scalar_attribute(headergrp, "EWALD_PRECISION", H5T_NATIVE_INT, &precision);
+	if (status < 0 || (precision != 0 && precision != 1))
 	{
-		H5Aclose(hdf5_attribute);
 		H5Gclose(headergrp);
 		H5Fclose(f);
-		fprintf(stderr, "HDF5: cannot read EWALD_PRECISION attribute\n");
+		fprintf(stderr, "HDF5: invalid EWALD_PRECISION attribute\n");
 		return -6;
 	}
-	H5Aclose(hdf5_attribute);
 	H5Gclose(headergrp);
 
 	#ifdef USE_SINGLE_PRECISION
@@ -2278,6 +2308,11 @@ int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_ou
 		mismatchbuf = (float*)malloc(n * sizeof(float));
 		if (!mismatchbuf)
 		{
+			free(buf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
 			H5Fclose(f);
 			fprintf(stderr, "Ewald table malloc failed\n");
 			return -7;
@@ -2309,6 +2344,11 @@ int load_t3_ewald_lookup_table(const char *filename, int *Ngrid, REAL **table_ou
 		mismatchbuf = (double*)malloc(n * sizeof(double));
 		if (!mismatchbuf)
 		{
+			free(buf);
+			H5Sclose(mspace);
+			H5Sclose(dspace);
+			H5Dclose(dset);
+			H5Gclose(g);
 			H5Fclose(f);
 			fprintf(stderr, "Ewald table malloc failed\n");
 			return -7;

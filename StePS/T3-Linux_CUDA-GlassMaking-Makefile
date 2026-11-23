@@ -112,11 +112,11 @@ $(info ----------------------------------------)
 $(info )
 
 #------------------------------- Ewald interpolation order setting
-ifeq ($(EWALD_INTERPOLATION_ORDER),0)
+ifeq ($(strip $(EWALD_INTERPOLATION_ORDER)),0)
 OPT += -DEWALD_INTERPOLATION_ORDER=0
-else ifeq ($(EWALD_INTERPOLATION_ORDER),2)
+else ifeq ($(strip $(EWALD_INTERPOLATION_ORDER)),2)
 OPT += -DEWALD_INTERPOLATION_ORDER=2
-else ifeq ($(EWALD_INTERPOLATION_ORDER),4)
+else ifeq ($(strip $(EWALD_INTERPOLATION_ORDER)),4)
 OPT += -DEWALD_INTERPOLATION_ORDER=2
 else
 $(info Warning: Unsupported EWALD_INTERPOLATION_ORDER value ($(EWALD_INTERPOLATION_ORDER)). Supported values are 0, 2, and 4. Setting to default value of 4. (TSC))
@@ -140,11 +140,11 @@ PROG = $(BUILD_DIR)/StePS_CUDA
 $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc $(SRC_DIR)/t3_ewald_interpolation.h
 	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu $(SRC_DIR)/t3_ewald_interpolation.h
 	$(MAKE_BUILD_DIR)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDA_INC) $(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 clean:
@@ -161,7 +161,7 @@ $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc $(SRC_DIR)/t3_ewald_interpolation.h
 	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 

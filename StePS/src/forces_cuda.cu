@@ -24,6 +24,9 @@
 #include <parallel/algorithm>   /* __gnu_parallel::sort (OpenMP parallel sort) */
 #include "mpi.h"
 #include "global_variables.h"
+#ifdef PERIODIC
+#include "t3_ewald_interpolation.h"
+#endif
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
@@ -110,144 +113,9 @@ void forces(REAL*x, REAL*F, int ID_min, int ID_max)
 #endif
 
 #ifdef PERIODIC
-//in T^3 topology, interpolation is done on the GPU, so we need to define the interpolation functions here
-__device__ static inline size_t lut_offset_cuda(int Ngrid, int ix, int iy, int iz, int comp)
-{
-    return ((size_t)((ix * Ngrid + iy) * Ngrid + iz) * 3u) + (size_t)comp;
-}
-
-__device__ int imodp(int i, int n)
-{
-	// positive modulo for periodic wrap
-    int r = i % n;
-    return (r < 0) ? (r + n) : r;
-}
-__device__ void map_to_centered_grid(REAL r, REAL L, int Ngrid, int *i0, REAL *fx)
-{
-	// Map a physical coordinate r in [-L/2,L/2] (or any real number) to the index of the *left* neighbor cell-center and the fractional offset fx in [0,1), given that centers lie at (i+0.5)*a - L/2.
-    REAL grid_spacing  = L / (REAL)Ngrid;                 /* grid spacing */
-    REAL u  = (r + L*(REAL)0.5) / grid_spacing - (REAL)0.5; /* continuous index @ centers */
-    REAL uf = floor(u);
-    *i0 = imodp((int)uf, Ngrid);
-    *fx = (REAL)(u - uf); /* in [0,1) */
-}
-
-__device__ void get_cubic_weights(REAL t, REAL w[4])
-{
-    REAL t2 = t*t;
-    REAL t3 = t*t2;
-    w[0] = -0.5*t3 + t2 - 0.5*t;
-    w[1] =  1.5*t3 - 2.5*t2 + 1.0;
-    w[2] = -1.5*t3 + 2.0*t2 + 0.5*t;
-    w[3] =  0.5*t3 - 0.5*t2;
-}
-
-// The interpolation function depends from the value of EWALD_INTERPOLATION_ORDER
 __device__ void ewald_interpolate_cuda(int Ngrid, REAL L, const REAL *table, const REAL dx, const REAL dy, const REAL dz, REAL D[3])
 {
-    //Ewald interpolation in T^3 periodic torus topology
-    //Inputs:
-    //    * Ngrid   :  Grid dimension
-    //    * L       :  Box size
-    //    * table   :  Force table
-    //    * dx,dy,dz:  Relative particle position
-    //    * D       :  Output force correction
-
-    #if EWALD_INTERPOLATION_ORDER == 0
-        // Nearest Grid Point (NGP) interpolation
-        int ix, iy, iz;
-        REAL fx, fy, fz;
-
-        map_to_centered_grid(dx, L, Ngrid, &ix, &fx);
-        map_to_centered_grid(dy, L, Ngrid, &iy, &fy);
-        map_to_centered_grid(dz, L, Ngrid, &iz, &fz);
-
-        if (fx >= (REAL)0.5) ++ix;
-        if (fy >= (REAL)0.5) ++iy;
-        if (fz >= (REAL)0.5) ++iz;
-
-        size_t off = lut_offset_cuda(
-            Ngrid,
-            imodp(ix, Ngrid),
-            imodp(iy, Ngrid),
-            imodp(iz, Ngrid),
-            0
-        );
-
-        D[0] = table[off + 0];
-        D[1] = table[off + 1];
-        D[2] = table[off + 2];
-    #elif EWALD_INTERPOLATION_ORDER == 2
-        // Tri-linear (CIC) interpolation
-
-        //map to grid coordinates
-        int ix, iy, iz;
-        REAL fx, fy, fz;
-        map_to_centered_grid(dx, L, Ngrid, &ix, &fx);
-        map_to_centered_grid(dy, L, Ngrid, &iy, &fy);
-        map_to_centered_grid(dz, L, Ngrid, &iz, &fz);
-        D[0] = D[1] = D[2] = 0;
-        for (int a = 0; a < 2; ++a)
-        {
-            for (int b = 0; b < 2; ++b)
-            {
-                for (int c = 0; c < 2; ++c)
-                {
-                    REAL weight = (a ? fx : 1-fx) * (b ? fy : 1-fy) * (c ? fz : 1-fz);
-                    size_t off = lut_offset_cuda(Ngrid, imodp(ix+a,Ngrid), imodp(iy+b,Ngrid), imodp(iz+c,Ngrid), 0);
-                    for (int k = 0; k < 3; ++k)
-                        D[k] += weight * table[off+k];
-                }
-            }
-        }
-    #else
-    //TSC interpolation (EWALD_INTERPOLATION_ORDER == 4)
-
-    // Map to grid coordinates
-    int ix0, iy0, iz0;
-    REAL fx, fy, fz;
-    map_to_centered_grid(dx, L, Ngrid, &ix0, &fx);
-    map_to_centered_grid(dy, L, Ngrid, &iy0, &fy);
-    map_to_centered_grid(dz, L, Ngrid, &iz0, &fz);
-
-    REAL wx[4], wy[4], wz[4];
-    get_cubic_weights(fx, wx);
-    get_cubic_weights(fy, wy);
-    get_cubic_weights(fz, wz);
-
-    // Perform Tensor Product Summation
-    REAL sum[3] = {0.0, 0.0, 0.0};
-    
-    // Offset to the starting neighbor index
-    int offset = - 1;
-
-    for (int i = 0; i < 4; i++) {
-        int ix = imodp(ix0 + offset + i, Ngrid);
-        REAL w_x = wx[i];
-
-        for (int j = 0; j < 4; j++) {
-            int iy = imodp(iy0 + offset + j, Ngrid);
-            REAL w_xy = w_x * wy[j];
-
-            for (int k = 0; k < 4; k++) {
-                int iz = imodp(iz0 + offset + k, Ngrid);
-                REAL w_xyz = w_xy * wz[k];
-
-                // Fetch vector from table
-                size_t idx = lut_offset_cuda(Ngrid, ix, iy, iz, 0);
-                
-                sum[0] += w_xyz * table[idx + 0];
-                sum[1] += w_xyz * table[idx + 1];
-                sum[2] += w_xyz * table[idx + 2];
-            }
-        }
-    }
-
-    D[0] = sum[0];
-    D[1] = sum[1];
-    D[2] = sum[2];
-    #endif
-    
+    t3_ewald_interpolate(Ngrid, L, table, dx, dy, dz, D, EWALD_INTERPOLATION_ORDER);
 }
 
 void forces_periodic(REAL*x, REAL*F, int ID_min, int ID_max)

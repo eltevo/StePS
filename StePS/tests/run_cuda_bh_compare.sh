@@ -84,5 +84,8 @@ done
 for topology in -DPERIODIC -DPERIODIC_Z; do
     for order in 0 4; do
         run_case "-DEWALD_INTERPOLATION_ORDER=$order" -DRANDOMIZE_BH=123 "$topology"
+        if [ "$topology" = -DPERIODIC ]; then
+            run_case "-DEWALD_INTERPOLATION_ORDER=$order" -DUSE_SINGLE_PRECISION "$topology"
+        fi
     done
 done
