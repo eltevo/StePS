@@ -28,7 +28,14 @@
 #include "device_launch_parameters.h"
 
 #define BLOCKSIZE 256
+#ifndef POINCARE_DODECAHEDRAL
+#define DIRECT_BLOCKSIZE 128
 
+static int force_grid_size(int count, int block_size)
+{
+    return count > 0 ? std::min(1 + (count - 1) / block_size, 65535) : 1;
+}
+#endif
 
 extern int e[2202][4];
 extern REAL w[3];
@@ -957,6 +964,11 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
         EuclideanBHNode* d_tree = NULL;
         EuclideanBHKey* d_keys = NULL;
         REAL *d_coords = NULL, *d_mass = NULL, *d_soft = NULL, *d_out = NULL, *d_table = NULL;
+		if(gpu == 0)
+		{
+
+			printf("MPI task %i: GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, ngpu, omp_get_num_threads(), force_grid_size(count, BLOCKSIZE)*BLOCKSIZE);
+		}
         cudaError_t err = cudaSetDevice(gpu);
         #define BH_CUDA(call) do { if (err == cudaSuccess) err = (call); } while (0)
         BH_CUDA(cudaMalloc((void**)&d_tree, tree.size()*sizeof(*d_tree)));
@@ -973,7 +985,7 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
         BH_CUDA(cudaMemcpy(d_soft, SOFT_LENGTH, N*sizeof(REAL), cudaMemcpyHostToDevice));
         if (table_count) BH_CUDA(cudaMemcpy(d_table, host_table, table_count*sizeof(REAL), cudaMemcpyHostToDevice));
         if (err == cudaSuccess) {
-            int blocks = std::min((count + BLOCKSIZE-1)/BLOCKSIZE, 65535);
+            int blocks = force_grid_size(count, BLOCKSIZE);
             EuclideanBHKernel<<<blocks, BLOCKSIZE>>>(d_tree, (int)tree.size(), d_keys,
                 d_coords, d_mass, d_soft, d_out, begin, count, THETA, M_min, ParticleRadi,
                 L, IS_PERIODIC, d_table, grid1, grid2, radial_extent, image_max, image_cut);
@@ -1042,7 +1054,7 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
         }
     }
 #endif
-    printf("CUDA Euclidean tree force finished on MPI task %i. Wall-clock time: %.3fs [tree build %.4fs (%.0f%%)].\n",
+    printf("GPU octree force finished on MPI task %i. Wall-clock time: %.3fs [tree build %.4fs (%.0f%%)].\n",
            rank, omp_get_wtime()-start_time, build_time, 100*build_time/(omp_get_wtime()-start_time));
     return cudaSuccess;
 }
@@ -1050,14 +1062,14 @@ cudaError_t forces_bh_cuda(REAL* coords, REAL* out, int ngpu, int id_min, int id
 
 #if !defined(PERIODIC) && !defined(PERIODIC_Z) && !defined(POINCARE_DODECAHEDRAL) && !defined(USE_BH)
 // Direct summation for R^3 topology.
-__global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const REAL* M, const REAL* SOFT_LENGTH, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
+__global__ void ForceKernel(const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const REAL* M, const REAL* SOFT_LENGTH, const REAL mass_in_unit_sphere, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
 	REAL r, dx, dy, dz, wij, beta_priv;
 	int i, j, id;
 	id = blockIdx.x * blockDim.x + threadIdx.x;
 	Fx_tmp = Fy_tmp = Fz_tmp = 0.0;
-	for (i = (ID_min+id); i<=ID_max; i+=n)
+	for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
 		{
 			for (j = 0; j<N; j++)
 			{
@@ -1096,7 +1108,7 @@ __global__ void ForceKernel(int n, const int N, const REAL *xx, const REAL *xy, 
 
 #if defined(PERIODIC) && !defined(USE_BH)
 // Direct summation for T^3 topology.
-__global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL *EwaldTable, int NewaldGrid, int ID_min, int ID_max)
+__global__ void ForceKernel_periodic(int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL *EwaldTable, int NewaldGrid, int ID_min, int ID_max)
 {
 	// This kernel calculates forces in periodic T^3 topology
 	REAL Fx_tmp, Fy_tmp, Fz_tmp;
@@ -1108,7 +1120,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 	if (IS_PERIODIC == 1)
 	{
 		// Quasi-periodic case: only the nearest image is used
-		for (i = (ID_min+id); i<=ID_max; i+=n)
+		for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
 		{
 			for (j = 0; j<N; j++)
 			{
@@ -1141,7 +1153,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 	else if (IS_PERIODIC >= 2)
 	{
 		// Full periodic case: multiple images are used (Ewald lookup table)
-		for (i = (ID_min+id); i<=ID_max; i+=n)
+		for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
 		{
 			for (j = 0; j<N; j++)
 			{
@@ -1181,7 +1193,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 // Direct summation for S^1xR^2 topology.
 #ifdef PERIODIC_Z_NOLOOKUP
 // Direct summation over multiple real-space images in periodic Z direction
-__global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const REAL RADIAL_FORCE_TABLE_SIZE, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
+__global__ void ForceKernel_periodic_z(int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const REAL RADIAL_FORCE_TABLE_SIZE, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
     REAL Fx_tmp, Fy_tmp, Fz_tmp;
     REAL r, dx, dy, dz, dz_ewald, wij, beta_priv, ewald_cut, r_xy, cylindrical_force_correction;
@@ -1192,7 +1204,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
 	ewald_cut = (((REAL) ewald_max)-0.4)*L;
     if (IS_PERIODIC == 1)
     {
-        for (i = (ID_min+id); i<=ID_max; i+=n)
+        for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
         {
             for (j = 0; j<N; j++)
             {
@@ -1240,7 +1252,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
     else
     {
 		//  if IS_PERIODIC >= 2 we use multiple real-space images directly
-        for (i = (ID_min+id); i<=ID_max; i+=n)
+        for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
         {
             for (j = 0; j<N; j++)
             {
@@ -1293,7 +1305,7 @@ __global__ void ForceKernel_periodic_z(int n, int N, const REAL *xx, const REAL 
 }
 #else
 //Using Ewald lookup table for periodic_z force calculation
-__global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const int RADIAL_FORCE_TABLE_SIZE, const REAL* EWALD_TABLE, const size_t EWALD_TABLE_SIZE_RHO, const size_t EWALD_TABLE_SIZE_Z, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
+__global__ void ForceKernel_periodic_z(const int N, const REAL *xx, const REAL *xy, const REAL *xz, REAL *F, const int IS_PERIODIC, const REAL* M, const REAL* SOFT_LENGTH, const REAL L, const REAL Rsim, const REAL mass_in_unit_sphere, const REAL* RADIAL_FORCE_TABLE, const int RADIAL_FORCE_TABLE_SIZE, const REAL* EWALD_TABLE, const size_t EWALD_TABLE_SIZE_RHO, const size_t EWALD_TABLE_SIZE_Z, const REAL DE, const int COSMOLOGY, const int COMOVING_INTEGRATION, int ID_min, int ID_max)
 {
     REAL Fx_tmp, Fy_tmp, Fz_tmp;
 	REAL D[3];
@@ -1304,7 +1316,7 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
     if (IS_PERIODIC == 1)
     {
 		//Quasi-periodic case: only the nearest image is used
-        for (i = (ID_min+id); i<=ID_max; i+=n)
+        for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
         {
             for (j = 0; j<N; j++)
             {
@@ -1351,7 +1363,7 @@ __global__ void ForceKernel_periodic_z(int n, const int N, const REAL *xx, const
     else
     {
 		//  Full periodic case: using Ewald lookup table
-        for (i = (ID_min+id); i<=ID_max; i+=n)
+        for (i = (ID_min+id); i<=ID_max; i+=blockDim.x*gridDim.x)
         {
             for (j = 0; j<N; j++)
             {
@@ -2295,7 +2307,6 @@ void recalculate_softening()
 cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation on GPU
 {
 	int i, j;
-	int mprocessors;
 	int GPU_ID, nthreads;
 	int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
 	cudaError_t cudaStatus;
@@ -2349,7 +2360,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 	//timing
 	omp_set_dynamic(0);		// Explicitly disable dynamic teams
 	omp_set_num_threads(n_GPU);	// Use n_GPU threads
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_SOFT_LENGTH, dev_F, omp_gpu_end_time)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_SOFT_LENGTH, dev_F, omp_gpu_end_time)
 {
 		#pragma omp critical
 		{
@@ -2377,11 +2388,10 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 			F_tmp[3*i + j] = 0.0f;
 		}
 		//Checking for the GPU
-		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
 
-			printf("MPI task %i: GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+			printf("MPI task %i: GPU force calculation.\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, force_grid_size(N_GPU, DIRECT_BLOCKSIZE)*DIRECT_BLOCKSIZE);
 		}
 		cudaStatus = cudaSetDevice(GPU_ID); //selecting the GPU
 		if (cudaStatus != cudaSuccess) {
@@ -2467,7 +2477,7 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU
-		ForceKernel<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, dev_SOFT_LENGTH, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel<<<force_grid_size(N_GPU, DIRECT_BLOCKSIZE), DIRECT_BLOCKSIZE>>>(N, dev_xx, dev_xy, dev_xz, dev_F, dev_M, dev_SOFT_LENGTH, mass_in_unit_sphere, DE, COSMOLOGY, COMOVING_INTEGRATION, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
 		if (cudaStatus != cudaSuccess) {
@@ -2538,7 +2548,6 @@ cudaError_t forces_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //For
 cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation with multiple images on GPU
 {
 	int i, j;
-	int mprocessors;
 	int GPU_ID, nthreads;
 	int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
 	cudaError_t cudaStatus;
@@ -2592,7 +2601,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
         //timing
 	omp_set_dynamic(0);             // Explicitly disable dynamic teams
 	omp_set_num_threads(n_GPU);     // Use n_GPU threads
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, omp_gpu_end_time)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, omp_gpu_end_time)
 {
 		#pragma omp critical
 		{
@@ -2616,13 +2625,12 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 				F_tmp[3*i + j] = 0.0f;
 		}
 		//Checking for the GPU
-		cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
 		if(GPU_ID == 0)
 		{
 			if(IS_PERIODIC == 1)
-				printf("MPI task %i: GPU force calculation (quasi-periodic).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+				printf("MPI task %i: GPU force calculation (quasi-periodic).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, force_grid_size(N_GPU, DIRECT_BLOCKSIZE)*DIRECT_BLOCKSIZE);
 			else
-				printf("MPI task %i: GPU force calculation (fully periodic with Ewald correction).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+				printf("MPI task %i: GPU force calculation (fully periodic with Ewald correction).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", rank, n_GPU, nthreads, force_grid_size(N_GPU, DIRECT_BLOCKSIZE)*DIRECT_BLOCKSIZE);
 		}
 		cudaStatus = cudaSetDevice(GPU_ID); //selecting GPU
 		if (cudaStatus != cudaSuccess) {
@@ -2722,7 +2730,7 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 		}
 		printf("MPI task %i: GPU%i: ID_min = %i\tID_max = %i\n", rank, GPU_ID, GPU_index_min, GPU_index_min+N_GPU-1);
 		// Launch a kernel on the GPU with one thread for each element.
-		ForceKernel_periodic << <32*mprocessors, BLOCKSIZE>> >(32*mprocessors * BLOCKSIZE, N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, dev_EwaldTable, N_EWALD_FORCE_GRID, GPU_index_min, GPU_index_min+N_GPU-1);
+		ForceKernel_periodic<<<force_grid_size(N_GPU, DIRECT_BLOCKSIZE), DIRECT_BLOCKSIZE>>>(N, dev_xx, dev_xy, dev_xz, dev_F, IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, dev_EwaldTable, N_EWALD_FORCE_GRID, GPU_index_min, GPU_index_min+N_GPU-1);
 
 		// Check for any errors launching the kernel
 		cudaStatus = cudaGetLastError();
@@ -2795,7 +2803,6 @@ cudaError_t forces_periodic_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_m
 cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID_max) //Force calculation with z-periodic boundaries on GPU
 {
     int i, j;
-    int mprocessors;
     int GPU_ID, nthreads;
     int N_GPU, GPU_index_min; //number of particles in this GPU, the first particles index
     cudaError_t cudaStatus;
@@ -2855,7 +2862,7 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
     omp_set_dynamic(0);             // Explicitly disable dynamic teams
     omp_set_num_threads(n_GPU);     // Use n_GPU threads
     
-#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, mprocessors, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, dev_RADIAL_FORCE_TABLE, omp_gpu_end_time)
+#pragma omp parallel default(shared) private(GPU_ID, F_tmp, i, j, cudaStatus, N_GPU, GPU_index_min, nthreads, dev_xx, dev_xy, dev_xz, dev_M, dev_F, dev_SOFT_LENGTH, dev_RADIAL_FORCE_TABLE, omp_gpu_end_time)
     {
 		double omp_local_start_time = omp_get_wtime(); // Thread-specific start
 		#if !defined(PERIODIC_Z_NOLOOKUP)
@@ -2892,13 +2899,10 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
                 F_tmp[3*i + j] = 0.0f;
         }
         
-        // Check GPU properties
-        cudaDeviceGetAttribute(&mprocessors, cudaDevAttrMultiProcessorCount, GPU_ID);
-
         if(GPU_ID == 0)
         {
             printf("MPI task %i: GPU force calculation (z-periodic).\n Number of GPUs: %i\n Number of OMP threads: %i\n Number of threads per GPU: %i\n", 
-                   rank, n_GPU, nthreads, 32*mprocessors*BLOCKSIZE);
+                   rank, n_GPU, nthreads, force_grid_size(N_GPU, DIRECT_BLOCKSIZE)*DIRECT_BLOCKSIZE);
         }
         
         // Select GPU device
@@ -3034,12 +3038,12 @@ cudaError_t forces_periodic_z_cuda(REAL*x, REAL*F, int n_GPU, int ID_min, int ID
         
         // Launch a kernel on the GPU
 		#ifdef PERIODIC_Z_NOLOOKUP
-        ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F,
+        ForceKernel_periodic_z<<<force_grid_size(N_GPU, DIRECT_BLOCKSIZE), DIRECT_BLOCKSIZE>>>(N, dev_xx, dev_xy, dev_xz, dev_F,
                                                             IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
                                                             mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, DE, COSMOLOGY, COMOVING_INTEGRATION,
                                                             GPU_index_min, GPU_index_min+N_GPU-1);
         #else
-		ForceKernel_periodic_z<<<32*mprocessors, BLOCKSIZE>>>(N_GPU, N, dev_xx, dev_xy, dev_xz, dev_F,
+		ForceKernel_periodic_z<<<force_grid_size(N_GPU, DIRECT_BLOCKSIZE), DIRECT_BLOCKSIZE>>>(N, dev_xx, dev_xy, dev_xz, dev_F,
 															IS_PERIODIC, dev_M, dev_SOFT_LENGTH, L, Rsim, 
 															mass_in_unit_sphere, dev_RADIAL_FORCE_TABLE, RADIAL_FORCE_TABLE_SIZE, dev_S1R2_EwaldTable, Nrho_EWALD_FORCE_GRID, Nz_EWALD_FORCE_GRID, DE, COSMOLOGY, COMOVING_INTEGRATION,
 															GPU_index_min, GPU_index_min+N_GPU-1);

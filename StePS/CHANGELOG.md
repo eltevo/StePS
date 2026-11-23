@@ -4,13 +4,14 @@ All notable changes to the StePS simulation code is documented in this file.
 ## [v3.0.0.0] - TBA
 
 ### Added
-- Implemented NGP and CIC Ewald interpolation to the T^3 for GPU mode. 
+- Implemented NGP and CIC Ewald interpolation in T^3 spaces (GPU mode). 
 - Added CUDA implementation of the Barnes-Hut force calculation for all available topologies.
 - Implemented radial BH correction look-up table I/O.
 - Added C2-Wendland softening option (Wendland, 1995).
 
 ### Changed
 - Octree build time is now measured and printed during the simulation.
+- CUDA force kernels use 128 threads per block for direct summation and 256 for Barnes-Hut.
 
 ## [v2.0.1.1] - 2026-06-19
 
