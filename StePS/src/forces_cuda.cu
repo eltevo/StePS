@@ -25,7 +25,10 @@
 #include "mpi.h"
 #include "global_variables.h"
 #ifdef PERIODIC
-#include "t3_ewald_interpolation.h"
+// Compile only the shared interpolation code here so CUDA can inline it.
+#define T3_EWALD_INTERPOLATION_ONLY
+#include "ewald_space.cc"
+#undef T3_EWALD_INTERPOLATION_ONLY
 #endif
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"

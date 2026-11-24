@@ -3,7 +3,7 @@
 # StePS - STEreographically Projected cosmological Simulations
 
 <p align="center">
-  <a href="StePS/CHANGELOG.md"><img src="https://img.shields.io/badge/version-v2.0.1.0-brightgreen.svg" alt="Version"></a>
+  <a href="StePS/CHANGELOG.md"><img src="https://img.shields.io/badge/version-v3.0.0.0-brightgreen.svg" alt="Version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg" alt="License"></a>
   <a href="https://en.cppreference.com/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C.svg" alt="Language"></a>
   <a href="https://docs.nvidia.com/cuda/archive/13.2.0/"><img src="https://img.shields.io/badge/CUDA-13.2-brightgreen.svg" alt="Language"></a>

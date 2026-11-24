@@ -140,11 +140,13 @@ PROG = $(BUILD_DIR)/StePS_CUDA
 $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDALDFLAGS) $(CUDA_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc $(SRC_DIR)/t3_ewald_interpolation.h
+$(BUILD_DIR)/forces_cuda.o: $(SRC_DIR)/ewald_space.cc
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
 	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(CUDA_INC) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu $(SRC_DIR)/t3_ewald_interpolation.h
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu
 	$(MAKE_BUILD_DIR)
 	$(NVCC) $(CXX) $(CUDAFLAGS) $(CUDA_INC) $(MPI_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 clean:
@@ -161,7 +163,7 @@ $(PROG): $(OBJ)
 	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $(PROG) $(OBJ) $(HDF5_INC) $(HDF5_LIBS) $(MPI_LIBS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc $(SRC_DIR)/t3_ewald_interpolation.h
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc
 	$(MAKE_BUILD_DIR)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(MPI_COMPILE_FLAGS) $(MPI_LINK_FLAGS) $(HDF5_LIBS) $(HDF5_INC) $(BUILD_NUMBER_LDFLAGS) $(OPT) -o $@ -c $<
 
