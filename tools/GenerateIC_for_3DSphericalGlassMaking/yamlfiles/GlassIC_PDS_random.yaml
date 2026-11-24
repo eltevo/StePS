@@ -1,0 +1,14 @@
+BASEOUT: "./GlassIC_PDS_random_N1024_R310.hdf5"
+NPART: 1024
+RANDSEED: 123456
+# Radius of the covering S^3, in Mpc (not the dodecahedron's inradius).
+PDS_R_CURV: 310.0
+HUBBLE_CONSTANT: 67.7  # km/s/Mpc
+OMEGA_M: 0.28
+IGNORE_CURVATURE: True
+# False: Omega_k = -(c/H0/PDS_R_CURV)^2 and Omega_L = 1-Omega_M-Omega_k.
+# Optional OMEGA_K and OMEGA_L, if supplied, must agree with these values.
+# True: specify OMEGA_L freely; Omega_k = 1-Omega_M-Omega_L, independently of
+# the geometry. This is useful for EdS glass relaxation (OMEGA_M: 1, OMEGA_L: 0).
+
+OMEGA_L: 0.72

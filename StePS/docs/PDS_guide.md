@@ -1268,6 +1268,45 @@ still at z=15. The imprint washes out under non-linear growth by z≈2, but it d
 A **glass** load removes this. The recipe (validated as `test256glass` vs the grid run
 `test256disc`, identical except the load):
 
+For a standalone YAML-based Poisson load, run from the repository root:
+
+```bash
+python3 tools/GenerateIC_for_3DSphericalGlassMaking/GenerateIC_for_PDSGlassMaking.py \
+    tools/GenerateIC_for_3DSphericalGlassMaking/yamlfiles/GlassIC_PDS_random.yaml
+```
+
+The generator requires NumPy and PyYAML, plus h5py for HDF5 output. `PDS_R_CURV`
+is the covering S³ radius in Mpc; `NPART`, `RANDSEED` and `BASEOUT` set the count,
+seed and output path (relative to the working directory). Use `.hdf5` with StePS
+`IC_FORMAT 2`, or `.dat` with `IC_FORMAT 0`. Coordinates are origin-centred
+stereographic Mpc, velocities are zero, and equal masses are in 10¹¹ solar masses.
+The positions are uniform in the S³ volume, not in the stereographic chart. The
+mass uses the PDS volume π²R³/60 and the present-day matter density. Use the same
+`PDS_R_CURV`, `Omega_m`, `Omega_lambda` and `HubbleConstant` in the StePS parameter
+file, with `H_INDEPENDENT_UNITS 0` for these Mpc and mass units.
+The output reports the S³ and PDS volumes and the dodecahedron's geodesic edge
+length, inradius, circumradius and opposite-face/corner separations in the S³
+covering cell. The opposite-face separation is measured between face centres;
+the opposite-corner separation passes through the cell centre. These are not
+necessarily distances in the quotient, where opposite faces are identified with
+a twist (in particular, opposite face centres are identified).
+For checking IC coordinates, corresponding stereographic lengths are also printed:
+edge length is the straight chord between its projected endpoints, and radii and
+opposite-point distances are Euclidean distances in the chart. The projected
+edge itself is curved, not the chord. All these lengths are in Mpc.
+The typical separation is (V_PDS/NPART)^(1/3); the recommended softening length
+is one fortieth of that separation.
+
+With `IGNORE_CURVATURE: False`, the generator derives Ω_k = −(c/H₀R)² and
+Ω_Λ = 1 − Ω_m − Ω_k, assuming zero radiation. Optional `OMEGA_K` and `OMEGA_L`
+are checked against these values. With `IGNORE_CURVATURE: True`, `OMEGA_L` is
+required and Ω_k = 1 − Ω_m − Ω_Λ is independent of the geometry; the simulator
+may warn about the mismatch. For example, choose Ω_m = 1 and Ω_Λ = 0 for EdS glass
+relaxation. The selected cosmology and particle mass are printed for either format;
+the HDF5 header also records them. StePS uses its parameter file for the actual
+background evolution, not these header values; the unperturbed HDF5 load records
+`Time = 1` and `Redshift = 0`, independently of the simulation's `a_start`.
+
 1. **Poisson load** — `stepsic` with `TYPE = "random"` for `GEOMETRY = "pds"` draws `NPART`
    points uniformly on S³ and folds them into the fundamental domain via the I* group
    (`pds.wrap`); equal masses, no preferred directions. Set `LPTORDER = 0` to write the

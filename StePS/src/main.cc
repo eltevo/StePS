@@ -330,6 +330,9 @@ int main(int argc, char *argv[])
 			#endif
 		}
 		#endif
+	#elif defined(POINCARE_DODECAHEDRAL)
+		if(rank == 0)
+			printf("\tPoincare Dodecahedral Space topology. (S^3/I* space)\n");
 	#else
 	if(rank == 0)
 		printf("\tNon-periodic boundary conditions. (R^3 topological manifold)\n");
