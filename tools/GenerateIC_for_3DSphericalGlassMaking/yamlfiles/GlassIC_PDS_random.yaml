@@ -1,14 +1,15 @@
-BASEOUT: "./GlassIC_PDS_random_N1024_R310.hdf5"
-NPART: 1024
-RANDSEED: 123456
+BOUNDARY: "PDS"  # Required topology.
+BASEOUT: "./GlassIC_PDS_random_N2048_R310.hdf5"  # Output relative to working directory; .hdf5 or .dat.
+NPART: 2048 # Number of equal-mass particles in this homogeneous load.
+RANDSEED: 123456  # Random seed for reproducible positions.
 # Radius of the covering S^3, in Mpc (not the dodecahedron's inradius).
 PDS_R_CURV: 310.0
 HUBBLE_CONSTANT: 67.7  # km/s/Mpc
-OMEGA_M: 0.28
-IGNORE_CURVATURE: True
+OMEGA_M: 0.28  # Matter density parameter; sets the particle masses.
+IGNORE_CURVATURE: True  # Whether the background cosmology is independent of the S^3 radius.
 # False: Omega_k = -(c/H0/PDS_R_CURV)^2 and Omega_L = 1-Omega_M-Omega_k.
 # Optional OMEGA_K and OMEGA_L, if supplied, must agree with these values.
 # True: specify OMEGA_L freely; Omega_k = 1-Omega_M-Omega_L, independently of
 # the geometry. This is useful for EdS glass relaxation (OMEGA_M: 1, OMEGA_L: 0).
 
-OMEGA_L: 0.72
+OMEGA_L: 0.72  # Lambda density parameter; required when IGNORE_CURVATURE is true.

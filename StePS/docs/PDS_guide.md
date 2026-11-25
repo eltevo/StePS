@@ -1294,8 +1294,9 @@ For checking IC coordinates, corresponding stereographic lengths are also printe
 edge length is the straight chord between its projected endpoints, and radii and
 opposite-point distances are Euclidean distances in the chart. The projected
 edge itself is curved, not the chord. All these lengths are in Mpc.
-The typical separation is (V_PDS/NPART)^(1/3); the recommended softening length
-is one fortieth of that separation.
+For a homogeneous load, the typical separation is (V_PDS/NPART)^(1/3).
+For a zoom load, the minimum-mass separation estimate is (m_min/rho_mean)^(1/3).
+The recommended softening length is one fortieth of the relevant estimate.
 
 With `IGNORE_CURVATURE: False`, the generator derives Ω_k = −(c/H₀R)² and
 Ω_Λ = 1 − Ω_m − Ω_k, assuming zero radiation. Optional `OMEGA_K` and `OMEGA_L`
@@ -1306,6 +1307,48 @@ relaxation. The selected cosmology and particle mass are printed for either form
 the HDF5 header also records them. StePS uses its parameter file for the actual
 background evolution, not these header values; the unperturbed HDF5 load records
 `Time = 1` and `Redshift = 0`, independently of the simulation's `a_start`.
+
+The optional zoom load uses `zoom_glass` in
+`tools/GenerateIC_for_3DSphericalGlassMaking/yamlfiles/GlassIC_PDS_zoom.yaml`.
+It requires SciPy in addition to the dependencies above; Python 3.8, NumPy 1.21.6
+and SciPy 1.10.1 are supported. Each retained shell contains exactly
+`zoom_glass.NSHELL` particles, with `zoom_glass.NRBINS` defining the original
+radial binning. The exterior particle count follows from
+the last shell's mass, and `NPART` is ignored in zoom mode. The last shell and
+exterior share an exactly equal mass; a small integer-count correction preserves
+the total PDS mass, so their individual densities can differ slightly from the
+mean. The correction is reported and recorded in the metadata.
+The output includes `.zoom.json`, `.zoom-shells.csv` and `.zoom-map.csv` sidecars.
+Shell directions and radii are random, uniformly sampled in S³ shell volume.
+Set `zoom_glass.constant_resolution_radius_mpc` to a geodesic radius in Mpc
+to replace the inner shells with a uniformly sampled, equal-mass central ball.
+Its particle count is chosen to match the first retained shell as closely as
+integer counts allow, while preserving the central density. For a manually
+specified radius, the remaining shells are re-spaced from that exact radius to
+the zoom boundary. Set it to `auto` to scan from outside inward for the first
+outer/inner adjacent mass ratio above `constant_resolution_max_mass_ratio`
+(default 1.25); the central region replaces all shells inside that boundary.
+If no ratio exceeds the threshold, no central ball is added. A value of `0`
+(the default) disables this feature. The effective radius, particle count and
+mass are printed and recorded in the JSON sidecar.
+Shell masses increase outward toward the exterior mass. Equal auxiliary-volume
+binning has a constant-mass buffer, whereas equal-omega binning produces
+additional mass variation from the changing auxiliary shell volumes.
+The former Fibonacci sampler and shape weights are deprecated.
+`GetMassResolution.py` plots the same planned masses against geodesic radius
+without generating particles, and reports the total count before a large run.
+It also estimates position/mass storage and the extra azimuth-sort arrays.
+Zoom output particles are saved in increasing azimuth from -π to π, with
+sequential HDF5 IDs (and the same row order in ASCII). Azimuth is measured in
+the zoom centre's local quaternion frame using the nearest PDS image of each
+particle, including across identified faces. Ties at image boundaries are
+resolved by the group ordering; the homogeneous generator remains streamed
+and unsorted. The generator stores 32 bytes per zoom particle for positions
+and masses, plus 16 bytes per particle for the sort angles and indices at peak;
+additional working memory is required.
+See `S3_PDS_zoom_geometry.tex` for the geometry, configuration and limitations.
+This is a pre-glass load; its long-term relaxation and mass segregation must be
+validated for each intended setup.
 
 1. **Poisson load** — `stepsic` with `TYPE = "random"` for `GEOMETRY = "pds"` draws `NPART`
    points uniformly on S³ and folds them into the fundamental domain via the I* group

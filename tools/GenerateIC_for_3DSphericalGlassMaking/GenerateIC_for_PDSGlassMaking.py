@@ -16,7 +16,7 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
-_VERSION = "v0.0.0.1"
+_VERSION = "v0.1.0.0"
 _YEAR    = "2026"
 _NAME    = "GenerateIC_for_PDSGlassMaking"
 _AUTHORS = "Gabor Racz"
@@ -24,6 +24,8 @@ _AUTHORS = "Gabor Racz"
 import argparse
 import math
 from pathlib import Path
+import sys
+import warnings
 
 import numpy as np
 import yaml
@@ -47,6 +49,11 @@ FACE_VECTORS = np.array([
 CHUNK_SIZE = 100_000
 
 
+def format_mass(mass):
+    """Format a mass in StePS units as solar masses."""
+    return f"{mass * 1e11:.6e} Msol"
+
+
 def read_parameters(filename):
     with open(filename, encoding="utf-8") as stream:
         params = yaml.safe_load(stream)
@@ -61,12 +68,19 @@ def read_parameters(filename):
             raise ValueError(f"{key} must be a finite positive number")
         return float(value)
 
+    if params.get("BOUNDARY") != "PDS":
+        raise ValueError(f'BOUNDARY must be "PDS" (got {params.get("BOUNDARY")!r})')
     radius = positive_number("PDS_R_CURV")
     hubble = positive_number("HUBBLE_CONSTANT")
     omega_m = positive_number("OMEGA_M")
     count = params.get("NPART")
+    zoom_settings = params.get("zoom_glass")
+    zoom_enabled = isinstance(zoom_settings, dict) and zoom_settings.get("enabled") is True
     seed = params.get("RANDSEED")
-    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 2**31 - 1:
+    if zoom_enabled and "NPART" in params:
+        warnings.warn("NPART is ignored in zoom mode; use zoom_glass.NRBINS and NSHELL", UserWarning)
+        count = None
+    elif not zoom_enabled and (isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 2**31 - 1):
         raise ValueError("NPART must be an integer between 1 and 2^31 - 1")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("RANDSEED must be a non-negative integer")
@@ -99,7 +113,7 @@ def read_parameters(filename):
             raise ValueError(f"OMEGA_L disagrees with the PDS radius; expected {omega_l:.12g}")
     if specified_k is not None and not math.isclose(specified_k, omega_k, rel_tol=1e-6, abs_tol=1e-9):
         raise ValueError(f"OMEGA_K disagrees with the selected cosmology; expected {omega_k:.12g}")
-    return radius, hubble, omega_m, omega_l, omega_k, count, seed, output, ignore_curvature
+    return radius, hubble, omega_m, omega_l, omega_k, count, seed, output, ignore_curvature, zoom_settings
 
 
 def sample_positions(count, radius, rng):
@@ -141,19 +155,21 @@ def dodecahedron_lengths(radius):
 
 
 def write_ic(params):
-    radius, hubble, omega_m, omega_l, omega_k, count, seed, output, ignored = params
+    radius, hubble, omega_m, omega_l, omega_k, count, seed, output, ignored, zoom_settings = params
     volume = math.pi**2 * radius**3 / 60.0
     sphere_volume = 120.0 * volume
     rho_crit = 3.0 * (hubble / UNIT_V)**2 / (8.0 * math.pi)
-    mass = rho_crit * omega_m * volume / count
-    if not math.isfinite(sphere_volume) or not math.isfinite(mass) or mass <= 0:
+    if not math.isfinite(sphere_volume) or not math.isfinite(rho_crit * omega_m) or rho_crit * omega_m <= 0:
         raise ValueError("Parameters yield a non-finite or zero volume or particle mass")
-    separation = (volume / count) ** (1.0 / 3.0)
+    mass = rho_crit * omega_m * volume / count if count is not None else None
+    if mass is not None and (not math.isfinite(mass) or mass <= 0):
+        raise ValueError("Parameters yield a non-finite or zero volume or particle mass")
     edge, vertex_radius, face_radius, chart_edge, chart_vertex, chart_face = dodecahedron_lengths(radius)
     print("\nGlass parameters:\n-----------------")
     print(f"Output file:                       {output}")
     print(f"Random seed:                       {seed}")
-    print(f"Particles:                         {count}")
+    if count is not None:
+        print(f"Reference homogeneous particles:   {count}")
     print(f"S^3 curvature radius:              {radius:.12g} Mpc")
     print(f"S^3 volume:                        {sphere_volume:.12g} Mpc^3 ({sphere_volume / 1e9:.12g} Gpc^3)")
     print(f"Dodecahedron volume:               {volume:.12g} Mpc^3 ({volume / 1e9:.12g} Gpc^3)")
@@ -169,10 +185,12 @@ def write_ic(params):
     print(f"Opposite corners:                  {2 * chart_vertex:.12g} Mpc")
     print(f"Centre to face:                    {chart_face:.12g} Mpc")
     print(f"Opposite face centres:             {2 * chart_face:.12g} Mpc")
-    print("\nResolution:")
-    print(f"Typical particle separation:       {separation:.12g} Mpc")
-    print(f"Recommended softening length:      {separation / 40.0:.12g} Mpc")
-    print(f"Particle mass:                     {mass:.12g} x 10^11 solar masses")
+    if count is not None:
+        separation = (volume / count) ** (1.0 / 3.0)
+        print("\nResolution:")
+        print(f"Typical particle separation:       {separation:.12g} Mpc (homogeneous reference)")
+        print(f"Recommended softening length:      {separation / 40.0:.12g} Mpc (homogeneous reference)")
+        print(f"Reference particle mass:           {format_mass(mass)}")
     print("\nCosmological parameters:\n------------------------")
     print(f"Hubble constant:                   {hubble:.12g} km/s/Mpc")
     print(f"Omega_m:                           {omega_m:.12g}")
@@ -181,14 +199,49 @@ def write_ic(params):
     print(f"Omega_total (matter + Lambda):     {omega_m + omega_l:.12g}")
     if ignored:
         print("WARNING: IGNORE_CURVATURE is true; background curvature is independent of PDS geometry.")
+    positions = None
+    particle_masses = None
+    if zoom_settings is not None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Utils"))
+        from pds_zoom import azimuth_order, make_zoom, plan_zoom, write_diagnostics, zoom_config
+
+        config = zoom_config(zoom_settings)
+        if config is not None:
+            plan = plan_zoom(config, radius, seed, rho_crit * omega_m, _VERSION)
+            metadata, rows, radial_map = plan
+            print("\nZoom load:")
+            print(f"Zoom radius:                       {metadata['zoom_radius']:.12g} Mpc")
+            print(f"Injectivity radius:                {metadata['injectivity_radius']:.12g} Mpc")
+            print(f"Exterior / zoom particles:         {metadata['exterior_particle_count']} / {metadata['zoom_particle_count']}")
+            print(f"Nominal / retained radial bins:    {config['NRBINS']} / {metadata['radial_shell_count']}")
+            print(f"Particles per shell:               {config['NSHELL']}")
+            print(f"High-resolution core radius:       {metadata['constant_resolution_radius']:.12g} Mpc")
+            print(f"High-resolution core particles:    {metadata['central_particle_count']}")
+            if metadata["central_particle_count"]:
+                print(f"High-resolution core particle mass: {format_mass(metadata['central_particle_mass'])}")
+            print(f"Edge / exterior particle mass:     {format_mass(metadata['exterior_particle_mass'])}")
+            print(f"Minimum / maximum particle mass:   {format_mass(metadata['minimum_particle_mass'])} / {format_mass(metadata['maximum_particle_mass'])}")
+            min_separation = (metadata["minimum_particle_mass"] / (rho_crit * omega_m)) ** (1.0 / 3.0)
+            print(f"Minimum-mass particle separation:  {min_separation:.12g} Mpc")
+            print(f"Recommended softening length:      {min_separation / 40.0:.12g} Mpc (minimum-mass particles)")
+            print(f"Total particles:                   {metadata['total_particle_count']}")
+            print(f"Positions and masses require at least {metadata['total_particle_count'] * 32 / 2**30:.3f} GiB in memory.")
+            print(f"Azimuth ordering requires an additional {metadata['total_particle_count'] * 16 / 2**30:.3f} GiB for angles and indices, plus working memory.")
+            print(f"Edge mass rounding correction:     {metadata['edge_mass_relative_correction']:.6g}")
+            print("The last shell and exterior share a mass adjusted to preserve total mass.", flush=True)
+            positions, particle_masses, metadata, rows, radial_map = make_zoom(
+                config, radius, count, seed, rho_crit * omega_m, sample_positions, CHUNK_SIZE, _VERSION, plan=plan)
+            count = len(positions)
+            print("Ordering zoom particles by local azimuth...", flush=True)
+            order = azimuth_order(positions, metadata["zoom_center_stereographic_mpc"], radius, CHUNK_SIZE)
     rng = np.random.default_rng(seed)
     if Path(output).suffix.lower() == ".dat":
         with open(output, "w", encoding="ascii") as stream:
             for start in range(0, count, CHUNK_SIZE):
                 n = min(CHUNK_SIZE, count - start)
                 data = np.zeros((n, 7))
-                data[:, :3] = sample_positions(n, radius, rng)
-                data[:, 6] = mass
+                data[:, :3] = positions[order[start:start+n]] if positions is not None else sample_positions(n, radius, rng)
+                data[:, 6] = particle_masses[order[start:start+n]] if particle_masses is not None else mass
                 np.savetxt(stream, data, fmt="%.17g")
     else:
         import h5py
@@ -220,10 +273,13 @@ def write_ic(params):
             ids = particles.create_dataset("ParticleIDs", (count,), dtype="u8")
             for start in range(0, count, CHUNK_SIZE):
                 end = min(start + CHUNK_SIZE, count)
-                coords[start:end] = sample_positions(end - start, radius, rng)
+                coords[start:end] = positions[order[start:end]] if positions is not None else sample_positions(end - start, radius, rng)
                 velocities[start:end] = 0.0
-                masses[start:end] = mass
+                masses[start:end] = particle_masses[order[start:end]] if particle_masses is not None else mass
                 ids[start:end] = np.arange(start, end, dtype=np.uint64)
+    if positions is not None:
+        write_diagnostics(output, metadata, rows, radial_map)
+        print(f"Zoom diagnostics:                   {Path(output).with_suffix('')}.zoom.*")
     print(f"Saved {output}")
 
 

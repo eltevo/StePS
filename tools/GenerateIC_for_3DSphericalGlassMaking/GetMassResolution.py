@@ -20,10 +20,9 @@ from os.path import exists
 import numpy as np
 import yaml
 import sys
+from pathlib import Path
 # adding ../Utils/ to the system path
-sys.path.insert(0, '../Utils/')
-from inputoutput import *
-from compactification import *
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Utils"))
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -49,6 +48,84 @@ document.close()
 if 'BOUNDARY' not in Params:
     print("Error: BOUNDARY not defined in the input file!\nExiting...\n")
     sys.exit(2)
+if Params['BOUNDARY'] == "PDS":
+    # Use the same shell and exterior mass plan as the PDS IC generator.
+    import GenerateIC_for_PDSGlassMaking as pdsgen
+    (R_curv, hubble, omega_m, omega_l, omega_k, n_part, seed, baseout,
+     _ignored, zoom_settings) = pdsgen.read_parameters(str(sys.argv[1]))
+    rho_mean = 3.0*(hubble/pdsgen.UNIT_V)**2/(8.0*np.pi)*omega_m
+    V_pds = np.pi**2*R_curv**3/60.0
+    r_max = pdsgen.dodecahedron_lengths(R_curv)[1]
+    def report(label, value):
+        print(f"{label + ':':<44} {value}")
+
+    print("Glass parameters:\n-----------------")
+    report("Boundary condition", "Poincare Dodecahedral Space (S^3/I*)")
+    report("Output file", baseout)
+    report("S^3 curvature radius", f"{R_curv:.12g} Mpc")
+    report("Random seed", seed)
+    print("\nCosmological parameters:\n------------------------")
+    report("Omega_lambda", f"{omega_l:.12g}")
+    report("Omega_m", f"{omega_m:.12g}")
+    report("Omega_k", f"{omega_k:.12g}")
+    report("H0", f"{hubble:.12g} km/s/Mpc")
+    from pds_zoom import zoom_config, plan_zoom
+    config = zoom_config(zoom_settings)
+    if config is None:
+        Mass_res = rho_mean*V_pds/n_part
+        print("\nResolution:")
+        report("Homogeneous particle mass", pdsgen.format_mass(Mass_res))
+        r = np.array([0.0, r_max])
+        Mass = np.array([Mass_res, Mass_res])
+        m_min = Mass_res
+        n_ref = n_part
+    else:
+        meta, rows, rmap = plan_zoom(config, R_curv, seed, rho_mean, pdsgen._VERSION)
+        r_zoom = meta['zoom_radius']
+        r = np.array([row['chi_lo'] * R_curv for row in rows] + [r_zoom, r_max])
+        Mass = np.array([row['particle_mass'] for row in rows] + [meta['exterior_particle_mass']]*2)
+        if meta['central_particle_count']:
+            r = np.r_[0.0, r]
+            Mass = np.r_[meta['central_particle_mass'], Mass]
+        m_min = meta['minimum_particle_mass']
+        n_ref = meta['total_particle_count']
+        print("\nZoom load:")
+        report("Zoom-in radius", f"{r_zoom:.12g} Mpc")
+        report("Injectivity radius", f"{meta['injectivity_radius']:.12g} Mpc")
+        report("Particles inside zoom region", meta['zoom_particle_count'])
+        report("Particles outside zoom region", meta['exterior_particle_count'])
+        report("Nominal / retained radial bins", f"{config['NRBINS']} / {meta['radial_shell_count']}")
+        report("Particles per shell", config['NSHELL'])
+        report("High-resolution core radius", f"{meta['constant_resolution_radius']:.12g} Mpc")
+        report("High-resolution core particles", meta['central_particle_count'])
+        if meta['central_particle_count']:
+            report("High-resolution core particle mass", pdsgen.format_mass(meta['central_particle_mass']))
+        report("Edge / exterior particle mass", pdsgen.format_mass(meta['exterior_particle_mass']))
+        report("Edge mass rounding correction", f"{meta['edge_mass_relative_correction']:.6g}")
+        report("Minimum / maximum particle mass",
+               f"{pdsgen.format_mass(m_min)} / {pdsgen.format_mass(meta['maximum_particle_mass'])}")
+    report("Total number of particles", n_ref)
+    report("Position and mass storage", f"{n_ref * 32 / 2**30:.3f} GiB (32 bytes/particle)")
+    if config is not None:
+        report("Additional azimuth sort arrays", f"{n_ref * 16 / 2**30:.3f} GiB, plus working memory")
+    min_sep = np.cbrt(m_min/rho_mean)
+    report("Minimum-mass particle separation", f"{min_sep:.12g} Mpc")
+    report("Recommended softening length", f"{min_sep/40.0:.12g} Mpc")
+    print()
+    figscale = 0.75
+    plt.figure(figsize=(7*figscale,4.25*figscale))
+    plt.xlabel(r'Geodesic distance from zoom centre $[\mathrm{Mpc}]$')
+    plt.ylabel(r'$M[\mathrm{M}_{\odot}]$')
+    plt.gca().set_xlim([0.0, r_max])
+    plt.step(r, Mass*1e11, where='post', c='teal', label="StePS Resolution")
+    plt.yscale('log')
+    plt.title(r"Initial glass mass resolution (distance from the zoom-in centre)")
+    plt.tight_layout()
+    if Params.get('SAVEPLOTS', False) == True:
+        plt.savefig(str(Path(baseout).with_suffix(''))+"_MassResolution_vs_Radius.pdf", format='pdf')
+    plt.show()
+    sys.exit(0)
+from compactification import *  # imported late: not needed for PDS
 print("Glass parameters:\n----------------------")
 if Params['BOUNDARY'] == "SPHERICAL":
     print("Boundary condition:\t\t\t\tSpherical (3D StePS)")

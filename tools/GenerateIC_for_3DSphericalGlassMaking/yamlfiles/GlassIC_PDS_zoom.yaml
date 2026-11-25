@@ -1,0 +1,35 @@
+# Paths are relative to the working directory. .hdf5 or .dat selects the format.
+BOUNDARY: "PDS"                  # Required topology.
+BASEOUT: "./GlassIC_PDS_zoom.hdf5"
+RANDSEED: 123456                 # Seed for homogeneous exterior positions.
+PDS_R_CURV: 31000.0              # Curvature radius of the covering S^3 in Mpc.
+HUBBLE_CONSTANT: 67.74           # H0 in km/s/Mpc; sets the critical density.
+OMEGA_M: 0.311                    # Matter density parameter; sets the particle masses.
+#OMEGA_L: 0.0                    # Lambda density parameter for IGNORE_CURVATURE: true.
+IGNORE_CURVATURE: false          # Use Omega_L independently of the S^3 radius (EdS here).
+# When false, Omega_k = -(c/H0/PDS_R_CURV)^2 and Omega_L is derived from closure.
+# Optional OMEGA_K and OMEGA_L must agree with the selected cosmology.
+SAVEPLOTS: false                 # GetMassResolution.py: save the mass-radius plot as PDF.
+
+zoom_glass:
+  enabled: true                  # Replace the central ball with variable-resolution shells.
+  center: pds_center             # Or [x, y, z] in stereographic Mpc, inside the PDS cell.
+  zoom_radius_fraction_of_injectivity_radius: 0.66  # Injectivity radius = pi * PDS_R_CURV / 10.
+  # Alternatively use zoom_radius_mpc: <distance>, instead of the fraction above.
+  lambda_mobius: 0.125             # Central linear refinement of the radial map.
+  core_fraction_of_zoom_radius: 0.015625           # Physical radius where the Mobius core ends.
+  transition_end_fraction_of_zoom_radius: 0.8 # Physical radius where the constant-resolution buffer begins.
+  radial_binning: equal_omega    # equal_omega or equal_auxiliary_volume; the latter has a flatter buffer.
+  NRBINS: 1024                    # Number of zoom shells.
+  NSHELL: 12288                  # Fixed number of particles per shell; also sets the exterior mass.
+  constant_resolution_radius_mpc: 100.0  # Geodesic radius in Mpc, "auto", or 0 to disable the central region.
+  constant_resolution_max_mass_ratio: 1.01  # Auto: maximum outer/inner adjacent particle-mass ratio.
+  # These values imply roughly 282 million particles and >8 GiB for positions/masses alone.
+  # Reduce NSHELL for a smaller test. GetMassResolution.py reports the count without allocating the load.
+  angular_sampler: random        # Random S^3-volume-uniform positions within each shell.
+  minimum_buffer_shells: 2       # Required number of full shells in the constant-resolution buffer.
+  maximum_adjacent_mass_ratio: 8.0 # Optional sanity limit; equal_omega has an initial ratio near 7.
+  injectivity_safety_factor: 0.8  # Maximum zoom radius as a fraction of the injectivity radius.
+  expert_override_safety: false  # Allow exceeding the safety factor, but never the injectivity radius.
+  map_table_size: 16384          # Number of tabulation points for the radial map.
+  random_seed: 12345             # Separate seed for the random zoom shells; defaults to RANDSEED.
