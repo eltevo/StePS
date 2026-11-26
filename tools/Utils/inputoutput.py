@@ -20,9 +20,6 @@
 
 import sys
 import time
-<<<<<<< HEAD
-from pygadgetreader import *
-=======
 # pygadgetreader and glio are only needed for legacy binary Gadget snapshots;
 # keep them optional so the HDF5 path works without these (unpackaged) modules.
 try:
@@ -43,7 +40,6 @@ finally:
         remove_hooks()
     except ImportError:
         pass
->>>>>>> 6eac7e3 (StePS: Updated changelog, readme, and welcome message.)
 import numpy as np
 import h5py
 from astropy.units import solMass,Mpc,m,s
